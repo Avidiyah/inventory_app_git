@@ -318,12 +318,22 @@ def merge_workers(db: Session, *, worker_id: uuid.UUID, into_id: uuid.UUID, reas
 def latest_block(order: WorkOrder, *, include_price: bool = True) -> Optional[SmrBlockOut]:
     """The highest version, `stale` when the current lines no longer hash
     to the digest it was built from; None before the first generation."""
+    found = latest_block_row(order)
+    if found is None:
+        return None
+    latest, stale = found
+    return SmrBlockOut.from_row(latest, stale=stale, include_price=include_price)
+
+
+def latest_block_row(order: WorkOrder):
+    """`(block, stale)` for the highest version, None before the first
+    generation. Reads only `version` and `lines_digest`, so the tiles can
+    load blocks without their text."""
     blocks = list(getattr(order, "smr_blocks", None) or ())
     if not blocks:
         return None
     latest = max(blocks, key=lambda block: block.version)
-    stale = latest.lines_digest != block_rules.lines_digest(smr.correction_lines(order))
-    return SmrBlockOut.from_row(latest, stale=stale, include_price=include_price)
+    return latest, latest.lines_digest != block_rules.lines_digest(smr.correction_lines(order))
 
 
 def _next_block(order: WorkOrder, *, user: User, now: datetime) -> SmrCorrectionBlock:

@@ -174,10 +174,13 @@ def line_total(line) -> Decimal:
     return price * wo.effective_billable(line.quantity, line.billable_quantity)
 
 
-def snapshot(work_order, *, taken_at: datetime, source_row: Optional[dict]) -> dict:
+def snapshot(
+    work_order, *, taken_at: datetime, source_row: Optional[dict], figures: Optional[LaborFigures] = None,
+) -> dict:
     """Freeze a work order's billable state as plain JSON (Decimals as strings,
     datetimes ISO, UUIDs as str). Written once as `smr_baseline`; recomputed
-    live for the AFTER phase."""
+    live for the AFTER phase. `figures` is the order's `labor_figures` when
+    the caller already has them."""
     lines = [
         {
             "id": str(line.id),
@@ -198,7 +201,7 @@ def snapshot(work_order, *, taken_at: datetime, source_row: Optional[dict]) -> d
     # Labor money follows the governing record (legacy entries or correction
     # lines); the minute keys always describe the legacy entries, so a
     # baseline frozen before any line existed still compares key for key.
-    figures = labor_figures(work_order.labor_entries, correction_lines(work_order))
+    figures = figures or labor_figures(work_order.labor_entries, correction_lines(work_order))
     materials_total = sum((line_total(line) for line in work_order.items), Decimal(0))
     return {
         "taken_at": _iso(taken_at),

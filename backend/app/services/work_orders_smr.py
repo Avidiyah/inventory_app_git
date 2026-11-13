@@ -21,6 +21,7 @@ from app.domain import work_orders_smr as smr
 from app.domain import work_orders_smr_lines as rules
 from app.domain.errors import SmrNotDatedError, WorkOrderNotFoundError, WorkOrderStateError
 from app.models import (
+    SmrCorrectionBlock,
     SmrLaborLine,
     User,
     WorkOrder,
@@ -226,7 +227,14 @@ def _smr_query(db: Session):
     return db.query(WorkOrder).filter(WorkOrder.smr_imported_at.is_not(None))
 
 
-def _with_lines(query):
+def _with_lines(query, *, block_text: bool = True):
+    """`block_text=False` for the tiles: they read a block's version, pasted
+    date and digest, never its text (megabytes across every order)."""
+    blocks = selectinload(WorkOrder.smr_blocks)
+    if not block_text:
+        blocks = blocks.load_only(
+            SmrCorrectionBlock.version, SmrCorrectionBlock.pasted_at, SmrCorrectionBlock.lines_digest,
+        )
     return query.options(
         selectinload(WorkOrder.items).selectinload(WorkOrderItem.item),
         selectinload(WorkOrder.labor_entries).selectinload(WorkOrderLabor.technician),
@@ -236,7 +244,7 @@ def _with_lines(query):
         selectinload(WorkOrder.smr_paper_checked_by),
         # The worker feeds the block digest (`latest_block` -> stale).
         selectinload(WorkOrder.smr_lines).selectinload(SmrLaborLine.worker),
-        selectinload(WorkOrder.smr_blocks),
+        blocks,
     )
 
 
@@ -261,14 +269,16 @@ def filtered_smr_orders(
     location_search: Optional[str] = None,
     task_search: Optional[str] = None,
     descending: bool = True,
-    with_lines: bool = True,
-) -> list[WorkOrder]:
+    ids_only: bool = False,
+) -> list:
     """SMR orders through the Work Orders list's own predicates and sort, so
     the SMR page's search and filters cannot drift from the live list's.
-    `with_lines=False` when the session already holds them loaded."""
-    query = _smr_query(db)
+    `ids_only=True` returns `(id, schedule_date, created_at)` rows in that
+    order, for a caller that already holds the orders."""
+    smr_only = WorkOrder.smr_imported_at.is_not(None)
     query = wos._apply_work_order_filters(
-        _with_lines(query) if with_lines else query,
+        db.query(WorkOrder.id, WorkOrder.schedule_date, WorkOrder.created_at).filter(smr_only)
+        if ids_only else _with_lines(_smr_query(db), block_text=False),
         supervisor_id=supervisor_id,
         assigned_to_id=assigned_to_id,
         community=community,
@@ -325,18 +335,20 @@ def _totals(snap: dict) -> SmrTotals:
     )
 
 
-def current_snapshot(work_order: WorkOrder, *, now: Optional[datetime] = None) -> dict:
+def current_snapshot(work_order: WorkOrder, *, now: Optional[datetime] = None, figures=None) -> dict:
     """The AFTER phase: the live order through the baseline's own serializer."""
-    return smr.snapshot(work_order, taken_at=now or datetime.now(timezone.utc), source_row=None)
+    return smr.snapshot(
+        work_order, taken_at=now or datetime.now(timezone.utc), source_row=None, figures=figures,
+    )
 
 
-def target_for(work_order: WorkOrder, current: dict) -> Optional[SmrTargetOut]:
+def target_for(work_order: WorkOrder, current: dict, figures=None) -> Optional[SmrTargetOut]:
     """The gap to the client's target from a current snapshot; None without one.
     Tiles and the export are Admin+/Owner, so money is never redacted here."""
     totals = current["totals"]
     # The same labor figure the editor and `work_order_totals` use: the
     # legacy split, or the charged lines once the order has any (D9).
-    figures = smr.labor_figures(work_order.labor_entries, smr.correction_lines(work_order))
+    figures = figures or smr.labor_figures(work_order.labor_entries, smr.correction_lines(work_order))
     gap = smr.target_gap(
         work_order.smr_target,
         billed_minutes=figures.billed_minutes,
@@ -350,12 +362,13 @@ def _block_pending(lines: SmrTileLines) -> bool:
     return lines.block_version is None or lines.block_pasted_at is None or lines.block_stale
 
 
-def _tile_lines(work_order: WorkOrder) -> Optional[SmrTileLines]:
-    lines = smr.correction_lines(work_order)
-    if not lines:
+def _tile_lines(work_order: WorkOrder, figures) -> Optional[SmrTileLines]:
+    """`figures` is the order's `labor_figures`; its `lines` is the charge
+    over every correction line, which is what this reports."""
+    charge = figures.lines
+    if charge is None:
         return None
-    charge = rules.lines_charge(lines)
-    block = lines_service.latest_block(work_order)
+    block, stale = lines_service.latest_block_row(work_order) or (None, False)
     target = work_order.smr_target
     return SmrTileLines(
         count=charge.count,
@@ -364,7 +377,7 @@ def _tile_lines(work_order: WorkOrder) -> Optional[SmrTileLines]:
         change_hours=charge.charged_hours - Decimal(target["hours"]) if target else None,
         block_version=block.version if block else None,
         block_pasted_at=block.pasted_at if block else None,
-        block_stale=block.stale if block else False,
+        block_stale=stale,
     )
 
 
@@ -398,8 +411,10 @@ def closed_week(work_order: WorkOrder) -> Optional[str]:
 
 
 def tile_for(work_order: WorkOrder, *, now: Optional[datetime] = None) -> SmrTile:
-    baseline = work_order.smr_baseline or current_snapshot(work_order, now=now)
-    current = current_snapshot(work_order, now=now)
+    # Computed once: the snapshot, the target gap and the lines summary all read it.
+    figures = smr.labor_figures(work_order.labor_entries, smr.correction_lines(work_order))
+    current = current_snapshot(work_order, now=now, figures=figures)
+    baseline = work_order.smr_baseline or current
     d = smr.deltas(baseline, current)
     lines = [l for l in smr.correction_lines(work_order) if l.exclusion_ground != rules.GROUND_REMOVED]
     weeks = _tile_weeks(lines)
@@ -431,9 +446,9 @@ def tile_for(work_order: WorkOrder, *, now: Optional[datetime] = None) -> SmrTil
             total=d["total"],
         ),
         after_line_count=len(current["material_lines"]),
-        target=target_for(work_order, current),
+        target=target_for(work_order, current, figures),
         paper_check=SmrPaperCheckOut.from_order(work_order),
-        lines=_tile_lines(work_order),
+        lines=_tile_lines(work_order, figures),
     )
 
 
@@ -447,11 +462,11 @@ def list_smr_tiles(
     paper-correction switches. `summary=False` skips the whole-population
     pass: tiles and `matched` only, `counts` and `delta` null."""
     if summary:
-        population = _with_lines(_smr_query(db)).all()
+        population = _with_lines(_smr_query(db), block_text=False).all()
         by_id = {order.id: tile_for(order) for order in population}
         all_tiles = list(by_id.values())
-        # Same session: the filter query hands back the orders loaded above.
-        shown = [by_id[o.id] for o in filtered_smr_orders(db, with_lines=False, **filters)]
+        # The orders are loaded above: the filter query only says which, in what order.
+        shown = [by_id[row.id] for row in filtered_smr_orders(db, ids_only=True, **filters)]
     else:
         shown = [tile_for(o) for o in filtered_smr_orders(db, **filters)]
     if has_lines:
