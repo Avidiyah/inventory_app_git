@@ -14,6 +14,7 @@
 import { afterEach, expect, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "./handlers.js";
+import { stubScrollIntoView } from "./browserStubs.js";
 import { mountView } from "./shell.js";
 import { setTestUser } from "./session.js";
 import { filterOptions as filterOptionsFactory, workOrderDetail } from "./factories.js";
@@ -156,6 +157,8 @@ export async function mountWorkOrders({
   const currentUser = await setTestUser({ role });
   installHandlers();
   startRecording();
+  // Adding a material scrolls the search back into view; jsdom has no layout.
+  stubScrollIntoView();
   const mod = await mountView("views/workOrders.js");
   if (!mine) document.getElementById("work-orders-mine-filter").checked = false;
   if (load) {
