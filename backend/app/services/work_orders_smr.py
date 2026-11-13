@@ -21,7 +21,6 @@ from app.domain import work_orders_smr as smr
 from app.domain import work_orders_smr_lines as rules
 from app.domain.errors import SmrNotDatedError, WorkOrderNotFoundError, WorkOrderStateError
 from app.models import (
-    SmrCorrectionBlock,
     SmrLaborLine,
     User,
     WorkOrder,
@@ -47,6 +46,7 @@ from app.schemas.work_orders_smr import (
 )
 from app.services import work_orders as wos
 from app.services import work_orders_smr_lines as lines_service
+from app.services.work_orders_smr_tile_orders import tile_orders
 
 
 # --- import --------------------------------------------------------------
@@ -227,14 +227,7 @@ def _smr_query(db: Session):
     return db.query(WorkOrder).filter(WorkOrder.smr_imported_at.is_not(None))
 
 
-def _with_lines(query, *, block_text: bool = True):
-    """`block_text=False` for the tiles: they read a block's version, pasted
-    date and digest, never its text (megabytes across every order)."""
-    blocks = selectinload(WorkOrder.smr_blocks)
-    if not block_text:
-        blocks = blocks.load_only(
-            SmrCorrectionBlock.version, SmrCorrectionBlock.pasted_at, SmrCorrectionBlock.lines_digest,
-        )
+def _with_lines(query):
     return query.options(
         selectinload(WorkOrder.items).selectinload(WorkOrderItem.item),
         selectinload(WorkOrder.labor_entries).selectinload(WorkOrderLabor.technician),
@@ -244,7 +237,7 @@ def _with_lines(query, *, block_text: bool = True):
         selectinload(WorkOrder.smr_paper_checked_by),
         # The worker feeds the block digest (`latest_block` -> stale).
         selectinload(WorkOrder.smr_lines).selectinload(SmrLaborLine.worker),
-        blocks,
+        selectinload(WorkOrder.smr_blocks),
     )
 
 
@@ -465,7 +458,7 @@ def list_smr_tiles(
     order = filtered_smr_ids(db, **filters)
     if ids_only:
         return SmrTilesResponse(matched=len(order), order=order)
-    population = _with_lines(_smr_query(db), block_text=False).all()
+    population = tile_orders(db)
     by_id = {o.id: tile_for(o) for o in population}
     all_tiles = list(by_id.values())
     shown = [by_id[i] for i in order if i in by_id]
