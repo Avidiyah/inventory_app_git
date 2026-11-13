@@ -8,6 +8,7 @@ import {
   apiSmrEditLine,
   apiSmrGenerateBlock,
   apiSmrMarkPasted,
+  apiSetSmrPaperReviewed,
   apiSetSmrReady,
 } from "../api.js";
 import { confirmDialog, setMessage } from "../dom.js";
@@ -90,6 +91,9 @@ export async function handleSmrAction(action, btn, cardEl, msg) {
   } else if (action === "smr-ready" || action === "smr-not-ready") {
     // Reversible, so no confirm: Not ready clears the stamp the same way.
     await apiSetSmrReady(workOrderId, action === "smr-ready");
+    await refreshCard(cardEl);
+  } else if (action === "smr-paper-reviewed" || action === "smr-not-paper-reviewed") {
+    await apiSetSmrPaperReviewed(workOrderId, action === "smr-paper-reviewed");
     await refreshCard(cardEl);
   }
 }

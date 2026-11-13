@@ -221,6 +221,29 @@ def set_ready(db: Session, *, work_order_id: uuid.UUID, ready: bool, user: User)
     return tile_for(order)
 
 
+def set_paper_reviewed(db: Session, *, work_order_id: uuid.UUID, reviewed: bool, user: User) -> SmrTile:
+    """Stamp or clear Paper reviewed (Admin+): moves a billed order with no
+    dated line from Needs paper review to Needs review. A stamp needs the
+    order to be in paper review right now (400 otherwise); a second stamp
+    keeps the first who / when. Returns the tile."""
+    order = db.get(WorkOrder, work_order_id)
+    if order is None:
+        raise WorkOrderNotFoundError("Work order not found.")
+    if order.smr_imported_at is None:
+        raise WorkOrderStateError("Only SMR orders can be paper reviewed.")
+    if not reviewed:
+        order.smr_paper_reviewed_at = None
+        order.smr_paper_reviewed_by_id = None
+    elif order.smr_paper_reviewed_at is None:
+        if tile_for(order).stage != "paper_review":
+            raise WorkOrderStateError("Only an order in Needs paper review can be marked paper reviewed.")
+        order.smr_paper_reviewed_at = datetime.now(timezone.utc)
+        order.smr_paper_reviewed_by_id = user.id
+    db.commit()
+    db.refresh(order)
+    return tile_for(order)
+
+
 # --- tiles ---------------------------------------------------------------
 
 def _smr_query(db: Session):
@@ -424,6 +447,7 @@ def tile_for(work_order: WorkOrder, *, now: Optional[datetime] = None) -> SmrTil
         stage=rules.stage_for(
             lines, work_order.smr_ready_at,
             has_materials=bool(work_order.items), billed=work_order.smr_target is not None,
+            paper_reviewed_at=work_order.smr_paper_reviewed_at,
         ),
         closed_week=closed_week(work_order) if "Undated" in weeks else None,
         belfor_only=rules.belfor_only(lines),

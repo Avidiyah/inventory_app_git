@@ -443,6 +443,12 @@ class WorkOrder(Base):
     smr_ready_by_id = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # Paper reviewed: a person's stamp moving a billed order, with no dated
+    # line yet, from Needs paper review to Needs review.
+    smr_paper_reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    smr_paper_reviewed_by_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     # Human-written work description (user 2026-11-10); saved by Generate
     # block and printed in it under WORK DESCRIPTION.
     smr_description = Column(Text, nullable=True)
@@ -498,6 +504,7 @@ class WorkOrder(Base):
     supervisor = relationship("User", foreign_keys=[supervisor_id], viewonly=True)
     smr_paper_checked_by = relationship("User", foreign_keys=[smr_paper_checked_by_id], viewonly=True)
     smr_ready_by = relationship("User", foreign_keys=[smr_ready_by_id], viewonly=True)
+    smr_paper_reviewed_by = relationship("User", foreign_keys=[smr_paper_reviewed_by_id], viewonly=True)
     # SMR27 paper corrections (spec 2026-11-04), tables in `models_smr.py`.
     # Lazy by default: only SMR orders ever have rows, and the readers that
     # walk many orders (`work_order_totals`, the tile list) consult them only

@@ -52,7 +52,7 @@ const ACTIONS = [
   // SMR Labor card and Invoice section (workOrderSmrLines.js / workOrderSmrActions.js).
   "smr-add-line", "smr-edit-line", "smr-update-line", "smr-delete-line",
   "smr-cancel-line", "smr-generate-block", "smr-mark-pasted", "smr-print-block",
-  "smr-ready", "smr-not-ready",
+  "smr-ready", "smr-not-ready", "smr-paper-reviewed", "smr-not-paper-reviewed",
 ];
 
 // The thirteen exports other views import. P4 must re-export every one.

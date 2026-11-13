@@ -185,6 +185,15 @@ const inInvoicePeriod = (line) => line.exclusion_ground !== "removed" && line.we
 
 export function readyRowHtml(detail, editable) {
   const stamp_ = detail.smr_ready;
+  const pr = detail.smr_paper_reviewed;
+  if (detail.smr_stage === "paper_review" && editable && !stamp_) {
+    return `<p class="wo-smr-ready"><button type="button" class="secondary-btn" data-action="smr-paper-reviewed">Mark paper reviewed</button></p>`;
+  }
+  if (pr && detail.smr_stage === "needs_review" && !(detail.smr_lines || []).some(inInvoicePeriod)) {
+    const who = pr.by_name ? ` by ${pr.by_name}` : "";
+    const btn = editable ? ` <button type="button" class="secondary-btn" data-action="smr-not-paper-reviewed">Back to paper review</button>` : "";
+    return `<p class="wo-smr-ready wo-smr-ready--ready">${escapeHtml(`Paper reviewed · ${stamp(pr.at)}${who}`)}${btn}</p>`;
+  }
   if (detail.smr_stage === "ready") {
     const who = stamp_?.by_name ? ` by ${stamp_.by_name}` : "";
     const text = `Ready to invoice · ${stamp(stamp_?.at)}${who}`;

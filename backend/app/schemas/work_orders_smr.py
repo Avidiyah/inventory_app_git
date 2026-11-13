@@ -53,6 +53,10 @@ class SmrReadyIn(BaseModel):
     ready: bool
 
 
+class SmrPaperReviewedIn(BaseModel):
+    reviewed: bool
+
+
 class SmrTotals(BaseModel):
     materials_total: Decimal
     real_minutes: int

@@ -578,6 +578,7 @@ def test_no_route_gate_is_left_at_the_admin_floor():
         # 2026-11-06: Ready for invoice is the same gate as the line editor
         # (spec 2026-11-06-smr-paper-stage D9): a person says the money is right.
         "set_ready",
+        "set_paper_reviewed",
         # 2026-11-11: Regenerate all and its undo write blocks, the same gate as generate_block.
         "regenerate_all_blocks",
         "undo_regenerate",

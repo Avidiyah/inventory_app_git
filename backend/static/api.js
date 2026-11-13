@@ -1058,6 +1058,9 @@ export const apiSetSmrPaperCheck = (workOrderId, checked) =>
 // Ready for invoice (spec 2026-11-06), Admin+: 409 until a line is dated.
 export const apiSetSmrReady = (workOrderId, ready) =>
   jsonRequest(`/work-orders/smr/${workOrderId}/ready`, "PUT", { ready });
+// Needs paper review -> Needs review, Admin+: 400 unless in paper review.
+export const apiSetSmrPaperReviewed = (workOrderId, reviewed) =>
+  jsonRequest(`/work-orders/smr/${workOrderId}/paper-reviewed`, "PUT", { reviewed });
 // SMR labor lines (spec 2026-11-04), Admin+: lines, workers, the correction
 // block and the Hours table.
 export const apiSmrAddLine = (workOrderId, payload) =>

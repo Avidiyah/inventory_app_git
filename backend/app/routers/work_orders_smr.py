@@ -25,6 +25,7 @@ from app.schemas.work_orders_smr import (
     SmrImportResult,
     SmrPaperCheckIn,
     SmrPaperCheckOut,
+    SmrPaperReviewedIn,
     SmrReadyIn,
     SmrTile,
     SmrTargetImportResult,
@@ -176,6 +177,21 @@ def set_ready(
     when the order has no dated line. Returns the tile."""
     try:
         return smr_service.set_ready(db, work_order_id=work_order_id, ready=body.ready, user=user)
+    except DomainError as exc:
+        raise to_http(exc)
+
+
+@router.put("/{work_order_id}/paper-reviewed", response_model=SmrTile, responses=_forbidden(roles.ROLE_ADMIN))
+def set_paper_reviewed(
+    work_order_id: uuid.UUID,
+    body: SmrPaperReviewedIn,
+    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+    db: Session = Depends(get_db),
+) -> SmrTile:
+    """Move an order from Needs paper review to Needs review, or back (Admin+).
+    400 unless the order is in Needs paper review. Returns the tile."""
+    try:
+        return smr_service.set_paper_reviewed(db, work_order_id=work_order_id, reviewed=body.reviewed, user=user)
     except DomainError as exc:
         raise to_http(exc)
 

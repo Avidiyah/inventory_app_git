@@ -125,11 +125,16 @@ describe("ready to invoice", () => {
     expect(requestFor("/ready", "PUT").body).toEqual({ ready: false });
   });
 
-  it("a paper-review order says to date a line in Weeks 1–7 first, with no button", async () => {
+  it("a paper-review order offers Mark paper reviewed", async () => {
     await open({ detail: { smr_stage: "paper_review", smr_lines: [AFTER_W7] } });
-    expect(row().textContent).toBe("Date a line in Weeks 1–7 to mark ready");
-    expect(row().querySelector("[data-action]")).toBeNull();
-    expect(row().classList.contains("hint")).toBe(true);
+    expect(row().textContent).toBe("Mark paper reviewed");
+    expect(row().querySelector("[data-action]").dataset.action).toBe("smr-paper-reviewed");
+  });
+
+  it("a paper-reviewed order shows who and the undo", async () => {
+    await open({ detail: { smr_stage: "needs_review", smr_lines: [AFTER_W7], smr_paper_reviewed: { at: "2026-11-13T12:00:00Z", by_name: "Pat" } } });
+    expect(row().textContent).toContain("Paper reviewed");
+    expect(row().querySelector("[data-action]").dataset.action).toBe("smr-not-paper-reviewed");
   });
 
   it("a labor-only (material not keyed) order with a Weeks 1–7 line still offers the Ready button", async () => {
