@@ -579,6 +579,13 @@ def affects_stock(mode: str) -> bool:
     return mode == MODE_DISPENSE
 
 
+def stock_locked(work_order) -> bool:
+    """An SMR order never moves stock, whatever its `entry_mode` (user
+    2026-11-13): material keyed there is a paper backfill of work done months
+    ago, so adds log `retroactive` and edits / removals leave on-hand alone."""
+    return getattr(work_order, "smr_imported_at", None) is not None
+
+
 # --- attribute reconciliation (fill-blanks) ------------------------------
 
 def is_blank(value) -> bool:

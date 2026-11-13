@@ -498,10 +498,11 @@ export function renderBody(detail, bodyEl) {
   const statusActions =
     (detail.smr ? "" : primary + secondary) + (tools ? `<div class="wo-controls-tools">${tools}</div>` : "");
 
-  const modeControl = sup && !detail.smr
+  // An SMR order is locked on Retroactive (the server forces it): shown, greyed out.
+  const modeControl = sup
     ? `<div class="wo-mode-row">
        <label>New entries:${tipHtml("wo.entry-mode")}</label>
-       <select class="wo-mode-select">
+       <select class="wo-mode-select"${detail.smr ? " disabled" : ""}>
          <option value="dispense"${detail.entry_mode === "dispense" ? " selected" : ""}>Dispense (moves stock)</option>
          <option value="retroactive"${detail.entry_mode === "retroactive" ? " selected" : ""}>Retroactive (paper sheet, no stock)</option>
        </select>

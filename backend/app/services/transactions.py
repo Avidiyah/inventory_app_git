@@ -30,8 +30,9 @@ from app.domain.errors import (
 )
 from app.domain.billing import validate_billable_quantity
 from app.domain import roles
+from app.domain import work_orders as wo
 from app.domain.quantity import apply_delta, reverse_delta
-from app.models import Item, Transaction, WorkOrderItem
+from app.models import Item, Transaction, WorkOrder, WorkOrderItem
 from app.services import low_stock
 from app.services import material_requests
 from app.services import user_requests as request_service
@@ -69,10 +70,18 @@ def apply_transaction(
     if not item:
         raise ItemNotFoundError("Item not found.")
 
+    # A dispense against an SMR order is a paper backfill: recorded, stock-neutral.
+    paper = (
+        transaction_type == "dispense"
+        and work_order_id is not None
+        and wo.stock_locked(db.get(WorkOrder, work_order_id))
+    )
     quantity_before = item.quantity
     recount_required = False
     shortage_quantity = Decimal(0)
-    if transaction_type == "dispense":
+    if paper:
+        pass
+    elif transaction_type == "dispense":
         # Scan / Stock records real usage even when the expected app count is
         # short. Keeping the negative balance makes a later void the exact
         # inverse (adding the full transaction quantity restores the original
@@ -95,6 +104,7 @@ def apply_transaction(
         unit_price=item.price,
         work_order_number=work_order_number,
         work_order_id=work_order_id,
+        affects_stock=not paper,
         reason=None,
     )
     db.add(new_txn)
@@ -109,6 +119,7 @@ def apply_transaction(
             work_order_id=work_order_id,
             item_id=item_id,
             quantity=quantity,
+            mode=wo.MODE_RETROACTIVE if paper else wo.MODE_DISPENSE,
             transaction_id=new_txn.id,
             user_id=user_id,
         )

@@ -785,6 +785,10 @@ Work orders:
   number. `entry_mode` decides `affects_stock`: `dispense` moves stock,
   `retroactive` is stock-neutral (still shown in History). Mode is snapshotted
   per line; switching mode only affects subsequent entries.
+- An SMR order never moves stock (`domain.work_orders.stock_locked`): card adds
+  and Scan / Stock dispenses log `retroactive`, line edits and removals leave
+  on-hand alone, and the card shows the mode select disabled on Retroactive.
+  Mass Stage loads still move stock (a truck load is physical).
 - A `work_order_items` line is the **aggregate** of its dispenses for one item:
   `services.work_orders.attach_dispense_line` is the single home that every
   stock-out funnels through -- the Work Orders page button, the Scan/Stock page

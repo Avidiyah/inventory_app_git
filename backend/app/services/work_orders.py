@@ -3071,7 +3071,7 @@ def add_work_order_item(
             resolved_by_id=user.id if user else None,
         )
 
-    mode = work_order.entry_mode
+    mode = wo.MODE_RETROACTIVE if wo.stock_locked(work_order) else work_order.entry_mode
     moves_stock = wo.affects_stock(mode)
     quantity_before = item.quantity
     shortage_quantity = Decimal(0)
@@ -3151,7 +3151,7 @@ def update_work_order_item(
     # stored quantity is the signed amount added to stock.
     quantity_before = item.quantity
     stock_delta = line.quantity - quantity
-    if stock_delta != 0 and wo.affects_stock(line.mode):
+    if stock_delta != 0 and wo.affects_stock(line.mode) and not wo.stock_locked(work_order):
         item.quantity = apply_delta(item.quantity, "adjust", stock_delta)
         db.add(
             Transaction(
@@ -3231,7 +3231,7 @@ def delete_work_order_item(
     item = _locked_live_item(db, line.item_id, allow_archived=True)
 
     quantity_before = item.quantity
-    if wo.affects_stock(line.mode):
+    if wo.affects_stock(line.mode) and not wo.stock_locked(work_order):
         item.quantity = apply_delta(item.quantity, "stock", line.quantity)
 
     # Void the line's whole contributing set, located by (work_order, item) -- the

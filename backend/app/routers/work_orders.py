@@ -405,7 +405,7 @@ def _card(work_order: WorkOrder) -> WorkOrderCard:
         description=work_order.description,
         priority=work_order.priority,
         status=work_order.status,
-        entry_mode=work_order.entry_mode,
+        entry_mode=wo.MODE_RETROACTIVE if wo.stock_locked(work_order) else work_order.entry_mode,
         created_by_id=work_order.created_by_id,
         assigned_to_id=primary_pair[0] if primary_pair else None,
         assigned_to_name=primary_pair[1].full_name if primary_pair else None,

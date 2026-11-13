@@ -52,7 +52,7 @@ from app.models import (
 from app.services import auth
 from app.services import work_orders as wos
 from app.services.history import list_history
-from app.services.transactions import void_transaction
+from app.services.transactions import apply_transaction, void_transaction
 
 
 # --- seed helpers --------------------------------------------------------
@@ -1122,6 +1122,34 @@ def test_mode_switch_only_affects_new_lines(db):
     assert item.quantity == Decimal(94)
     db.refresh(other)
     assert other.quantity == Decimal(100)
+
+
+def test_smr_order_never_moves_stock(db):
+    """User 2026-11-13: material keyed on an SMR order is a paper backfill."""
+    sup = _seed_user(db, "supervisor")
+    item = _seed_item(db, 100)
+    other = _seed_item(db, 100)
+    w = _wo(db, created_by=sup)  # entry_mode stays `dispense`
+    summer = wos.add_work_order_item(db, w.id, user=sup, item_id=other.id, quantity=Decimal(2))
+    w.smr_imported_at = datetime.now(timezone.utc)
+    db.flush()
+
+    line = wos.add_work_order_item(db, w.id, user=sup, item_id=item.id, quantity=Decimal(4))
+    assert line.mode == "retroactive"
+    assert _txn(db, line.transaction_id).affects_stock is False
+    scan = apply_transaction(
+        db, item_id=item.id, transaction_type="dispense", quantity=Decimal(1),
+        user_id=sup.id, work_order_number=w.number, work_order_id=w.id,
+    )
+    assert scan.affects_stock is False
+    # A line dispensed before the import: editing and removing it leave stock alone.
+    wos.update_work_order_item(db, w.id, summer.id, user=sup, quantity=Decimal(5))
+    wos.delete_work_order_item(db, w.id, summer.id, user=sup)
+
+    db.refresh(item)
+    db.refresh(other)
+    assert item.quantity == Decimal(100)
+    assert other.quantity == Decimal(98)
 
 
 # --- lifecycle / completed-stays-editable -------------------------------

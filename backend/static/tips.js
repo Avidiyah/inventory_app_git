@@ -135,7 +135,7 @@ export const TIPS = {
   },
   "wo.entry-mode": {
     label: "New material entry mode",
-    text: "Dispense records new material as stock-moving usage. Retroactive adds a paper-sheet entry to the work order without changing on-hand stock; the mode applies only to entries added after the selection changes.",
+    text: "Dispense records new material as stock-moving usage. Retroactive adds a paper-sheet entry to the work order without changing on-hand stock; the mode applies only to entries added after the selection changes. An SMR order is always Retroactive: its material was used months ago, so keying it never changes stock.",
   },
   "wo.auto-stopped": {
     label: "Auto-stopped labor",
