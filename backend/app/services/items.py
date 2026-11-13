@@ -14,7 +14,7 @@ from typing import Optional, Sequence
 
 from sqlalchemy import and_, case, func, or_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.domain.errors import (
     ArchivedBarcodeConflictError,
@@ -340,7 +340,8 @@ def list_items(db: Session, *, search: Optional[str] = None) -> Sequence[Item]:
     catalogue and exists to bound a runaway result and to emit a trigger; see
     `domain/list_limits.py`.
     """
-    query = db.query(Item).filter(Item.archived_at.is_(None))
+    # Eager: `routers/items._item_response` reads `alt_barcodes` per row.
+    query = db.query(Item).options(selectinload(Item.alt_barcodes)).filter(Item.archived_at.is_(None))
     tokens = _search_tokens(search)
     ordering = [Item.created_at.desc()]
     if tokens is not None:
@@ -590,6 +591,7 @@ def list_low_stock(db: Session) -> list[tuple[Item, Decimal, Optional[datetime]]
     """
     items = (
         db.query(Item)
+        .options(selectinload(Item.alt_barcodes))
         .filter(Item.archived_at.is_(None))
         .filter(Item.quantity <= Item.low_stock_threshold)
         .order_by((Item.quantity - Item.low_stock_threshold).asc(), Item.name.asc())
