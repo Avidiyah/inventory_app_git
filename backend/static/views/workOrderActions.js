@@ -442,6 +442,11 @@ listEl.addEventListener("click", async (event) => {
       clearDraft(workOrderId, "materials");
       delete container.dataset.materialRequestId;
       await refreshCard(cardEl, ".wo-materials-section");
+      const nextSearch = cardEl.querySelector(".ms-item-search");
+      if (nextSearch) {
+        nextSearch.scrollIntoView({ block: "nearest" });
+        nextSearch.focus({ preventScroll: true });
+      }
       const refreshedMessage = cardEl.querySelector(".wo-message");
       if (Number(addedLine.item_quantity) < 0) {
         setMessage(refreshedMessage, "Item added. Please re-count stock.", "error");
@@ -482,7 +487,41 @@ listEl.addEventListener("click", async (event) => {
 });
 
 listEl.addEventListener("keydown", (event) => {
+  const t = event.target;
+  // Material entry: arrows highlight a result, Enter picks it (click reuses
+  // pick-item, which moves focus to Qty); Enter in Qty adds the line.
+  if (t.classList.contains("ms-item-search")) {
+    const results = t.closest(".wo-add-item").querySelector(".ms-item-results");
+    const picks = [...results.querySelectorAll("[data-action='pick-item']")];
+    const cur = picks.findIndex((b) => b.classList.contains("is-active"));
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (!picks.length) return;
+      event.preventDefault();
+      const next = event.key === "ArrowDown" ? cur + 1 : cur - 1;
+      picks.forEach((b) => b.classList.remove("is-active"));
+      const hit = picks[(next + picks.length) % picks.length];
+      hit.classList.add("is-active");
+      hit.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    if (event.key === "Enter" && picks.length) {
+      event.preventDefault();
+      (picks[cur] || picks[0]).click();
+      return;
+    }
+  }
+  if (event.key === "Enter" && t.classList.contains("wo-item-qty")) {
+    event.preventDefault();
+    t.closest(".wo-add-item").querySelector("[data-action='add-item']").click();
+    return;
+  }
   if (event.key !== "Escape") return;
+  if (t.classList.contains("ms-item-search")) {
+    const results = t.closest(".wo-add-item").querySelector(".ms-item-results");
+    results.hidden = true;
+    results.innerHTML = "";
+    return;
+  }
   if (event.target.classList.contains("wo-tech-search")) {
     closeTechnicianResults(event.target.closest(".wo-tech-picker"));
   }

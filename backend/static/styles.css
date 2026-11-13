@@ -4175,6 +4175,7 @@ details[open] > .room-summary::before { content: "\25BE"; /* triangle down */ }
 .ms-stage-actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
 .ms-stage-message { margin-top: var(--space-2); font-size: var(--fs-sm); }
 .ms-item-results { margin-top: var(--space-2); }
+.ms-item-results .scan-choice-btn.is-active { outline: 2px solid currentColor; outline-offset: -2px; }
 .ms-pick-barcode { color: var(--gray-500); font-size: var(--fs-xs); margin-left: var(--space-2); }
 
 /* =================== MANUAL ENTRY (Scan/Stock fallback) =================== */
