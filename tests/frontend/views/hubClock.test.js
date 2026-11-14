@@ -56,7 +56,8 @@ describe("off the clock", () => {
   ])("the Track button composes the place %j -> %s", async (place, label) => {
     await openHub({ role: "technician", hub: hubPayload({ startable: [hubStartable(place)] }) });
     const btn = clock().querySelector(".hub-clock-start-btn");
-    expect(btn.textContent).toBe(label);
+    expect(btn.querySelector(".hub-desktop-only").textContent).toBe(label);
+    expect(btn.querySelector(".hub-mobile-only").textContent).toBe("Track work order");
     expect(btn.dataset.action).toBe("hub-clock-start");
   });
 
@@ -67,7 +68,19 @@ describe("off the clock", () => {
     const buttons = clock().querySelectorAll(".hub-clock-start-btn");
     expect(buttons).toHaveLength(1);
     expect(buttons[0].dataset.value).toBe("w-first");
-    expect(buttons[0].textContent).toBe("Track WO 7001");
+    expect(buttons[0].querySelector(".hub-desktop-only").textContent).toBe("Track WO 7001");
+  });
+
+  it("separates mobile work-order details from the action and escapes supplied text", async () => {
+    await openHub({ role: "technician", hub: hubPayload({ startable: [hubStartable({
+      community: "Scholars <img src=x>", location: "2523 · Entire Area, shower 1",
+    })] }) });
+    const details = clock().querySelector("#hub-clock-work-order");
+    expect([...details.querySelectorAll("p")].map((p) => p.textContent)).toEqual([
+      "WO 7001", "Scholars <img src=x>", "2523 · Entire Area, shower 1",
+    ]);
+    expect(details.querySelector("img")).toBeNull();
+    expect(clock().querySelector(".hub-clock-start-btn").getAttribute("aria-describedby")).toBe(details.id);
   });
 
   it("a failing start writes the detail into the message and does not refetch", async () => {
