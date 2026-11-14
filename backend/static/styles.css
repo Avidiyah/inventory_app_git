@@ -1264,25 +1264,79 @@ tr:last-child td {
     font-size: var(--fs-lg);
 }
 
-/* One search box, then a toolbar: Filters (opens the panel below), sort,
-   and the Admin export. Wraps rather than scrolls on a phone. */
-.wo-search { width: 100%; margin: 0; }
-.wo-toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2);
-    margin: var(--space-2) 0 var(--space-3);
-}
-.wo-toolbar > * { margin: 0; min-height: var(--btn-h-sm); width: auto; }
-.wo-filters-btn[aria-expanded="true"] { border-color: var(--color-brand); color: var(--color-brand); }
-.wo-advanced {
+/* Sort: the scope toggle again, one size down. */
+.wo-sort-seg {
     margin-bottom: var(--space-3);
-    padding: var(--space-3);
+}
+
+.wo-sort-seg .seg-btn {
+    min-height: var(--btn-h-sm);
+}
+
+/* One search box, then the Advanced search bar (the User Hub picker's look:
+   icon tile, caption over label, chevron) with its panel inside the same
+   box, then the Admin export. */
+.wo-search { width: 100%; margin: 0; }
+.wo-advanced-box {
+    margin: var(--space-2) 0 var(--space-3);
     border: 1px solid var(--panel-border);
     border-radius: var(--radius-md);
     background: var(--panel-well);
 }
+.wo-filters-btn {
+    all: unset;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    width: 100%;
+    min-height: 56px;
+    padding: var(--space-3);
+    cursor: pointer;
+    color: var(--text-panel);
+    border-radius: calc(var(--radius-md) - 1px);
+}
+/* Two classes deep so the global red `button:hover` / `:active` lose. */
+.wo-filters-btn:hover,
+.wo-filters-btn:active { background-color: var(--panel-hover); }
+.wo-filters-btn:focus-visible { outline: 2px solid var(--color-brand); outline-offset: -2px; }
+.wo-filters-ico {
+    flex: none;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: var(--color-brand);
+    display: grid;
+    place-items: center;
+}
+.wo-filters-ico::before {
+    content: "";
+    width: 20px;
+    height: 20px;
+    background: var(--color-white);
+    -webkit-mask: center / contain no-repeat;
+    mask: center / contain no-repeat;
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22black%22 stroke-width=%221.8%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M4 5h16l-6 7v6l-4 2v-8z%22/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22black%22 stroke-width=%221.8%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M4 5h16l-6 7v6l-4 2v-8z%22/%3E%3C/svg%3E");
+}
+.wo-filters-text { flex: 1; line-height: 1.2; }
+.wo-filters-text small { display: block; color: var(--text-panel-mute); font-size: var(--fs-xs); }
+.wo-filters-text b { font-size: 1.0625rem; }
+.wo-filters-chev {
+    width: 10px;
+    height: 10px;
+    border: solid var(--text-panel-mute);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+    margin-right: var(--space-1);
+    transition: transform 0.2s;
+}
+.wo-filters-btn[aria-expanded="true"] .wo-filters-chev { transform: rotate(225deg); }
+.wo-advanced {
+    padding: var(--space-3);
+    border-top: 1px solid var(--panel-border);
+}
+.wo-export-btn { width: auto; min-height: var(--btn-h-sm); margin: 0 0 var(--space-3); }
 
 .wo-filters-actions {
     display: flex;
@@ -1291,6 +1345,7 @@ tr:last-child td {
 }
 
 .wo-scope-seg .seg-btn[aria-pressed="true"],
+.wo-sort-seg .seg-btn[aria-pressed="true"],
 .users-scope .seg-btn[aria-pressed="true"] {
     background-color: var(--color-brand);
     border-color: var(--color-brand);

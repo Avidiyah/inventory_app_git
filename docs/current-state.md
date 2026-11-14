@@ -682,8 +682,8 @@ Work orders:
   scheduled date, and the page's one search box (`text_q`: number OR location OR
   task, never notes) all combine with AND before the caller's normal visibility
   scope is applied. `q` / `location_q` / `task_q` remain for the SMR page and deep
-  links. Filters live behind a Filters button (its count excludes scope and
-  search); sort is a select. Default sort is newest scheduled date first.
+  links. Filters live behind the Advanced search bar (its count excludes scope
+  and search); sort is a two-button toggle. Default sort is newest scheduled date first.
   Community membership checks both `community` and raw CSV `location` for
   Scholars, Centennial, Commons (`commons`/`cimarron`/`cimmarron`), or Young
   Hall. A multi-location row may match several named communities; Academics is

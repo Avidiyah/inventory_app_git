@@ -19,7 +19,7 @@ const technicianFilter = document.getElementById("work-orders-technician-filter"
 const communityFilter = document.getElementById("work-orders-community-filter");
 const scheduledDateFilter = document.getElementById("work-orders-date-filter");
 const searchInput = document.getElementById("work-orders-search");
-const sortSelect = document.getElementById("work-orders-sort");
+const sortSeg = document.getElementById("work-orders-sort");
 
 let filterOptionsLoaded = false;
 
@@ -113,7 +113,9 @@ try {
 }
 
 export function renderSortControl() {
-  if (sortSelect) sortSelect.value = sortDir;
+  sortSeg?.querySelectorAll("[data-sort]").forEach((btn) => {
+    btn.setAttribute("aria-pressed", String(btn.dataset.sort === sortDir));
+  });
 }
 
 export function currentFilters() {

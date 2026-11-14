@@ -102,7 +102,7 @@ const scopeSeg = document.getElementById("work-orders-scope");
 const filtersCountEl = document.getElementById("work-orders-filters-count");
 const filtersBtn = document.getElementById("work-orders-filters-btn");
 const filtersPanel = document.getElementById("work-orders-advanced");
-const sortSelect = document.getElementById("work-orders-sort");
+const sortSeg = document.getElementById("work-orders-sort");
 const moreEl = document.getElementById("work-orders-more");
 // The filters/search block. Hidden in solo mode ("card page"), where the list
 // holds one work order and there is nothing to filter.
@@ -716,11 +716,13 @@ if (searchInput) {
   });
 });
 
-if (sortSelect) {
+if (sortSeg) {
   renderSortControl();
-  sortSelect.addEventListener("change", () => {
-    if (!SORT_VALUES.has(sortSelect.value) || sortSelect.value === getSortDir()) return;
-    setSortDir(sortSelect.value);
+  sortSeg.addEventListener("click", (event) => {
+    const value = event.target.closest("[data-sort]")?.dataset.sort;
+    if (!SORT_VALUES.has(value) || value === getSortDir()) return;
+    setSortDir(value);
+    renderSortControl();
     try {
       localStorage.setItem(SORT_STORAGE_KEY, getSortDir());
     } catch {
@@ -730,7 +732,7 @@ if (sortSelect) {
   });
 }
 
-// The Filters button shows and hides the panel under the toolbar.
+// The Advanced search bar shows and hides the panel in its box.
 if (filtersBtn && filtersPanel) {
   filtersBtn.addEventListener("click", () => {
     filtersPanel.hidden = !filtersPanel.hidden;
@@ -756,7 +758,7 @@ function clearFilters(keepScope = false) {
 // still widens everything.
 if (clearFiltersBtn) clearFiltersBtn.addEventListener("click", () => clearFilters(true));
 
-// Scope toggle (My Work Orders | All) and the Filters button's count. The
+// Scope toggle (My Work Orders | All) and the Advanced search bar's count. The
 // toggle and the panel's checkbox are one setting: `mineFilter` stays the source of truth and renderScope()
 // mirrors it after every load.
 function renderScope() {

@@ -20,19 +20,22 @@
                 <button type="button" class="seg-btn" data-scope="mine" aria-pressed="true">My Work Orders</button>
                 <button type="button" class="seg-btn" data-scope="all" aria-pressed="false">All Work Orders</button>
             </div>
+            <!-- Sort by scheduled date: a smaller copy of the scope toggle. -->
+            <div id="work-orders-sort" class="segmented wo-sort-seg" role="group" aria-label="Sort by scheduled date">
+                <button type="button" class="seg-btn" data-sort="scheduled_desc" aria-pressed="true">Newest first</button>
+                <button type="button" class="seg-btn" data-sort="scheduled_asc" aria-pressed="false">Oldest first</button>
+            </div>
             <!-- One search box over number, location and task (server text_q). -->
             <input type="search" id="work-orders-search" class="wo-search" placeholder="Search number, location or task" aria-label="Search work orders" autocomplete="off">
-            <!-- Filters opens the panel below (the active-filter count sits in
-                 the button); sort and the Admin export sit beside it. The
-                 controls keep their ids, so the list wiring is unchanged. -->
-            <div class="wo-toolbar">
-                <button type="button" id="work-orders-filters-btn" class="secondary-btn wo-filters-btn" aria-expanded="false" aria-controls="work-orders-advanced">Filters<span id="work-orders-filters-count" class="wo-filters-count" hidden></span></button>
-                <select id="work-orders-sort" class="wo-sort-select" aria-label="Sort by scheduled date">
-                    <option value="scheduled_desc">Newest first</option>
-                    <option value="scheduled_asc">Oldest first</option>
-                </select>
-                <button id="wo-export-btn" type="button" class="secondary-btn" hidden>Export CSV…</button>
-            </div>
+            <!-- Advanced search: a full-width bar in the style of the User Hub
+                 picker. The panel opens inside the same box; the active-filter
+                 count sits in the bar's label. -->
+            <div class="wo-advanced-box">
+                <button type="button" id="work-orders-filters-btn" class="wo-filters-btn" aria-expanded="false" aria-controls="work-orders-advanced">
+                    <span class="wo-filters-ico" aria-hidden="true"></span>
+                    <span class="wo-filters-text"><small>Narrow the list</small><b>Advanced search<span id="work-orders-filters-count" class="wo-filters-count" hidden></span></b></span>
+                    <span class="wo-filters-chev" aria-hidden="true"></span>
+                </button>
             <div id="work-orders-advanced" class="wo-advanced" hidden>
                 <div class="wo-filter-grid" aria-label="Work order filters">
                 <div class="wo-filter-field wo-filter-check">
@@ -96,6 +99,8 @@
                     <button id="work-orders-clear-filters" type="button" class="secondary-btn">Clear filters</button>
                 </div>
             </div>
+            </div>
+            <button id="wo-export-btn" type="button" class="secondary-btn wo-export-btn" hidden>Export CSV…</button>
             <p id="work-orders-export-message"></p>
             <!-- Applied-filter chips + result count, filled after each list
                  load by views/workOrderFilterChips.js. -->

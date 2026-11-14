@@ -256,34 +256,37 @@ describe("My Work Orders", () => {
   });
 });
 
+const sortBtn = (value) => el("work-orders-sort").querySelector(`[data-sort="${value}"]`);
+const sortPressed = () => el("work-orders-sort").querySelector('[aria-pressed="true"]').dataset.sort;
+
 describe("the sort control", () => {
   it("shows the active direction, newest first by default", async () => {
     await mountWorkOrders({ role: "admin" });
-    expect(el("work-orders-sort").value).toBe("scheduled_desc");
+    expect(sortPressed()).toBe("scheduled_desc");
   });
 
   it("switches direction, persists it, and reloads", async () => {
     await mountWorkOrders({ role: "admin" });
-    change(el("work-orders-sort"), "scheduled_asc");
+    sortBtn("scheduled_asc").click();
     await flush();
     expect(listUrls()[0]).toContain("sort=scheduled_asc");
     expect(localStorage.getItem("workOrders.sort")).toBe("scheduled_asc");
-    expect(el("work-orders-sort").value).toBe("scheduled_asc");
+    expect(sortPressed()).toBe("scheduled_asc");
   });
 
   it("ignores a change to the direction already active", async () => {
     await mountWorkOrders({ role: "admin" });
-    change(el("work-orders-sort"), "scheduled_desc");
+    sortBtn("scheduled_desc").click();
     await flush();
     expect(listUrls()).toHaveLength(0);
   });
 
   it("ignores an unrecognised value", async () => {
     await mountWorkOrders({ role: "admin" });
-    const rogue = document.createElement("option");
-    rogue.value = "by_vibes";
+    const rogue = document.createElement("button");
+    rogue.dataset.sort = "by_vibes";
     el("work-orders-sort").appendChild(rogue);
-    change(el("work-orders-sort"), "by_vibes");
+    rogue.click();
     await flush();
     expect(listUrls()).toHaveLength(0);
   });
