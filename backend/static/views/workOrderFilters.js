@@ -167,6 +167,18 @@ export function listParams() {
   return { ...currentFilters(), sort: sortDir };
 }
 
+// Selects `value` even when the dropdown has no such <option> yet. The Hub's
+// hand-offs run before this page has ever fetched its filter options, and a
+// <select> silently ignores a value it cannot find -- which used to drop the
+// community, service type and priority on the way in. The stand-in option is
+// replaced by the real one when `loadFilterOptions` repopulates; if the real
+// list does not carry it, that repopulate reports the selection as dropped.
+export function selectFilterValue(select, value, label = value) {
+  if (!select || !value) return;
+  if (!Array.from(select.options).some((option) => option.value === value)) select.add(new Option(label, value));
+  select.value = value;
+}
+
 export function resetFilterControls() {
   if (mineFilter) mineFilter.checked = false;
   [statusFilter, serviceTypeFilter, priorityFilter, supervisorFilter, technicianFilter, communityFilter, scheduledDateFilter].forEach((control) => {

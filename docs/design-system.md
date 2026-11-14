@@ -182,10 +182,15 @@ backgrounds carrying white text, which the dark canvas does not affect.
 
 The User Hub Graphs tab is the sole categorical-color exception. It may reuse
 the seven named `--wo-status-*` lifecycle tokens already used by work-order
-cards, but each donut must have an adjacent text legend with status, count, and
-percentage. Color, hover, and a pointer device are never required to read an
-exact value. Other charts remain single-series or text-first unless this policy
-is deliberately amended.
+cards. A pie tile shows its total and sits under one shared status key for the
+grid; opened in the pop-up, the pie must have an adjacent text legend with
+status, count, and percentage. Color, hover, and a pointer device are never
+required to read an exact value. Other charts remain single-series or
+text-first unless this policy is deliberately amended.
+
+Every Graphs chart is a tile that opens in a pop-up
+(`.modal-overlay.hub-graph-sheet`): full-screen on a phone, a centred panel otherwise, with
+the page behind unable to scroll. Only the red ✕ (or Esc / Back) closes it.
 
 ### Work-order cards: status, priority, actions
 

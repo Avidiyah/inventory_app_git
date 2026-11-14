@@ -941,11 +941,22 @@ class GraphStatus:
 
 
 @dataclass(frozen=True)
-class GraphDistribution:
-    key: str
-    label: str
-    total: int
-    counts: dict[str, int]
+class GraphCell:
+    """The live work orders that agree on every way the Graphs tab cuts them.
+
+    The browser sums cells for whichever combination of community, service
+    type, priority and status is on screen, so one work order is counted once
+    however it is sliced. `communities` is every community the rows belong
+    to: a row naming two is a single cell listed under both, which is why
+    community pies overlap while service-type and priority pies do not.
+    `priority` is None for a blank ("Not imported") priority.
+    """
+
+    communities: tuple[str, ...]
+    service_type: str
+    priority: Optional[str]
+    status: str
+    count: int
 
 
 @dataclass(frozen=True)
@@ -979,21 +990,8 @@ class GraphDuration:
 
 @dataclass(frozen=True)
 class GraphCommunity:
-    """One community's status donut plus the two ways to split it.
-
-    `counts` is the community's own distribution over every status; the two
-    inner lists are the same distribution re-cut by service type and by raw
-    vendor priority. Every donut in the Graphs tree is a status distribution
-    -- only the row set narrows -- so `GraphDistribution` is reused verbatim
-    for both.
-    """
-
     key: str
     label: str
-    total: int
-    counts: dict[str, int]
-    service_types: list[GraphDistribution]
-    priorities: list[GraphDistribution]
 
 
 @dataclass(frozen=True)
@@ -1002,6 +1000,7 @@ class HubGraphsPayload:
     weeks: int
     statuses: list[GraphStatus]
     communities: list[GraphCommunity]
+    cells: list[GraphCell]
     duration: GraphDuration
 
 
@@ -1016,15 +1015,11 @@ _GRAPH_STATUS_LABELS = {
 }
 
 
-def _empty_graph_counts() -> dict[str, int]:
-    return {status: 0 for status in wo.ALL_STATUSES}
-
-
 def _keep_smallest_label(labels: dict[str, str], key: str, label: str) -> None:
     """Keep the smallest raw spelling by code point for one grouping key.
 
     Rows that differ only by case or padding (`High`/`high`, `HVAC `/`hvac`)
-    collapse into one card, and that card's label has to be a value the Work
+    collapse into one pie, and that pie's label has to be a value the Work
     Orders dropdowns can actually select -- the drill-through assigns it to a
     `<select>`, which silently ignores a value matching no `<option>`. Those
     dropdowns are built by `services.work_orders._distinct_filter_values`,
@@ -1035,27 +1030,6 @@ def _keep_smallest_label(labels: dict[str, str], key: str, label: str) -> None:
     current = labels.get(key)
     if current is None or label < current:
         labels[key] = label
-
-
-def _sorted_distributions(
-    counts: dict[str, dict[str, int]], labels: dict[str, str]
-) -> list[GraphDistribution]:
-    """One community's inner grid, largest first then alphabetical.
-
-    `counts` is scoped to the community; `labels` is company-wide, so the
-    same grouping key reads the same on every community's card.
-    """
-    rows = [
-        GraphDistribution(
-            key=key,
-            label=labels[key],
-            total=sum(status_counts.values()),
-            counts=status_counts,
-        )
-        for key, status_counts in counts.items()
-    ]
-    rows.sort(key=lambda row: (-row.total, row.label.casefold()))
-    return rows
 
 
 # A close this many calendar days after the schedule date is still on time.
@@ -1104,21 +1078,15 @@ def graphs_hub(
         for status in wo.ALL_STATUSES
     ]
 
-    community_counts = {key: _empty_graph_counts() for key in wo.ALL_COMMUNITY_FILTERS}
-    # community key -> grouping key -> status counts, and a parallel map of
-    # the display label chosen for each grouping key.
-    service_counts: dict[str, dict[str, dict[str, int]]] = {
-        key: {} for key in wo.ALL_COMMUNITY_FILTERS
-    }
-    priority_counts: dict[str, dict[str, dict[str, int]]] = {
-        key: {} for key in wo.ALL_COMMUNITY_FILTERS
-    }
-    # The label maps are deliberately NOT per community. The dropdowns a
-    # click-through writes into are built once over every live row, so a
-    # per-community minimum could pick `High` for a community whose rows all
-    # spell it that way while the dropdown only offers the globally smaller
-    # `HIGH` -- and the `<select>` would silently ignore it. Choosing the
-    # label over all rows makes the two agree by construction.
+    # (community memberships, service key, priority key, status) -> live rows.
+    cell_counts: dict[tuple[tuple[str, ...], str, str, str], int] = {}
+    # One display label per grouping key, chosen over every live row and
+    # deliberately NOT per community. The dropdowns a click-through writes
+    # into are built once over every live row, so a per-community minimum
+    # could pick `High` for a community whose rows all spell it that way
+    # while the dropdown only offers the globally smaller `HIGH` -- and the
+    # `<select>` would silently ignore it. Choosing the label over all rows
+    # makes the two agree by construction.
     service_labels: dict[str, str] = {}
     priority_labels: dict[str, str] = {}
     live_rows = (
@@ -1138,34 +1106,34 @@ def graphs_hub(
         if status not in wo.ALL_STATUSES:
             continue
         service_key, service_label = wo.normalize_service_type(service_type)
-        # Raw vendor priority text, not `priority_bucket()`: these cards map
-        # 1:1 onto the Work Orders page's exact-text "Priority" dropdown.
-        # A blank priority ("Not imported") gets no card at all, so a
-        # community's priority cards deliberately do not sum to its total --
-        # unlike service type, which keeps an Unspecified bucket.
+        # Raw vendor priority text, not `priority_bucket()`: the priority pies
+        # map 1:1 onto the Work Orders page's exact-text "Priority" dropdown.
+        # A blank priority ("Not imported") keeps an empty key and travels as
+        # None: it gets no pie, so priority pies deliberately do not sum to
+        # their parent's total -- unlike service type, which keeps an
+        # Unspecified bucket.
         priority_label = (priority or "").strip()
         priority_key = priority_label.casefold()
         _keep_smallest_label(service_labels, service_key, service_label)
         if priority_key:
             _keep_smallest_label(priority_labels, priority_key, priority_label)
-        # A row naming two communities is counted in both, in all three
-        # places, so community totals do not sum to a company total.
-        for key in wo.community_memberships(community, location):
-            community_counts[key][status] += 1
-            service_counts[key].setdefault(service_key, _empty_graph_counts())[status] += 1
-            if priority_key:
-                priority_counts[key].setdefault(priority_key, _empty_graph_counts())[status] += 1
+        # A row naming two communities is ONE cell listed under both, so a
+        # community pie counts it in each while every other pie counts it once.
+        cell = (wo.community_memberships(community, location), service_key, priority_key, status)
+        cell_counts[cell] = cell_counts.get(cell, 0) + 1
 
     communities = [
-        GraphCommunity(
-            key=key,
-            label=wo.COMMUNITY_LABELS[key],
-            total=sum(community_counts[key].values()),
-            counts=community_counts[key],
-            service_types=_sorted_distributions(service_counts[key], service_labels),
-            priorities=_sorted_distributions(priority_counts[key], priority_labels),
+        GraphCommunity(key=key, label=label) for key, label in wo.COMMUNITY_LABELS.items()
+    ]
+    cells = [
+        GraphCell(
+            communities=memberships,
+            service_type=service_labels[service_key],
+            priority=priority_labels.get(priority_key),
+            status=status,
+            count=count,
         )
-        for key in wo.ALL_COMMUNITY_FILTERS
+        for (memberships, service_key, priority_key, status), count in sorted(cell_counts.items())
     ]
 
     first_start, _, _ = periods[0]
@@ -1243,6 +1211,7 @@ def graphs_hub(
         weeks=weeks,
         statuses=statuses,
         communities=communities,
+        cells=cells,
         duration=GraphDuration(
             range=GraphDurationRange(start=first_start, end=last_end),
             buckets=buckets,

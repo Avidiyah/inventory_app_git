@@ -110,12 +110,16 @@ describe("loadUserHub by role", () => {
     expect(el.panel("timesheets").children).toHaveLength(0);
   });
 
-  it("a role downgrade off a hidden tab lands on home", async () => {
+  it("a role downgrade off a hidden tab lands on home, closing an open Graphs pop-up", async () => {
     const { mod } = await openHub({ role: "techfm_oa" });
     await user().click(el.tab("graphs"));
-    await vi.waitFor(() => expect(requestFor("/hub/graphs")).not.toBeNull());
+    await vi.waitFor(() => expect(el.panel("graphs").querySelector("[data-graph-pie]")).not.toBeNull());
+    await user().click(el.panel("graphs").querySelector("[data-graph-pie]"));
+    expect(document.querySelector(".hub-graph-sheet").hidden).toBe(false);
     server.use(http.get("/hub", () => HttpResponse.json(hubPayload({ user: { id: "u", role: "supervisor" } }))));
     await mod.loadUserHub();
+    await vi.advanceTimersByTimeAsync(0);   // menus.js's zero-delay timer for the focus the closing pop-up gave back
+    expect(document.querySelector(".hub-graph-sheet")).toBeNull();
     expect(el.tab("graphs").hidden).toBe(true);
     expect(el.tab("home").classList.contains("active")).toBe(true);
     expect(el.panel("graphs").children).toHaveLength(0);
@@ -160,39 +164,42 @@ describe("tabs", () => {
     await user().click(el.tab("dashboard"));
     await user().click(el.tab("graphs"));           // background refetch, from memory first
     await vi.waitFor(() => expect(queries("/hub/graphs")).toHaveLength(3));
-    await user().selectOptions(el.panel("graphs").querySelector(".hub-graphs-weeks"), "26");
+    await user().click(el.panel("graphs").querySelector('[data-graph-trend="days"]'));
+    await user().click(document.querySelector('.hub-graph-sheet [data-graph-weeks="26"]'));
     await vi.waitFor(() => expect(queries("/hub/graphs")).toHaveLength(4));
     expect(queries("/hub/graphs")[3]).toEqual({ weeks: "26" });
   });
 
-  it("Graphs: a community tab click re-renders from memory; the choice survives a range change", async () => {
-    const graphs = hubGraphs({ communities: [
-      { key: "maple", label: "Maple", total: 5, counts: { assigned: 5 }, service_types: [], priorities: [] },
-      { key: "oak", label: "Oak", total: 1, counts: { assigned: 1 }, service_types: [], priorities: [] },
-    ] });
-    await openHub({ role: "admin", graphs });
+  it("Graphs: the grouping switch re-renders from memory; the choice survives a range change", async () => {
+    await openHub({ role: "admin" });
     await user().click(el.tab("graphs"));
     await vi.waitFor(() => expect(el.panel("graphs").querySelector(".hub-graphs")).not.toBeNull());
-    expect(el.panel("graphs").querySelector('[data-graph-tab="maple"]').classList.contains("active")).toBe(true); // largest first
+    const pressed = (dim) => el.panel("graphs").querySelector(`[data-graph-front="${dim}"]`).getAttribute("aria-pressed");
+    expect(pressed("community")).toBe("true");
     const before = queries("/hub/graphs").length;
-    await user().click(el.panel("graphs").querySelector('[data-graph-tab="oak"]'));
+    await user().click(el.panel("graphs").querySelector('[data-graph-front="priority"]'));
     expect(queries("/hub/graphs")).toHaveLength(before);
-    expect(el.panel("graphs").querySelector('[data-graph-tab="oak"]').classList.contains("active")).toBe(true);
-    await user().selectOptions(el.panel("graphs").querySelector(".hub-graphs-weeks"), "52");
+    expect(pressed("priority")).toBe("true");
+    await user().click(el.panel("graphs").querySelector('[data-graph-trend="ontime"]'));
+    await user().click(document.querySelector('.hub-graph-sheet [data-graph-weeks="52"]'));
     await vi.waitFor(() => expect(queries("/hub/graphs")).toHaveLength(before + 1));
-    await vi.waitFor(() => expect(el.panel("graphs").querySelector('[data-graph-tab="oak"]').classList.contains("active")).toBe(true));
+    expect(queries("/hub/graphs").at(-1)).toEqual({ weeks: "52" });
+    expect(document.querySelector(".hub-graph-sheet").hidden).toBe(false);   // the refetch re-draws under the open pop-up
+    expect(pressed("priority")).toBe("true");
   });
 
-  it("Graphs distribution click hands off to Work Orders with the filter", async () => {
+  it("a Graphs pie's red button hands off to Work Orders with the filter", async () => {
     const { mod } = await openHub({ role: "admin", handlers: [
       http.get("/work-orders/filter-options", () => HttpResponse.json(filterOptions())),
       http.get("/items/", () => HttpResponse.json([])),
       http.get("/users/", () => HttpResponse.json([])),
     ] });
     await user().click(el.tab("graphs"));
-    await vi.waitFor(() => expect(el.panel("graphs").querySelector(".hub-graph-card-all")).not.toBeNull());
-    await user().click(el.panel("graphs").querySelector(".hub-graph-card-all"));
+    await vi.waitFor(() => expect(el.panel("graphs").querySelector("[data-graph-pie]")).not.toBeNull());
+    await user().click(el.panel("graphs").querySelector("[data-graph-pie]"));
+    await user().click(document.querySelector(".hub-graph-sheet [data-graph-go]"));
     expect(document.getElementById("work-orders-page").classList.contains("active")).toBe(true);
+    expect(document.getElementById("work-orders-community-filter").value).toBe("maple");
     expect(mod).toBeTruthy();
   });
 
@@ -252,15 +259,11 @@ describe("failure isolation", () => {
     expect(el.panel("graphs").querySelector(".hub-graphs")).not.toBeNull();
   });
 
-  it("an empty graphs payload is swallowed: the skeleton stays and no error shows", async () => {
-    // mountHubGraphs reads `activeCommunity.key` with no communities and throws;
-    // loadGraphs has already stored the payload, so its catch returns early.
-    // Characterization -- see open-work.md N-P5-CHARACTERIZED.
-    await openHub({ role: "admin", graphs: hubGraphs({ communities: [] }) });
+  it("an empty graphs payload renders its empty state, not a stuck skeleton", async () => {
+    await openHub({ role: "admin", graphs: hubGraphs({ communities: [], cells: [] }) });
     await user().click(el.tab("graphs"));
-    await vi.waitFor(() => expect(queries("/hub/graphs").length).toBeGreaterThan(0));
-    await vi.advanceTimersByTimeAsync(50);
-    expect(el.panel("graphs").querySelector(".skel-grid")).not.toBeNull();
+    await vi.waitFor(() => expect(el.panel("graphs").querySelector(".hub-graph-empty")).not.toBeNull());
+    expect(el.panel("graphs").querySelector(".skel-grid")).toBeNull();
     expect(el.panel("graphs").querySelector(".hub-graphs-load-error")).toBeNull();
   });
 

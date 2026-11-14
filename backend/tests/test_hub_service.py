@@ -642,24 +642,24 @@ def test_the_crew_payload_serialises_into_the_response_schema(db):
 # --- graphs_hub (P4 slice 2: guided company-wide graphs) -------------------
 
 
-def _graph_communities(payload):
-    return {row.key: row for row in payload.communities}
-
-
-def _distribution_count(rows, key, status):
-    """The status count on one inner card, or 0 when the card is absent.
+def _cell_count(payload, *, community=None, service_type=None, priority=None, status=None):
+    """Live rows matching every cut given, summed the way the browser does.
 
     The dev database this fixture runs against already holds rows, so every
     graphs assertion below is a delta against a baseline payload rather than
     an absolute count.
     """
-    for row in rows:
-        if row.key == key:
-            return row.counts[status]
-    return 0
+    return sum(
+        cell.count
+        for cell in payload.cells
+        if (community is None or community in cell.communities)
+        and (service_type is None or cell.service_type.casefold() == service_type)
+        and (priority is None or (cell.priority or "").casefold() == priority)
+        and (status is None or cell.status == status)
+    )
 
 
-def test_graphs_hub_nests_service_type_and_priority_under_each_community(db):
+def test_graphs_hub_counts_a_live_row_under_every_cut_at_once(db):
     creator = _seed_user(db, roles.ROLE_TECHFM_OA)
     baseline = hub_service.graphs_hub(db, creator, weeks=12, now=NOW)
     commons = _seed_work_order(db, created_by=creator, status=wo.STATUS_CREATED)
@@ -676,17 +676,21 @@ def test_graphs_hub_nests_service_type_and_priority_under_each_community(db):
     db.flush()
 
     payload = hub_service.graphs_hub(db, creator, weeks=12, now=NOW)
-    before = _graph_communities(baseline)[wo.COMMUNITY_COMMONS]
-    after = _graph_communities(payload)[wo.COMMUNITY_COMMONS]
 
-    # One live row lands in all three places under the same status key; the
-    # archived one lands in none of them.
-    assert after.counts[wo.STATUS_CREATED] == before.counts[wo.STATUS_CREATED] + 1
-    assert _distribution_count(after.service_types, "hvac", wo.STATUS_CREATED) == (
-        _distribution_count(before.service_types, "hvac", wo.STATUS_CREATED) + 1
-    )
-    assert _distribution_count(after.priorities, "high", wo.STATUS_CREATED) == (
-        _distribution_count(before.priorities, "high", wo.STATUS_CREATED) + 1
+    # One live row answers every combination of cuts the tab can ask for; the
+    # archived one answers none of them.
+    for cuts in (
+        {},
+        {"community": wo.COMMUNITY_COMMONS},
+        {"service_type": "hvac"},
+        {"priority": "high"},
+        {"community": wo.COMMUNITY_COMMONS, "service_type": "hvac"},
+        {"community": wo.COMMUNITY_COMMONS, "service_type": "hvac", "priority": "high"},
+    ):
+        cuts = {**cuts, "status": wo.STATUS_CREATED}
+        assert _cell_count(payload, **cuts) == _cell_count(baseline, **cuts) + 1, cuts
+    assert _cell_count(payload, status=wo.STATUS_COMPLETED) == _cell_count(
+        baseline, status=wo.STATUS_COMPLETED
     )
 
     current = payload.duration.buckets[-1]
@@ -706,16 +710,14 @@ def test_graphs_hub_counts_a_two_community_row_in_both_communities(db):
 
     payload = hub_service.graphs_hub(db, creator, weeks=12, now=NOW)
 
+    cuts = {"service_type": "electrical", "priority": "medium", "status": wo.STATUS_ON_HOLD}
     for key in (wo.COMMUNITY_COMMONS, wo.COMMUNITY_YOUNG_HALL):
-        before = _graph_communities(baseline)[key]
-        after = _graph_communities(payload)[key]
-        assert after.counts[wo.STATUS_ON_HOLD] == before.counts[wo.STATUS_ON_HOLD] + 1
-        assert _distribution_count(after.service_types, "electrical", wo.STATUS_ON_HOLD) == (
-            _distribution_count(before.service_types, "electrical", wo.STATUS_ON_HOLD) + 1
+        assert _cell_count(payload, community=key, **cuts) == (
+            _cell_count(baseline, community=key, **cuts) + 1
         )
-        assert _distribution_count(after.priorities, "medium", wo.STATUS_ON_HOLD) == (
-            _distribution_count(before.priorities, "medium", wo.STATUS_ON_HOLD) + 1
-        )
+    # ...but it is one work order: a pie that is not cut by community (the
+    # company-wide service-type and priority pies) counts it once, not twice.
+    assert _cell_count(payload, **cuts) == _cell_count(baseline, **cuts) + 1
 
 
 def test_graphs_hub_gives_a_blank_priority_no_card_but_still_counts_it(db):
@@ -728,16 +730,20 @@ def test_graphs_hub_gives_a_blank_priority_no_card_but_still_counts_it(db):
     db.flush()
 
     payload = hub_service.graphs_hub(db, creator, weeks=12, now=NOW)
-    before = _graph_communities(baseline)[wo.COMMUNITY_SCHOLARS]
-    after = _graph_communities(payload)[wo.COMMUNITY_SCHOLARS]
+    cuts = {"community": wo.COMMUNITY_SCHOLARS, "status": wo.STATUS_ASSIGNED}
 
-    assert after.counts[wo.STATUS_ASSIGNED] == before.counts[wo.STATUS_ASSIGNED] + 1
-    assert _distribution_count(after.service_types, "plumbing", wo.STATUS_ASSIGNED) == (
-        _distribution_count(before.service_types, "plumbing", wo.STATUS_ASSIGNED) + 1
+    assert _cell_count(payload, **cuts) == _cell_count(baseline, **cuts) + 1
+    assert _cell_count(payload, service_type="plumbing", **cuts) == (
+        _cell_count(baseline, service_type="plumbing", **cuts) + 1
     )
-    # No blank-priority card, so the priority cards do not sum to the total.
-    assert sum(row.total for row in after.priorities) == sum(row.total for row in before.priorities)
-    assert all(row.key for row in after.priorities)
+
+    # A blank priority travels as None, never as a blank label, so it gets no
+    # priority pie and the priority pies do not sum to the total.
+    def with_priority(result):
+        return sum(cell.count for cell in result.cells if cell.priority is not None)
+
+    assert with_priority(payload) == with_priority(baseline)
+    assert all(cell.priority is None or cell.priority.strip() for cell in payload.cells)
 
 
 def test_graphs_hub_labels_are_always_selectable_in_the_work_orders_filters(db):
@@ -756,29 +762,32 @@ def test_graphs_hub_labels_are_always_selectable_in_the_work_orders_filters(db):
 
     payload = hub_service.graphs_hub(db, creator, weeks=12, now=NOW)
     options = wos.get_work_order_filter_options(db, user=creator)
-    centennial = _graph_communities(payload)[wo.COMMUNITY_CENTENNIAL]
+    centennial = {"community": wo.COMMUNITY_CENTENNIAL, "status": wo.STATUS_CREATED}
 
-    assert _distribution_count(centennial.priorities, "high", wo.STATUS_CREATED) >= 3
-    assert _distribution_count(centennial.service_types, "hvac", wo.STATUS_CREATED) >= 3
-    for community in payload.communities:
-        for row in community.priorities:
-            assert row.label in options["priorities"]
-        for row in community.service_types:
-            assert row.label == "Unspecified" or row.label in options["service_types"]
+    assert _cell_count(payload, priority="high", **centennial) >= 3
+    assert _cell_count(payload, service_type="hvac", **centennial) >= 3
+    # One spelling per grouping, company-wide: the three variants share a cell.
+    assert len({cell.priority for cell in payload.cells if (cell.priority or "").casefold() == "high"}) == 1
+    assert len({cell.service_type for cell in payload.cells if cell.service_type.casefold() == "hvac"}) == 1
+    for cell in payload.cells:
+        assert cell.priority is None or cell.priority in options["priorities"]
+        assert cell.service_type == "Unspecified" or cell.service_type in options["service_types"]
 
 
-def test_graphs_hub_emits_every_community_with_sorted_inner_lists(db):
+def test_graphs_hub_emits_every_community_and_one_cell_per_combination(db):
     creator = _seed_user(db, roles.ROLE_TECHFM_OA)
 
     payload = hub_service.graphs_hub(db, creator, weeks=12, now=NOW)
 
-    assert [row.key for row in payload.communities] == list(wo.ALL_COMMUNITY_FILTERS)
-    for community in payload.communities:
-        assert community.total == sum(community.counts.values())
-        assert set(community.counts) == set(wo.ALL_STATUSES)
-        for rows in (community.service_types, community.priorities):
-            assert all(row.total == sum(row.counts.values()) for row in rows)
-            assert rows == sorted(rows, key=lambda row: (-row.total, row.label.casefold()))
+    assert [(row.key, row.label) for row in payload.communities] == list(wo.COMMUNITY_LABELS.items())
+    combinations = [
+        (cell.communities, cell.service_type, cell.priority, cell.status) for cell in payload.cells
+    ]
+    assert len(combinations) == len(set(combinations))
+    for cell in payload.cells:
+        assert cell.count > 0
+        assert cell.status in wo.ALL_STATUSES
+        assert cell.communities and set(cell.communities) <= set(wo.ALL_COMMUNITY_FILTERS)
 
 
 def test_graphs_hub_keeps_empty_duration_samples_as_null(db):

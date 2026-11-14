@@ -26,7 +26,7 @@ import { mountHubAdminSummary } from "./hubAdmin.js";
 import { startHubRosterTicking, stopHubRosterTicking } from "./hubAttendanceRoster.js";
 import { refreshTimesheetsLive, renderTimesheetsTab, resetTimesheetsTab } from "./hubTimesheetsTab.js";
 import { renderLeaderboardsTab, resetLeaderboardsTab } from "./hubLeaderboardsTab.js";
-import { destroyHubGraphs, largestCommunityKey, mountHubGraphs } from "./hubGraphs.js";
+import { destroyHubGraphs, mountHubGraphs } from "./hubGraphs.js";
 import { mountHubReport, renderReportError, renderReportSkeleton } from "./hubReport.js";
 import { openWorkOrdersFilteredByDistribution } from "./workOrders.js";
 import { showPage } from "./nav.js";
@@ -75,13 +75,6 @@ let adminRequestId = 0;
 let latestGraphsPayload = null;
 let graphWeeks = 12;
 let graphRequestId = 0;
-// The Graphs tab's drill position. `graphCommunity` stays null until the
-// first render picks the largest community; after that only a tab click
-// changes it, so a range change (which refetches) keeps the viewer's place
-// even if a different community is now the largest. Neither persists across
-// a page reload.
-let graphCommunity = null;
-let graphInner = "service_type";
 let latestReportPayload = null;
 let reportRequestId = 0;
 // The Monday the Report tab is showing; null is the week in progress. Kept
@@ -262,20 +255,12 @@ function renderActiveTab() {
 function renderGraphs() {
   const mount = tabPanels.graphs;
   if (!mount || !latestGraphsPayload) return;
-  destroyHubGraphs();
-  if (!graphCommunity) graphCommunity = largestCommunityKey(latestGraphsPayload);
+  // hubGraphs.js keeps what the viewer has open (grouping, pop-up, drill
+  // path) across these re-mounts; `destroyHubGraphs` forgets it.
   mountHubGraphs(mount, latestGraphsPayload, {
-    community: graphCommunity,
-    inner: graphInner,
     onWeekChange: (weeks) => {
       graphWeeks = weeks;
       void loadGraphs();
-    },
-    onTabChange: ({ community, inner }) => {
-      // Both tab strips re-render from the payload already in memory.
-      if (community) graphCommunity = community;
-      if (inner) graphInner = inner;
-      renderGraphs();
     },
     onDistributionClick: (filters) => {
       openWorkOrdersFilteredByDistribution(filters);
@@ -519,8 +504,7 @@ export async function loadUserHub() {
     latestGraphsPayload = null;
     graphRequestId += 1;
     graphWeeks = 12;
-    graphCommunity = null;
-    graphInner = "service_type";
+    destroyHubGraphs();
     tabPanels.graphs.replaceChildren();
   }
   // Reset with the admin state, not after `showTab`: otherwise a role change

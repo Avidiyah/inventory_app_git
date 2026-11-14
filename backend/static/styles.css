@@ -866,8 +866,7 @@ button:focus-visible {
     padding: var(--space-2) 0;
 }
 
-/* Card-grid loading state, sized to match .hub-graph-grid so the Hub tabs
-   don't reflow when the real cards land. */
+/* Card-grid loading state for the Hub tabs. */
 .skel-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(245px, 100%), 1fr));
@@ -2364,35 +2363,53 @@ tr.archived-user {
     display: block;
 }
 
-/* TechFM OA+ guided report. SVG is intentionally paired with an HTML legend
-   or table so exact values never depend on hover, touch, or color vision. */
-.hub-graphs > section { margin-bottom: var(--space-8); }
-.hub-graphs-header { display: flex; justify-content: space-between; gap: var(--space-4); align-items: start; margin-bottom: var(--space-5); }
-.hub-graphs-header h2, .hub-graphs h2, .hub-graph-card h3 { margin-top: 0; }
-.hub-graphs-range { display: flex; align-items: center; gap: var(--space-2); white-space: nowrap; }
-.hub-graphs-range select { margin-top: 0; }
-.hub-graph-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(245px, 100%), 1fr)); gap: var(--space-4); }
-.hub-graph-card, .hub-duration-section { background: var(--panel-nested); border: var(--border); border-radius: var(--radius-md); padding: var(--space-4); }
-.hub-graph-card h3 { font-size: var(--fs-lg); }
-/* Nested tab strips inside the Graphs panel: community first, then the
-   service-type/priority split within it. Reuses the page-level `.hub-tab`
-   visual language; the community strip wraps rather than scrolling, since
-   five labels with counts overflow a narrow viewport. */
-.hub-graphs-tabs { flex-wrap: wrap; margin-bottom: var(--space-3); }
-.hub-graphs-tab { font-size: var(--fs-sm); }
-.hub-graph-community { max-width: 320px; margin-bottom: var(--space-5); }
-/* The card is a plain div now (it holds buttons, and HTML forbids nesting
-   them), so the drill targets carry their own hover/focus affordance. */
-.hub-graph-card:hover, .hub-graph-card:focus-within { border-color: var(--color-brand); }
-.hub-graph-slice { cursor: pointer; }
-.hub-graph-slice:hover { opacity: 0.78; }
-.hub-graph-legend-row { display: flex; width: 100%; justify-content: space-between; gap: var(--space-2); align-items: center; background: none; border: none; margin: 0; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
-.hub-graph-legend-row:hover, .hub-graph-legend-row:focus-visible { color: var(--color-brand); }
-.hub-graph-card-all { display: block; width: 100%; margin-top: var(--space-3); background: none; border: var(--border); border-radius: var(--radius-sm); padding: var(--space-1) var(--space-2); min-height: var(--btn-h-sm); font: inherit; font-weight: var(--fw-semibold); font-size: var(--fs-sm); color: var(--text-panel-mute); cursor: pointer; }
-.hub-graph-card-all:hover, .hub-graph-card-all:focus-visible { border-color: var(--color-brand); color: var(--text-panel); }
-.hub-donut-wrap { width: min(190px, 100%); margin: var(--space-3) auto; position: relative; }
-.hub-donut { display: block; width: 100%; overflow: visible; fill: none; stroke-width: 17; transform: rotate(0deg); }
-.hub-graph-slice { stroke-linecap: butt; }
+/* TechFM OA+ Graphs tab. Every chart is a tile that opens in a pop-up. SVG is
+   intentionally paired with an HTML legend or table so exact values never
+   depend on hover, touch, or color vision. */
+.hub-graphs-header { margin-bottom: var(--space-5); }
+.hub-graphs h2, .hub-graphs h3, .hub-graph-sheet-box h2, .hub-graph-sheet-box h3 { margin-top: 0; }
+.hub-graphs-header .hint, .hub-graph-sheet-head .hint { margin: 0; }
+.hub-graph-section { margin-bottom: var(--space-6); }
+.hub-graph-section > h3 { margin-bottom: 0; font-size: var(--fs-lg); }
+.hub-graph-section > .hint { margin: var(--space-1) 0 var(--space-3); }
+/* Segmented switch: the front grouping, a pop-up's break-down, the trend range.
+   Every non-red button below restates :hover and :active, because the global
+   `button:hover` / `button:active` would otherwise flash it brand red. */
+.hub-graph-seg { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: var(--space-2); max-width: 480px; margin-bottom: var(--space-3); }
+.hub-graph-seg-btn, .hub-graph-seg-btn:hover, .hub-graph-seg-btn:active { background-color: var(--panel-hover); }
+.hub-graph-seg-btn { min-height: var(--btn-h-sm); margin: 0; padding: 0 var(--space-2); border-radius: var(--radius-pill); color: var(--text-panel-mute); font-size: var(--fs-sm); font-weight: var(--fw-semibold); }
+.hub-graph-seg-btn:hover { color: var(--text-panel); }
+.hub-graph-seg-btn[aria-pressed="true"], .hub-graph-seg-btn[aria-pressed="true"]:hover { background-color: var(--color-brand); color: var(--color-white); }
+/* One colour key for every pie in the tile grid below it. */
+.hub-graph-status-key { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: 0 0 var(--space-3); padding: 0; list-style: none; color: var(--text-panel-mute); font-size: var(--fs-xs); }
+.hub-graph-status-key li { display: flex; align-items: center; gap: var(--space-1); }
+/* auto-fill, not auto-fit: a lone tile keeps tile width instead of stretching.
+   84px and 130px are the narrowest that still seat three pies / two trends
+   across the Hub panel on a 375px phone. */
+.hub-graph-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(84px, 100%), 1fr)); gap: var(--space-2); }
+.hub-trend-tiles { grid-template-columns: repeat(auto-fill, minmax(min(130px, 100%), 1fr)); }
+.hub-graph-tile, .hub-graph-tile:hover, .hub-graph-tile:active { background-color: var(--panel-bg); }
+.hub-graph-tile { display: grid; justify-items: center; align-content: start; gap: var(--space-2); min-width: 0; margin: 0; padding: var(--space-3) var(--space-1); border: 1px solid var(--panel-border); box-shadow: var(--shadow-panel); color: var(--text-panel); font-size: var(--fs-sm); font-weight: var(--fw-semibold); }
+.hub-graph-tile:hover, .hub-graph-tile:focus-visible { border-color: var(--color-brand-light); }
+.hub-graph-tile:disabled { border-color: var(--panel-rule-soft); box-shadow: none; opacity: 0.6; cursor: default; }
+.hub-graph-tile-donut { position: relative; width: 68px; }
+.hub-graph-tile-total { position: absolute; inset: 0; display: grid; place-content: center; font-size: var(--fs-base); font-weight: var(--fw-bold); }
+/* Small enough that a one-word name (Centennial, Maintenance) stays whole on
+   the narrowest tile; a longer word hyphenates rather than snapping mid-word. */
+.hub-graph-tile-label { max-width: 100%; font-size: var(--fs-xs); line-height: 1.25; text-align: center; overflow-wrap: break-word; hyphens: auto; }
+.hub-trend-tile { justify-items: stretch; padding: var(--space-3); text-align: left; }
+.hub-trend-tile .hub-graph-tile-label { font-size: var(--fs-sm); text-align: left; }
+.hub-trend-stat { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-2); color: var(--text-panel-mute); font-size: var(--fs-xs); font-weight: var(--fw-regular); }
+.hub-trend-stat b { color: var(--text-panel); font-size: var(--fs-lg); }
+.hub-trend-spark { display: block; width: 100%; height: 34px; }
+.hub-trend-spark .hub-duration-line { stroke-width: 2; vector-effect: non-scaling-stroke; }
+.hub-trend-tile-foot { color: var(--text-panel-mute); font-size: var(--fs-xs); font-weight: var(--fw-regular); }
+.hub-donut-wrap { position: relative; }
+.hub-donut { display: block; width: 100%; overflow: visible; fill: none; stroke-width: 17; }
+.hub-donut-empty { stroke: var(--panel-rule-soft); }
+.hub-graph-slice { stroke-linecap: butt; transition: opacity 0.15s; }
+.hub-graph-slice[data-status] { cursor: pointer; }
+.hub-graph-slice-dim { opacity: 0.22; }
 .hub-graph-slice-created, .hub-graph-swatch-created { stroke: var(--wo-status-created); background: var(--wo-status-created); }
 .hub-graph-slice-assigned, .hub-graph-swatch-assigned { stroke: var(--wo-status-assigned); background: var(--wo-status-assigned); }
 .hub-graph-slice-in_progress, .hub-graph-swatch-in_progress { stroke: var(--wo-status-in-progress); background: var(--wo-status-in-progress); }
@@ -2400,14 +2417,57 @@ tr.archived-user {
 .hub-graph-slice-ready_to_complete, .hub-graph-swatch-ready_to_complete { stroke: var(--wo-status-ready-to-complete); background: var(--wo-status-ready-to-complete); }
 .hub-graph-slice-completed, .hub-graph-swatch-completed { stroke: var(--wo-status-completed); background: var(--wo-status-completed); }
 .hub-graph-slice-review, .hub-graph-swatch-review { stroke: var(--wo-status-review); background: var(--wo-status-review); }
-.hub-donut-total { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; font-weight: var(--fw-bold); font-size: var(--fs-xl); }
-.hub-donut-total small { display: block; color: var(--text-panel-mute); font-size: var(--fs-xs); font-weight: var(--fw-regular); }
-.hub-graph-empty { min-height: 150px; display: grid; place-items: center; text-align: center; color: var(--text-panel-mute); }
-.hub-graph-legend { list-style: none; margin: 0; padding: 0; font-size: var(--fs-sm); }
-.hub-graph-legend li { display: flex; border-top: 1px solid var(--panel-rule-soft); padding: var(--space-1) 0; font-variant-numeric: tabular-nums; }
-.hub-graph-key { display: flex; align-items: center; gap: var(--space-2); }
+.hub-donut-total { position: absolute; inset: 0; display: grid; place-content: center; padding: 0 22px; text-align: center; font-weight: var(--fw-bold); font-size: var(--fs-xl); line-height: 1.1; }
+.hub-donut-total small { display: block; color: var(--text-panel-mute); font-size: 11px; font-weight: var(--fw-regular); }
+.hub-graph-empty { min-height: 120px; display: grid; place-items: center; text-align: center; color: var(--text-panel-mute); }
 .hub-graph-swatch { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; }
-.hub-duration-section { overflow: hidden; }
+/* Inside the pop-up: a chart on its panel, then (for a pie) its break-down tiles. */
+.hub-graph-panel { margin-bottom: var(--space-5); padding: var(--space-3); background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: var(--radius-md); }
+.hub-graph-panel > .hint { margin: 0 0 var(--space-2); }
+.hub-graph-pie { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: var(--space-3); align-items: center; }
+.hub-graph-legend { list-style: none; margin: 0; padding: 0; font-size: var(--fs-sm); }
+.hub-graph-legend li + li { border-top: 1px solid var(--panel-rule-soft); }
+.hub-graph-legend-row, .hub-graph-legend-row:active { background-color: transparent; }
+.hub-graph-legend-row { display: flex; width: 100%; min-height: 40px; justify-content: space-between; align-items: center; gap: var(--space-2); margin: 0; padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); color: var(--text-panel); font-size: inherit; font-weight: var(--fw-regular); text-align: left; font-variant-numeric: tabular-nums; }
+.hub-graph-legend-row:hover, .hub-graph-legend-row[aria-pressed="true"] { background-color: var(--panel-hover); }
+.hub-graph-legend-row[aria-pressed="true"] { outline: 1px solid var(--panel-border); }
+.hub-graph-key { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.hub-graph-legend-num { color: var(--text-panel-mute); white-space: nowrap; }
+.hub-graph-go { display: block; width: 100%; min-height: 48px; margin: var(--space-3) 0 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); font-weight: var(--fw-semibold); }
+.hub-graph-go small { display: block; font-size: var(--fs-xs); font-weight: var(--fw-regular); opacity: 0.92; }
+/* The pop-up reuses .modal-overlay's fixed, full-viewport flex. Its title and
+   red X stay put; only the body scrolls. `.modal-overlay.hub-graph-sheet`,
+   both classes: .modal-overlay is declared further down this file and would
+   otherwise win back its own padding and backdrop. */
+.modal-overlay.hub-graph-sheet { background-color: rgba(0, 0, 0, 0.7); }
+.hub-graph-sheet-box { display: flex; flex-direction: column; width: 100%; max-width: 560px; max-height: 100%; overflow: hidden; background-color: var(--color-canvas); border: 1px solid var(--panel-border); border-radius: var(--radius-md); box-shadow: var(--shadow-panel); color: var(--text-panel); }
+.hub-graph-sheet-head { flex: 0 0 auto; display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); padding: var(--space-3); background-color: var(--color-header); border-bottom: 1px solid var(--panel-rule-soft); }
+.hub-graph-sheet-head h2 { margin-bottom: 0; font-size: var(--fs-xl); overflow-wrap: anywhere; }
+.hub-graph-sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: var(--space-3); }
+.hub-graph-close { flex: 0 0 auto; width: 44px; min-height: 44px; margin: 0; padding: 0; border-radius: var(--radius-sm); font-size: var(--fs-xl); line-height: 1; }
+.hub-graph-up, .hub-graph-up:hover, .hub-graph-up:active { background-color: transparent; }
+.hub-graph-up { display: block; min-height: 36px; margin: calc(-1 * var(--space-1)) 0 var(--space-1); padding: 0; color: var(--color-brand-light); font-size: var(--fs-sm); font-weight: var(--fw-semibold); text-align: left; }
+/* The page behind an open pop-up cannot scroll, so closing it puts the viewer
+   back exactly where they were. Keyed to the active page, so the lock lets go
+   by itself if the page is swapped out from under the pop-up. Hiding the
+   overflow removes a desktop scrollbar, which would widen the page and shift
+   it sideways; hubGraphs.js measures that bar into --hub-graph-gutter and the
+   padding stands in for it. (`scrollbar-gutter: stable` does not hold the
+   space on the root element once its overflow is hidden.) */
+html:has(#user-hub-page.active > .hub-graph-sheet:not([hidden])) { overflow: hidden; padding-right: var(--hub-graph-gutter, 0px); }
+/* The exact-values table stacks at every width: the pop-up is never wide
+   enough for four columns without scrolling sideways. */
+.hub-graph-sheet .hub-timesheet-table-wrap { overflow: visible; }
+.hub-graph-sheet .hub-duration-details table,
+.hub-graph-sheet .hub-duration-details tbody,
+.hub-graph-sheet .hub-duration-details tr,
+.hub-graph-sheet .hub-duration-details th,
+.hub-graph-sheet .hub-duration-details td { display: block; width: 100%; min-width: 0; }
+.hub-graph-sheet .hub-duration-details thead { display: none; }
+.hub-graph-sheet .hub-duration-details tr { padding: var(--space-3) 0; border-top: 1px solid var(--panel-rule-soft); }
+.hub-graph-sheet .hub-duration-details th, .hub-graph-sheet .hub-duration-details td { border: 0; padding: 2px 0; white-space: normal; overflow-wrap: anywhere; }
+.hub-graph-sheet .hub-duration-details td::before { content: attr(data-label) ": "; color: var(--text-panel-mute); }
+.hub-graph-sheet .hub-duration-details summary { min-height: var(--btn-h-sm); display: flex; align-items: center; cursor: pointer; }
 .hub-duration-chart { display: block; width: 100%; min-height: 190px; margin: var(--space-3) 0; color: var(--text-panel-mute); font-size: 12px; }
 .hub-duration-chart text { fill: currentColor; }
 .hub-duration-axis { stroke: var(--panel-rule); stroke-width: 1; }
@@ -2415,9 +2475,8 @@ tr.archived-user {
 /* Series colour lives in --series so line, band, dot and key share one rule. */
 .hub-duration-age, .hub-duration-point-age, .hub-duration-band-age, .hub-duration-key-age { --series: var(--status-adjust-text); }
 .hub-duration-close, .hub-duration-point-close, .hub-duration-band-close, .hub-duration-key-close { --series: var(--color-success); }
-.hub-duration-ontime, .hub-duration-point-ontime { --series: var(--text-panel); }
+.hub-duration-ontime, .hub-duration-point-ontime, .hub-duration-key-ontime { --series: var(--text-panel); }
 .hub-duration-chart.hub-ontime-chart { min-height: 140px; }
-.hub-ontime-heading { margin: var(--space-4) 0 var(--space-1); font-size: 1rem; }
 .hub-duration-line { fill: none; stroke: var(--series); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
 .hub-duration-partial { stroke-dasharray: 5 5; }
 .hub-duration-band { fill: var(--series); fill-opacity: 0.14; stroke: none; }
@@ -2432,12 +2491,12 @@ tr.archived-user {
 .hub-duration-key-partial, .hub-duration-key-low { width: 9px; height: 9px; border-radius: 50%; }
 .hub-duration-key-partial { background: transparent; border: 2px solid currentColor; }
 .hub-duration-key-low { background: currentColor; opacity: 0.35; }
-.hub-duration-details summary { cursor: pointer; margin-bottom: var(--space-2); }
 .hub-graphs-load-error { padding: var(--space-4); background: var(--panel-nested); border: var(--border); border-radius: var(--radius-md); }
 
+/* On a phone the pop-up is the whole screen. */
 @media (max-width: 600px) {
-    .hub-graphs-header { flex-direction: column; }
-    .hub-graph-legend-row { align-items: flex-start; }
+    .modal-overlay.hub-graph-sheet { padding: 0; }
+    .hub-graph-sheet-box { max-width: none; height: 100%; border: 0; border-radius: 0; }
 }
 
 .hub-clock-status {
@@ -6700,42 +6759,6 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     color: #fff;
     font-weight: var(--fw-bold);
   }
-}
-
-@media (max-width: 600px) {
-  #hub-tabpanel-graphs .hub-graphs-header,
-  #hub-tabpanel-graphs .hub-graphs-desktop { display: none; }
-  #hub-tabpanel-graphs .hub-graphs-phone { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); margin-bottom: var(--space-4); }
-  #hub-tabpanel-graphs .hub-graphs-phone-extra { display: none; }
-  #hub-tabpanel-graphs .hub-graphs-phone.expanded .hub-graphs-phone-extra { display: block; }
-  #hub-tabpanel-graphs .hub-graphs-phone-range,
-  #hub-tabpanel-graphs .hub-graphs-phone-more { background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: var(--radius-md); padding: var(--space-4); box-shadow: var(--shadow-panel); }
-  #hub-tabpanel-graphs .hub-graphs-range-pills { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
-  #hub-tabpanel-graphs .hub-graphs-range-pill { min-height: 44px; margin: 0; border-radius: 999px; border: 0; background: var(--panel-nested); color: var(--text-panel-mute); font-weight: var(--fw-semibold); font-size: var(--fs-sm); }
-  #hub-tabpanel-graphs .hub-graphs-range-pill.active { background: var(--color-brand); color: #fff; }
-  #hub-tabpanel-graphs .hub-graphs-phone-more { display: flex; flex-direction: column; gap: var(--space-2); }
-  #hub-tabpanel-graphs .hub-graphs-show-all { width: 100%; min-height: 44px; margin: 0; }
-  /* community card: title row, donut left, non-zero legend right */
-  #hub-tabpanel-graphs .hub-graphs-phone .hub-graph-card { display: grid; grid-template-columns: 112px minmax(0, 1fr); column-gap: var(--space-4); align-items: center; background: var(--panel-bg); border: 1px solid var(--panel-border); box-shadow: var(--shadow-panel); }
-  #hub-tabpanel-graphs .hub-graphs-phone .hub-graph-card h3 { grid-column: 1 / -1; margin: 0 0 var(--space-3); font-size: var(--fs-md, 1rem); }
-  #hub-tabpanel-graphs .hub-graphs-phone .hub-donut-wrap { width: 112px; margin: 0; }
-  #hub-tabpanel-graphs .hub-graph-legend-zero { display: none; }
-  #hub-tabpanel-graphs .hub-graph-legend li:first-child { border-top: 0; }
-  #hub-tabpanel-graphs .hub-graph-legend-row { min-height: 36px; }
-  #hub-tabpanel-graphs .hub-graphs-phone .hub-graph-card-all { grid-column: 1 / -1; min-height: 44px; }
-  /* charts + table: never scroll sideways */
-  #hub-tabpanel-graphs .hub-duration-section { padding: var(--space-3); }
-  #hub-tabpanel-graphs .hub-timesheet-table-wrap { overflow: visible; }
-  #hub-tabpanel-graphs .hub-duration-details table,
-  #hub-tabpanel-graphs .hub-duration-details tbody,
-  #hub-tabpanel-graphs .hub-duration-details tr,
-  #hub-tabpanel-graphs .hub-duration-details th,
-  #hub-tabpanel-graphs .hub-duration-details td { display: block; width: 100%; min-width: 0; }
-  #hub-tabpanel-graphs .hub-duration-details thead { display: none; }
-  #hub-tabpanel-graphs .hub-duration-details tr { padding: var(--space-3) 0; border-top: 1px solid var(--panel-rule-soft); }
-  #hub-tabpanel-graphs .hub-duration-details th, #hub-tabpanel-graphs .hub-duration-details td { border: 0; padding: 2px 0; white-space: normal; overflow-wrap: anywhere; }
-  #hub-tabpanel-graphs .hub-duration-details td::before { content: attr(data-label) ": "; color: var(--text-panel-mute); }
-  #hub-tabpanel-graphs .hub-duration-details summary { min-height: 44px; display: flex; align-items: center; }
 }
 
 @media (max-width: 600px) {

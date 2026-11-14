@@ -50,23 +50,19 @@ def test_graphs_route_passes_the_guided_range_and_serializes(monkeypatch):
     assert body["duration"]["range"]["start"] == date(2026, 2, 23)
 
 
-def test_graphs_route_serializes_the_nested_community_shape(monkeypatch):
+def test_graphs_route_serializes_communities_and_cells(monkeypatch):
     payload = SimpleNamespace(
         generated_at=datetime(2026, 8, 20, tzinfo=timezone.utc),
         weeks=12,
         statuses=[],
-        communities=[
+        communities=[SimpleNamespace(key="commons", label="Commons")],
+        cells=[
             SimpleNamespace(
-                key="commons",
-                label="Commons",
-                total=4,
-                counts={"created": 4},
-                service_types=[
-                    SimpleNamespace(key="hvac", label="HVAC", total=3, counts={"created": 3})
-                ],
-                priorities=[
-                    SimpleNamespace(key="high", label="High", total=1, counts={"created": 1})
-                ],
+                communities=("commons", "young_hall"),
+                service_type="HVAC",
+                priority=None,
+                status="created",
+                count=3,
             )
         ],
         duration=SimpleNamespace(
@@ -78,14 +74,16 @@ def test_graphs_route_serializes_the_nested_community_shape(monkeypatch):
 
     body = hub_router.get_hub_graphs(weeks=12, user=SimpleNamespace(), db=None).model_dump()
 
-    community = body["communities"][0]
-    assert community["total"] == 4
-    assert community["service_types"][0]["label"] == "HVAC"
-    assert community["priorities"][0]["counts"]["created"] == 1
-    # The three flat cross-sections the nested shape replaced are gone.
-    assert "priority_high" not in body
-    assert "priority_medium" not in body
-    assert "service_types" not in body
+    assert body["communities"] == [{"key": "commons", "label": "Commons"}]
+    assert body["cells"] == [
+        {
+            "communities": ["commons", "young_hall"],
+            "service_type": "HVAC",
+            "priority": None,
+            "status": "created",
+            "count": 3,
+        }
+    ]
 
 
 def test_graphs_route_rejects_an_unsupported_week_count():
@@ -127,12 +125,12 @@ def test_graphs_route_accepts_the_default_week_count_over_real_http(db):
     assert response.status_code == 200
     body = response.json()
     assert body["weeks"] == 12
-    # The nested shape survives real serialization, not just a direct
-    # handler call: five communities, each carrying its own two inner grids.
+    # The shape survives real serialization, not just a direct handler call:
+    # five communities, and cells whose community tuple arrives as a list.
     assert [row["key"] for row in body["communities"]] == list(wo.ALL_COMMUNITY_FILTERS)
+    assert isinstance(body["cells"], list)
     assert all(
-        isinstance(row["service_types"], list) and isinstance(row["priorities"], list)
-        for row in body["communities"]
+        isinstance(cell["communities"], list) and cell["count"] > 0 for cell in body["cells"]
     )
 
 

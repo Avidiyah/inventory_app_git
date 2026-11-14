@@ -340,24 +340,23 @@ class HubGraphStatus(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class HubGraphDistribution(BaseModel):
+class HubGraphCommunity(BaseModel):
     key: str
     label: str
-    total: int
-    counts: dict[str, int]
 
     model_config = {"from_attributes": True}
 
 
-class HubGraphCommunity(BaseModel):
-    """One community's own status donut plus its two inner grids."""
+class HubGraphCell(BaseModel):
+    """Live work orders sharing one community set, service type, priority
+    and status. The browser sums cells for whatever combination is on screen;
+    see `services.hub.GraphCell`."""
 
-    key: str
-    label: str
-    total: int
-    counts: dict[str, int]
-    service_types: list[HubGraphDistribution] = []
-    priorities: list[HubGraphDistribution] = []
+    communities: list[str]
+    service_type: str
+    priority: Optional[str] = None
+    status: str
+    count: int
 
     model_config = {"from_attributes": True}
 
@@ -401,6 +400,7 @@ class HubGraphsResponse(BaseModel):
     weeks: int
     statuses: list[HubGraphStatus] = []
     communities: list[HubGraphCommunity] = []
+    cells: list[HubGraphCell] = []
     duration: HubGraphDuration
 
     model_config = {"from_attributes": True}

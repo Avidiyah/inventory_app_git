@@ -1,333 +1,311 @@
-// Guided, dependency-free SVG charts for the TechFM OA+ User Hub report.
-// Exact values are always repeated in HTML legends/tables; the SVG is an
-// at-a-glance aid, never the only way to understand a number.
+// The User Hub Graphs tab (TechFM OA+): every chart is a small tile, and
+// tapping one opens it in a pop-up over a page that cannot scroll behind it.
 //
-// The Graphs panel is a two-level drill: community first, then either
-// service type or priority within it. Every donut in the tree -- the
-// community's own and every card in either grid -- is a status distribution
-// over the same seven statuses; only the row set narrows.
+// The pies are status distributions summed from the payload's `cells` -- one
+// per community set x service type x priority x status, see
+// `services.hub.GraphCell`. The front switch groups the pies by community,
+// service type or priority; inside the pop-up a pie can be broken down by
+// whichever of the three is still unused. Any combination ends at a red
+// button that opens Work Orders with exactly those filters.
+//
+// Exact values are always repeated in the legend; the SVG is an at-a-glance
+// aid, never the only way to understand a number.
 
 import { escapeHtml } from "../format.js";
 import { tipHtml } from "../tooltip.js";
+import { trendSheet, trendTilesHtml } from "./hubGraphTrends.js";
 
-function percent(count, total) {
-  return total ? `${((count / total) * 100).toFixed(1)}%` : "0.0%";
-}
-
-function polar(cx, cy, radius, angle) {
-  const radians = ((angle - 90) * Math.PI) / 180;
-  return [cx + radius * Math.cos(radians), cy + radius * Math.sin(radians)];
-}
-
-function arcPath(startAngle, endAngle) {
-  const [x1, y1] = polar(50, 50, 40, endAngle);
-  const [x2, y2] = polar(50, 50, 40, startAngle);
-  return `M ${x1} ${y1} A 40 40 0 ${endAngle - startAngle > 180 ? 1 : 0} 0 ${x2} ${y2}`;
-}
-
-// Each arc carries `data-status` so a pointer click on the slice drills the
-// same way its legend row does. The <path> is deliberately pointer-only --
-// no `role`, no tab stop -- because a 40px-radius stroke is a poor keyboard
-// target; the legend row below is the real, focusable control for the same
-// status, which is why every status gets a legend row even at zero.
-function donutSvg(distribution, statuses) {
-  if (!distribution.total) {
-    return `<div class="hub-graph-empty" role="img" aria-label="No circulating work orders">No circulating work orders</div>`;
-  }
-  let angle = 0;
-  const arcs = statuses.flatMap((status) => {
-    const count = distribution.counts[status.key] || 0;
-    if (!count) return [];
-    const next = angle + (count / distribution.total) * 360;
-    const path = `<path d="${arcPath(angle, next)}" class="hub-graph-slice hub-graph-slice-${status.key}" data-status="${status.key}"/>`;
-    angle = next;
-    return path;
-  }).join("");
-  return `<div class="hub-donut-wrap"><svg class="hub-donut" viewBox="0 0 100 100" role="img" aria-label="${escapeHtml(distribution.label)} status distribution, ${distribution.total} circulating work orders">${arcs}</svg><span class="hub-donut-total">${distribution.total}<small>circulating</small></span></div>`;
-}
-
-// The card is a <div>, not a <button>: it now holds buttons of its own, and
-// HTML forbids nesting them -- the browser hoists an inner button out into a
-// sibling, silently breaking the flex layout.
-//
-// The dimension lives on the card (`data-community` plus at most one of
-// `data-service-type` / `data-priority`); the status lives on whichever
-// target was clicked. `dataset` values are the raw, case-preserved labels the
-// Work Orders <select> options are built from, never the casefolded grouping
-// keys -- a <select> silently ignores a value matching no <option>.
-function distributionCard(distribution, statuses, dimension) {
-  const rows = statuses.map((status) => {
-    const count = distribution.counts[status.key] || 0;
-    return `<li${count ? "" : ' class="hub-graph-legend-zero"'}><button type="button" class="hub-graph-legend-row" data-status="${status.key}" aria-label="View ${escapeHtml(distribution.label)} work orders with status ${escapeHtml(status.label)}"><span class="hub-graph-key"><i class="hub-graph-swatch hub-graph-swatch-${status.key}"></i>${escapeHtml(status.label)}</span><span>${count} · ${percent(count, distribution.total)}</span></button></li>`;
-  }).join("");
-  return `<div class="hub-graph-card"${dimension}><h3>${escapeHtml(distribution.label)}</h3>${donutSvg(distribution, statuses)}<ul class="hub-graph-legend">${rows}</ul><button type="button" class="hub-graph-card-all" data-status="" aria-label="View all ${escapeHtml(distribution.label)} work orders">View all ${distribution.total}</button></div>`;
-}
-
-function communityDimension(community) {
-  return ` data-community="${escapeHtml(community.key)}"`;
-}
-
-function innerGrid(community, statuses, inner) {
-  const rows = inner === "priority" ? community.priorities : community.service_types;
-  if (!rows.length) {
-    const reason = inner === "priority"
-      ? (community.total ? "No imported priorities in this community" : "No circulating work orders")
-      : "No circulating work orders";
-    return `<div class="hub-graph-empty">${escapeHtml(reason)}</div>`;
-  }
-  const attribute = inner === "priority" ? "data-priority" : "data-service-type";
-  return `<div class="hub-graph-grid">${rows.map((row) => distributionCard(
-    row,
-    statuses,
-    `${communityDimension(community)} ${attribute}="${escapeHtml(row.label)}"`,
-  )).join("")}</div>`;
-}
-
-function tabStrip(tabs, activeKey, { attribute, label }) {
-  const buttons = tabs.map((tab) => {
-    const active = tab.key === activeKey;
-    return `<button type="button" role="tab" class="hub-tab hub-graphs-tab${active ? " active" : ""}" ${attribute}="${escapeHtml(tab.key)}" aria-selected="${active ? "true" : "false"}">${escapeHtml(tab.label)}</button>`;
-  }).join("");
-  return `<nav class="hub-tabs hub-graphs-tabs" role="tablist" aria-label="${escapeHtml(label)}">${buttons}</nav>`;
-}
-
-// Each duration series plots a weekly median with a band shaded up to its
-// p90; the on-time series is a plain percentage line. A week with fewer than
-// LOW_SAMPLE rows is faded rather than hidden -- the number is real, just not
-// one to steer by.
-const LOW_SAMPLE = 5;
-// Mirrors `services.hub.ON_TIME_DAYS`.
-const ON_TIME_DAYS = 4;
-const durationTitle = (label) => (bucket, series) =>
-  `${label}, week of ${weekLabel(bucket)}: median ${bucket[series.value].toFixed(1)}d · p90 ${bucket[series.p90].toFixed(1)}d · n=${bucket[series.count]}`;
-const DURATION_SERIES = [
-  { key: "age", label: "Circulating age", value: "circulating_median_age_days", p90: "circulating_p90_age_days", count: "circulating_count", title: durationTitle("Circulating age") },
-  { key: "close", label: "Time to close", value: "closed_median_days", p90: "closed_p90_days", count: "closed_count", title: durationTitle("Time to close") },
-];
-const ON_TIME_SERIES = {
-  key: "ontime", value: "on_time_pct", count: "scheduled_closed_count",
-  title: (bucket) => `Week of ${weekLabel(bucket)}: ${onTimeSummary(bucket, 0)}`,
-};
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-// "2026-09-14" -> "Sep 14", read off the string so no timezone can shift it.
-function shortDate(iso) {
-  return `${MONTHS[Number(iso.slice(5, 7)) - 1]} ${Number(iso.slice(8, 10))}`;
-}
-
-function weekLabel(bucket) {
-  const sameMonth = bucket.start.slice(5, 7) === bucket.end.slice(5, 7);
-  return `${shortDate(bucket.start)}–${sameMonth ? Number(bucket.end.slice(8, 10)) : shortDate(bucket.end)}`;
-}
-
-// A 1/2/5 x 10^n step giving about four gridlines, so the axis reads in round days.
-function niceStep(max) {
-  const raw = max / 4;
-  const magnitude = 10 ** Math.floor(Math.log10(raw));
-  return [1, 2, 5, 10].map((m) => m * magnitude).find((step) => step >= raw);
-}
-
-// Runs of consecutive non-null weeks; a null week breaks the line and band.
-function runs(buckets, field) {
-  const result = [];
-  let current = [];
-  buckets.forEach((bucket, index) => {
-    if (bucket[field] === null) {
-      if (current.length) result.push(current);
-      current = [];
-    } else current.push(index);
-  });
-  if (current.length) result.push(current);
-  return result;
-}
-
-// "82% on time (41 of 50 scheduled · 6 unscheduled)"; the unscheduled count
-// is always shown so a week that mostly lacks schedule dates cannot pass as
-// a clean percentage.
-function onTimeSummary(bucket, digits) {
-  const unscheduled = `${bucket.unscheduled_closed_count} unscheduled`;
-  if (bucket.on_time_pct === null) return `No scheduled closes (${unscheduled})`;
-  return `${bucket.on_time_pct.toFixed(digits)}% on time (${bucket.on_time_count} of ${bucket.scheduled_closed_count} scheduled · ${unscheduled})`;
-}
-
-function seriesSvg(buckets, series, x, y) {
-  const last = buckets.length - 1;
-  const partialIndex = buckets[last]?.partial ? last : -1;
-  const point = (index) => `${x(index)},${y(buckets[index][series.value])}`;
-  const bands = !series.p90 ? "" : runs(buckets, series.value).filter((run) => run.length > 1).map((run) => {
-    const upper = run.map((index) => `${x(index)},${y(buckets[index][series.p90])}`);
-    const lower = run.slice().reverse().map(point);
-    return `<polygon class="hub-duration-band hub-duration-band-${series.key}" points="${[...upper, ...lower].join(" ")}"/>`;
-  }).join("");
-  // The week in progress hangs off the solid line by a dashed segment: its
-  // figures will still move before the week closes.
-  let partialSegment = "";
-  const lines = runs(buckets, series.value).map((run) => {
-    let solid = run;
-    if (run.at(-1) === partialIndex) {
-      solid = run.slice(0, -1);
-      if (solid.length) {
-        const from = solid.at(-1);
-        partialSegment = `<line class="hub-duration-line hub-duration-partial hub-duration-${series.key}" x1="${x(from)}" y1="${y(buckets[from][series.value])}" x2="${x(partialIndex)}" y2="${y(buckets[partialIndex][series.value])}"/>`;
-      }
-    }
-    return solid.length ? `<polyline class="hub-duration-line hub-duration-${series.key}" points="${solid.map(point).join(" ")}"/>` : "";
-  }).join("");
-  const points = buckets.map((bucket, index) => {
-    if (bucket[series.value] === null) return "";
-    const low = bucket[series.count] < LOW_SAMPLE;
-    const title = `${series.title(bucket, series)}${low ? " · low sample" : ""}${bucket.partial ? " (in progress)" : ""}`;
-    const classes = `hub-duration-point hub-duration-point-${series.key}${low ? " hub-duration-point-low" : ""}${bucket.partial ? " hub-duration-point-partial" : ""}`;
-    return `<circle class="${classes}" cx="${x(index)}" cy="${y(bucket[series.value])}" r="4"><title>${escapeHtml(title)}</title></circle>`;
-  }).join("");
-  return { bands, lines: lines + partialSegment, points };
-}
-
-// The shared frame: gridlines from 0 to `max` every `step`, ~5 date labels,
-// then each series' bands under every line under every dot.
-function lineChart(buckets, seriesList, { max, step, unit, className, ariaLabel, height = 230 }) {
-  const width = 620;
-  const pad = { left: 42, right: 12, top: 16, bottom: 32 };
-  const x = (index) => pad.left + ((width - pad.left - pad.right) * index) / Math.max(1, buckets.length - 1);
-  const y = (value) => pad.top + (height - pad.top - pad.bottom) * (1 - value / max);
-  const grid = [];
-  for (let value = 0; value <= max; value += step) {
-    grid.push(`<line class="${value ? "hub-duration-grid" : "hub-duration-axis"}" x1="${pad.left}" y1="${y(value)}" x2="${width - pad.right}" y2="${y(value)}"/><text class="hub-duration-tick" x="${pad.left - 6}" y="${y(value) + 4}" text-anchor="end">${value}${unit}</text>`);
-  }
-  // About five date labels, always including the last week; a regular label
-  // too close to the last is dropped so the two never overlap.
-  const every = Math.ceil(buckets.length / 5);
-  const lastIndex = buckets.length - 1;
-  const labelled = buckets.map((_, index) => index).filter((index) => index === lastIndex || (index % every === 0 && lastIndex - index >= every / 2));
-  const dates = labelled.map((index) => `<text x="${x(index)}" y="${height - 10}" text-anchor="middle">${escapeHtml(shortDate(buckets[index].start))}</text>`).join("");
-  const drawn = seriesList.map((series) => seriesSvg(buckets, series, x, y));
-  const layer = (name) => drawn.map((parts) => parts[name]).join("");
-  return `<svg class="hub-duration-chart ${className}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(ariaLabel)}">${grid.join("")}${layer("bands")}${layer("lines")}${layer("points")}${dates}</svg>`;
-}
-
-function durationSvg(buckets) {
-  const values = buckets.flatMap((bucket) => DURATION_SERIES.map((series) => bucket[series.p90])).filter((value) => value !== null);
-  if (!values.length) return `<div class="hub-graph-empty">No duration samples in this range.</div>`;
-  const step = niceStep(Math.max(...values, 1));
-  const max = Math.ceil(Math.max(...values, 1) / step) * step;
-  return lineChart(buckets, DURATION_SERIES, {
-    max, step, unit: "d", className: "hub-duration-days",
-    ariaLabel: "Median circulating work-order age and median time to close by week, in days, each shaded up to its 90th percentile",
-  });
-}
-
-function onTimeSvg(buckets) {
-  if (!buckets.some((bucket) => bucket.on_time_pct !== null)) {
-    return `<div class="hub-graph-empty">No scheduled work orders closed in this range.</div>`;
-  }
-  return lineChart(buckets, [ON_TIME_SERIES], {
-    max: 100, step: 25, unit: "%", className: "hub-ontime-chart", height: 170,
-    ariaLabel: `Percent of scheduled work orders closed within ${ON_TIME_DAYS} days of their schedule date, by week`,
-  });
-}
-
-function durationLegend() {
-  const item = (swatch, text) => `<li><span class="hub-duration-key ${swatch}"></span>${text}</li>`;
-  return `<ul class="hub-duration-legend">${[
-    item("hub-duration-key-age", "Circulating age (median)"),
-    item("hub-duration-key-close", "Time to close (median)"),
-    item("hub-duration-key-band", "Shaded up to p90"),
-    item("hub-duration-key-partial", "Hollow: week in progress"),
-    item("hub-duration-key-low", `Faded: fewer than ${LOW_SAMPLE} work orders`),
-  ].join("")}</ul>`;
-}
-
-function durationCell(bucket, series) {
-  if (bucket[series.value] === null) return "No sample";
-  return `${bucket[series.value].toFixed(2)} / ${bucket[series.p90].toFixed(2)} days (n=${bucket[series.count]})`;
-}
-
-function durationTable(buckets) {
-  const rows = buckets.map((bucket) => `<tr><th scope="row">${escapeHtml(bucket.start)} – ${escapeHtml(bucket.end)}${bucket.partial ? " (partial)" : ""}</th>${DURATION_SERIES.map((series) => `<td data-label="${escapeHtml(series.label)}">${durationCell(bucket, series)}</td>`).join("")}<td data-label="Closed within ${ON_TIME_DAYS} days">${escapeHtml(onTimeSummary(bucket, 1))}</td></tr>`).join("");
-  return `<details class="hub-duration-details"><summary>View exact weekly values</summary><div class="hub-timesheet-table-wrap"><table class="hub-timesheet-table"><thead><tr><th>Week</th>${DURATION_SERIES.map((series) => `<th>${series.label} (median / p90)</th>`).join("")}<th>Closed within ${ON_TIME_DAYS} days of schedule</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
-}
-
-// The largest community, ties broken by the payload's own (fixed) community
-// order. On an empty database every total is 0, so this lands on the first --
-// Scholars.
-export function largestCommunityKey(payload) {
-  let best = null;
-  for (const community of payload.communities || []) {
-    if (!best || community.total > best.total) best = community;
-  }
-  return best ? best.key : null;
-}
-
-// Phone only: a range pill group and one card per community; the first
-// PHONE_COMMUNITIES show, the rest sit behind "Show all".
-const PHONE_COMMUNITIES = 3;
-const isPhone = () => typeof matchMedia === "function" && matchMedia("(max-width: 600px)").matches;
-
-function phoneGraphs(payload) {
-  const pills = [12, 26, 52].map((w) => `<button type="button" class="hub-graphs-range-pill${payload.weeks === w ? " active" : ""}" data-graph-weeks="${w}" aria-pressed="${payload.weeks === w}">${w} weeks</button>`).join("");
-  const cards = payload.communities.map((row, index) => `<div class="hub-graphs-phone-item${index >= PHONE_COMMUNITIES ? " hub-graphs-phone-extra" : ""}">${distributionCard(row, payload.statuses, communityDimension(row))}</div>`).join("");
-  const more = payload.communities.length - PHONE_COMMUNITIES;
-  const showAll = more > 0 ? `<div class="hub-graphs-phone-more"><b>${more} more communit${more === 1 ? "y" : "ies"}</b><button type="button" class="secondary-btn hub-graphs-show-all" data-graph-showall aria-expanded="false">Show all</button></div>` : "";
-  return `<div class="hub-graphs-phone"><div class="hub-graphs-phone-range"><div class="hub-graphs-range-pills" role="group" aria-label="Duration graph range">${pills}</div></div>${cards}${showAll}</div>`;
-}
-
-const INNER_TABS = [
-  { key: "service_type", label: "Service Type" },
+const DIMS = [
+  { key: "community", label: "Community" },
+  { key: "service_type", label: "Service type" },
   { key: "priority", label: "Priority" },
 ];
 
-export function mountHubGraphs(container, payload, { community, inner, onWeekChange, onTabChange, onDistributionClick } = {}) {
-  const activeCommunity = payload.communities.find((row) => row.key === community) || payload.communities[0];
-  const activeInner = inner === "priority" ? "priority" : "service_type";
-  const updated = new Date(payload.generated_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  // Community sub-tabs carry their totals; the inner two stay plain -- every
-  // card beneath them shows its own total, and a Priority count would have to
-  // explain why it is lower than the community's (blank priorities get no card).
-  const communityTabs = payload.communities.map((row) => ({ key: row.key, label: `${row.label} (${row.total})` }));
-  container.innerHTML = `<section class="hub-graphs"><header class="hub-graphs-header"><div><h2>Graphs${tipHtml("hub.graphs")}</h2><p class="hint">Live circulating work orders. Updated ${escapeHtml(updated)}.</p></div><label class="hub-graphs-range">Range <select class="hub-graphs-weeks" aria-label="Duration graph range"><option value="12" ${payload.weeks === 12 ? "selected" : ""}>12 weeks</option><option value="26" ${payload.weeks === 26 ? "selected" : ""}>26 weeks</option><option value="52" ${payload.weeks === 52 ? "selected" : ""}>52 weeks</option></select></label></header>${isPhone() ? phoneGraphs(payload) : ""}<section class="hub-graphs-desktop">${tabStrip(communityTabs, activeCommunity.key, { attribute: "data-graph-tab", label: "Community" })}<p class="hint">A work order that names multiple communities appears in each matching community chart; do not add community totals together.</p><div class="hub-graph-community">${distributionCard(activeCommunity, payload.statuses, communityDimension(activeCommunity))}</div>${tabStrip(INNER_TABS, activeInner, { attribute: "data-graph-inner", label: `Split ${activeCommunity.label} by` })}${innerGrid(activeCommunity, payload.statuses, activeInner)}</section><section class="hub-duration-section"><h2>Work-order age and close-out time</h2><p class="hint">Circulating age is how old the still-open work orders were at each week end; time to close is creation to Closed for work orders closed that week. Hover a dot for its figures.</p>${durationLegend()}${durationSvg(payload.duration.buckets)}<h3 class="hub-ontime-heading">Closed within ${ON_TIME_DAYS} days of schedule</h3><p class="hint">Share of each week's closed work orders that closed no more than ${ON_TIME_DAYS} days after their schedule date; early counts as on time. Work orders without a schedule date are left out and counted separately.</p>${onTimeSvg(payload.duration.buckets)}${durationTable(payload.duration.buckets)}</section></section>`;
-  // Bound once per container element, guarded like hubAdmin.js's own pipeline
-  // tiles: `mountHubGraphs` re-runs against the same container on every tab
-  // switch and range change, and `container.innerHTML = ...` above only
-  // replaces children, not listeners bound to the container itself -- an
-  // unguarded bind here would stack up duplicates over a session. The tab
-  // strips ride the same listener so there is still exactly one.
-  if (!container.dataset.distributionClickBound) {
-    container.dataset.distributionClickBound = "true";
-    container.addEventListener("click", (event) => {
-      const pill = event.target.closest("[data-graph-weeks]");
-      if (pill) { onWeekChange?.(Number(pill.dataset.graphWeeks)); return; }
-      const showAll = event.target.closest("[data-graph-showall]");
-      if (showAll) {
-        const open = container.querySelector(".hub-graphs-phone").classList.toggle("expanded");
-        showAll.textContent = open ? "Show fewer" : "Show all";
-        showAll.setAttribute("aria-expanded", String(open));
-        return;
-      }
-      const tab = event.target.closest("[data-graph-tab], [data-graph-inner]");
-      if (tab) {
-        if (tab.dataset.graphTab) onTabChange?.({ community: tab.dataset.graphTab });
-        else onTabChange?.({ inner: tab.dataset.graphInner });
-        return;
-      }
-      // The status lives on the clicked target (a slice, a legend row, or the
-      // card's "View all"); the dimension lives on the card around it.
-      const target = event.target.closest("[data-status]");
-      if (!target) return;
-      const card = target.closest(".hub-graph-card");
-      if (!card) return;
-      onDistributionClick?.({
-        community: card.dataset.community || null,
-        serviceType: card.dataset.serviceType || null,
-        priority: card.dataset.priority || null,
-        status: target.dataset.status || null,
-      });
-    });
+// What the viewer has open. Module state, not DOM state: the tab re-mounts on
+// every background refresh and has to come back exactly as it was.
+//   sheet: null | { trend: "days" | "ontime" } | { path: [step, ...] }
+//   step:  { dim, value, label, status, scroll } -- one filter per drill
+//          level, each remembering its own status pick and scroll position.
+const freshUi = () => ({ frontDim: "community", breakDim: null, sheet: null });
+let ui = freshUi();
+let live = null; // { container, payload, onWeekChange, onDistributionClick }
+let overlay = null;
+let openListeners = null;
+let openerSelector = null;
+// The pies currently drawn, so a tile's click carries an index, not raw text.
+let frontGroups = [];
+let sheetGroups = [];
+
+const plural = (count) => `${count} work order${count === 1 ? "" : "s"}`;
+const percent = (count, total) => (total ? `${((count / total) * 100).toFixed(1)}%` : "0.0%");
+const newStep = (group) => ({ dim: group.dim, value: group.value, label: group.label, status: null, scroll: 0 });
+const matches = (cell, step) => (step.dim === "community" ? cell.communities.includes(step.value) : cell[step.dim] === step.value);
+
+// Status counts for the work orders matching every step of `path`.
+function tally(cells, path) {
+  const counts = {};
+  let total = 0;
+  for (const cell of cells) {
+    if (!path.every((step) => matches(cell, step))) continue;
+    counts[cell.status] = (counts[cell.status] || 0) + cell.count;
+    total += cell.count;
   }
-  container.querySelector(".hub-graphs-weeks")?.addEventListener("change", (event) => onWeekChange?.(Number(event.target.value)));
+  return { counts, total };
 }
 
+// One pie per value of `dim` among the work orders matching `path`.
+// Communities keep the payload's fixed order and, on the front screen, their
+// place even at zero; service types and priorities run largest first. A blank
+// priority (null) gets no pie, so priority pies can sum to less than their parent.
+function groups(payload, path, dim) {
+  const pie = (value, label) => ({ dim, value, label, ...tally(payload.cells, [...path, { dim, value }]) });
+  if (dim === "community") {
+    const rows = payload.communities.map((row) => pie(row.key, row.label));
+    return path.length ? rows.filter((row) => row.total) : rows;
+  }
+  const values = new Set(payload.cells
+    .filter((cell) => cell[dim] !== null && path.every((step) => matches(cell, step)))
+    .map((cell) => cell[dim]));
+  return [...values].map((value) => pie(value, value)).sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
+}
+
+function polar(angle) {
+  const radians = ((angle - 90) * Math.PI) / 180;
+  return [50 + 40 * Math.cos(radians), 50 + 40 * Math.sin(radians)];
+}
+
+// `pickable` slices carry `data-status` so a pointer click picks the same
+// status its legend row does. The <path> is deliberately pointer-only -- no
+// `role`, no tab stop -- because a 40px-radius stroke is a poor keyboard
+// target; the legend row is the real, focusable control for the same status.
+function donutSvg(distribution, statuses, { pickable = false, selected = null } = {}) {
+  const label = escapeHtml(distribution.label);
+  if (!distribution.total) {
+    return `<svg class="hub-donut" viewBox="0 0 100 100" role="img" aria-label="${label}: no circulating work orders"><circle class="hub-donut-empty" cx="50" cy="50" r="40"/></svg>`;
+  }
+  let angle = 0;
+  const arcs = statuses.map((status) => {
+    const count = distribution.counts[status.key] || 0;
+    if (!count) return "";
+    const next = angle + (count / distribution.total) * 360;
+    // A lone status would start and end on the same point, which SVG draws
+    // as nothing at all; stop a hair short so the ring still shows.
+    const [x1, y1] = polar(Math.min(next, angle + 359.99));
+    const [x2, y2] = polar(angle);
+    const dim = selected && selected !== status.key ? " hub-graph-slice-dim" : "";
+    const path = `<path d="M ${x1} ${y1} A 40 40 0 ${next - angle > 180 ? 1 : 0} 0 ${x2} ${y2}" class="hub-graph-slice hub-graph-slice-${status.key}${dim}"${pickable ? ` data-status="${status.key}"` : ""}/>`;
+    angle = next;
+    return path;
+  }).join("");
+  return `<svg class="hub-donut" viewBox="0 0 100 100" role="img" aria-label="${label} status distribution, ${distribution.total} circulating work orders">${arcs}</svg>`;
+}
+
+// A whole <button>: the tile holds no controls of its own, so nothing nests.
+function tileHtml(distribution, statuses, attribute) {
+  const label = escapeHtml(distribution.label);
+  return `<button type="button" class="hub-graph-tile" ${attribute}${distribution.total ? "" : " disabled"} aria-label="Open ${label} chart, ${plural(distribution.total)}"><span class="hub-graph-tile-donut">${donutSvg(distribution, statuses)}<span class="hub-graph-tile-total">${distribution.total}</span></span><span class="hub-graph-tile-label">${label}</span></button>`;
+}
+
+function segHtml(attribute, options, active, ariaLabel) {
+  const buttons = options.map((option) => `<button type="button" class="hub-graph-seg-btn" ${attribute}="${option.key}" aria-pressed="${option.key === active}">${option.label}</button>`).join("");
+  return `<div class="hub-graph-seg" role="group" aria-label="${ariaLabel}">${buttons}</div>`;
+}
+
+// The pie, its legend and the red button: the same block at every drill
+// level. A status row picks (or un-picks) that status; only the red button
+// leaves for Work Orders, and it always says which filters it will apply.
+function pieBlock(distribution, statuses, selected, names) {
+  if (!distribution.total) {
+    return `<section class="hub-graph-panel"><div class="hub-graph-empty">No circulating work orders</div></section>`;
+  }
+  const rows = statuses.filter((status) => distribution.counts[status.key]).map((status) => {
+    const count = distribution.counts[status.key];
+    return `<li><button type="button" class="hub-graph-legend-row" data-status="${status.key}" aria-pressed="${selected === status.key}"><span class="hub-graph-key"><i class="hub-graph-swatch hub-graph-swatch-${status.key}"></i>${escapeHtml(status.label)}</span><span class="hub-graph-legend-num">${count} · ${percent(count, distribution.total)}</span></button></li>`;
+  }).join("");
+  const picked = statuses.find((status) => status.key === selected);
+  const shown = picked ? distribution.counts[selected] : distribution.total;
+  const filters = [...names, picked ? picked.label : "every status"].map(escapeHtml).join(" · ");
+  return `<section class="hub-graph-panel"><p class="hint">Tap a status to pick it. The red button opens that list.</p><div class="hub-graph-pie"><div class="hub-donut-wrap">${donutSvg(distribution, statuses, { pickable: true, selected })}<span class="hub-donut-total">${shown}<small>${picked ? escapeHtml(picked.label) : "circulating"}</small></span></div><ul class="hub-graph-legend">${rows}</ul></div><button type="button" class="hub-graph-go" data-graph-go>View ${plural(shown)}<small>${filters}</small></button></section>`;
+}
+
+// Whatever has not been picked yet is what this pie can still be broken down by.
+function breakdownHtml(payload, path, names) {
+  const options = DIMS.filter((dim) => !path.some((step) => step.dim === dim.key));
+  if (!options.length) return "";
+  const dim = options.find((option) => option.key === ui.breakDim) || options[0];
+  const scope = escapeHtml(names.join(" · "));
+  sheetGroups = groups(payload, path, dim.key);
+  const heading = options.length > 1 ? `Break ${scope} down by` : `${scope} by ${dim.label.toLowerCase()}`;
+  const tiles = sheetGroups.length
+    ? `<div class="hub-graph-tiles">${sheetGroups.map((group, index) => tileHtml(group, payload.statuses, `data-graph-drill="${index}"`)).join("")}</div>`
+    : `<div class="hub-graph-empty">No imported priorities in ${scope}</div>`;
+  return `<section class="hub-graph-section"><h3>${heading}</h3><p class="hint">These pies count ${scope} work orders only. Tap one to open it.</p>${options.length > 1 ? segHtml("data-graph-break", options, dim.key, `Break ${scope} down by`) : ""}${tiles}</section>`;
+}
+
+function pageHtml(payload) {
+  const updated = new Date(payload.generated_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  frontGroups = groups(payload, [], ui.frontDim);
+  const key = `<ul class="hub-graph-status-key">${payload.statuses.map((status) => `<li><i class="hub-graph-swatch hub-graph-swatch-${status.key}"></i>${escapeHtml(status.label)}</li>`).join("")}</ul>`;
+  const tiles = frontGroups.length
+    ? `<div class="hub-graph-tiles">${frontGroups.map((group, index) => tileHtml(group, payload.statuses, `data-graph-pie="${index}"`)).join("")}</div>`
+    : `<div class="hub-graph-empty">${ui.frontDim === "priority" ? "No imported priorities" : "No circulating work orders"}</div>`;
+  const note = ui.frontDim === "community"
+    ? `<p class="hint">A work order that names more than one community is counted in each, so these totals add up to more than the real total.</p>`
+    : "";
+  return `<section class="hub-graphs"><header class="hub-graphs-header"><h2>Graphs${tipHtml("hub.graphs")}</h2><p class="hint">Live circulating work orders. Updated ${escapeHtml(updated)}.</p></header><section class="hub-graph-section"><h3>Work orders by</h3><p class="hint">Pick how to group the pies, then tap one to open it.</p>${segHtml("data-graph-front", DIMS, ui.frontDim, "Group the pies by")}${key}${tiles}${note}</section><section class="hub-graph-section"><h3>Trends</h3><p class="hint">Tap a tile to open the full chart.</p><div class="hub-graph-tiles hub-trend-tiles">${trendTilesHtml(payload.duration.buckets)}</div></section></section>`;
+}
+
+// A re-draw replaces the button that was just pressed. Hand focus to its
+// replacement so a keyboard user keeps their place.
+const FOCUS_ATTRIBUTES = ["data-status", "data-graph-break", "data-graph-weeks", "data-graph-front"];
+function redraw(root, draw) {
+  const active = document.activeElement;
+  const attribute = active && root.contains(active) && FOCUS_ATTRIBUTES.find((name) => active.hasAttribute(name));
+  const selector = attribute && `button[${attribute}="${active.getAttribute(attribute)}"]`;
+  draw();
+  if (selector) root.querySelector(selector)?.focus({ preventScroll: true });
+}
+
+function renderPage() {
+  redraw(live.container, () => { live.container.innerHTML = pageHtml(live.payload); });
+}
+
+// Head and body are filled separately and the body element is never replaced,
+// so picking a status re-draws the pie without moving the pop-up's scroll.
+function renderSheet() {
+  const { payload } = live;
+  let title, sub, body, up = "";
+  if (ui.sheet.trend) {
+    ({ title, sub, body } = trendSheet(ui.sheet.trend, payload));
+  } else {
+    const path = ui.sheet.path, step = path.at(-1), names = path.map((entry) => entry.label);
+    const distribution = { label: step.label, ...tally(payload.cells, path) };
+    // A refresh can empty the picked status; the pick then quietly lapses.
+    if (!distribution.counts[step.status]) step.status = null;
+    title = step.label;
+    sub = path.length > 1 ? `${plural(distribution.total)} in ${names.slice(0, -1).join(" · ")}` : `${plural(distribution.total)} in circulation`;
+    if (path.length > 1) up = `<button type="button" class="hub-graph-up" data-graph-up>← Back to ${escapeHtml(names.at(-2))}</button>`;
+    body = pieBlock(distribution, payload.statuses, step.status, names) + (distribution.total ? breakdownHtml(payload, path, names) : "");
+  }
+  redraw(overlay, () => {
+    overlay.querySelector(".hub-graph-sheet-head").innerHTML = `<div>${up}<h2 id="hub-graph-sheet-title">${escapeHtml(title)}</h2><p class="hint">${escapeHtml(sub)}</p></div><button type="button" class="hub-graph-close" data-graph-close aria-label="Close ${escapeHtml(title)} chart">✕</button>`;
+    overlay.querySelector(".hub-graph-sheet-body").innerHTML = body;
+  });
+}
+
+function onSheetKey(event) {
+  if (event.key === "Escape") { closeSheet(); return; }
+  if (event.key !== "Tab") return;
+  const stops = [...overlay.querySelectorAll("button:not([disabled]), summary")];
+  const at = stops.indexOf(document.activeElement);
+  if (event.shiftKey ? at <= 0 : at === -1 || at === stops.length - 1) {
+    event.preventDefault();
+    stops[event.shiftKey ? stops.length - 1 : 0].focus();
+  }
+}
+
+function openSheet(sheet, selector) {
+  if (!overlay?.isConnected) {
+    overlay = document.createElement("div");
+    overlay.className = "modal-overlay hub-graph-sheet";
+    overlay.hidden = true; // shown below, once the scrollbar has been measured
+    overlay.innerHTML = `<div class="hub-graph-sheet-box" role="dialog" aria-modal="true" aria-labelledby="hub-graph-sheet-title"><header class="hub-graph-sheet-head"></header><div class="hub-graph-sheet-body"></div></div>`;
+    overlay.addEventListener("click", onSheetClick);
+    // On the page, not in the tab panel: the panel's contents are replaced on
+    // every refresh, and a frosted ancestor would trap a fixed overlay inside
+    // it. styles.css freezes the page behind while this is showing.
+    (document.getElementById("user-hub-page") ?? document.body).appendChild(overlay);
+  }
+  ui.sheet = sheet;
+  openerSelector = selector;
+  renderSheet();
+  // Measured before the page is frozen: the room a desktop scrollbar takes
+  // up, which styles.css pads back in so the page does not shift sideways.
+  document.documentElement.style.setProperty("--hub-graph-gutter", `${window.innerWidth - document.documentElement.clientWidth}px`);
+  overlay.hidden = false;
+  overlay.querySelector(".hub-graph-sheet-body").scrollTop = 0;
+  overlay.querySelector("[data-graph-close]").focus({ preventScroll: true });
+  openListeners = new AbortController();
+  document.addEventListener("keydown", onSheetKey, { signal: openListeners.signal });
+  // Browser Back swaps the page under the pop-up.
+  window.addEventListener("popstate", closeSheet, { signal: openListeners.signal });
+}
+
+function closeSheet() {
+  if (!ui.sheet) return;
+  ui.sheet = null;
+  openListeners.abort();
+  overlay.hidden = true;
+  // `preventScroll`: the page must be exactly where it was left.
+  live?.container.querySelector(openerSelector)?.focus({ preventScroll: true });
+}
+
+function onSheetClick(event) {
+  const hit = (selector) => event.target.closest(selector);
+  const body = overlay.querySelector(".hub-graph-sheet-body");
+  let el;
+  if (hit("[data-graph-close]")) { closeSheet(); return; }
+  if ((el = hit("[data-graph-weeks]"))) { live.onWeekChange?.(Number(el.dataset.graphWeeks)); return; }
+  const path = ui.sheet?.path;
+  if (!path) return;
+  const step = path.at(-1);
+  if (hit("[data-graph-up]") || (el = hit("[data-graph-drill]"))) {
+    if (el) {
+      step.scroll = body.scrollTop;
+      path.push(newStep(sheetGroups[Number(el.dataset.graphDrill)]));
+    } else path.pop();
+    renderSheet();
+    body.scrollTop = path.at(-1).scroll; // a new level starts at the top; Back returns to where it was left
+    overlay.querySelector(".hub-graph-up, [data-graph-close]").focus({ preventScroll: true });
+    return;
+  }
+  if ((el = hit("[data-graph-break]"))) { ui.breakDim = el.dataset.graphBreak; renderSheet(); return; }
+  if (hit("[data-graph-go]")) {
+    // The raw, case-preserved values the Work Orders <select> options are
+    // built from; the community also sends its label, for the page's chip.
+    const filters = { community: null, communityLabel: null, serviceType: null, priority: null, status: step.status };
+    for (const entry of path) {
+      if (entry.dim === "community") Object.assign(filters, { community: entry.value, communityLabel: entry.label });
+      else filters[entry.dim === "priority" ? "priority" : "serviceType"] = entry.value;
+    }
+    const { onDistributionClick } = live;
+    closeSheet();
+    onDistributionClick?.(filters);
+    return;
+  }
+  if ((el = hit("[data-status]"))) {
+    step.status = step.status === el.dataset.status ? null : el.dataset.status;
+    renderSheet();
+  }
+}
+
+function onPageClick(event) {
+  const hit = (selector) => event.target.closest(selector);
+  let el;
+  if ((el = hit("[data-graph-front]"))) { ui.frontDim = el.dataset.graphFront; renderPage(); return; }
+  if ((el = hit("[data-graph-trend]"))) { openSheet({ trend: el.dataset.graphTrend }, `[data-graph-trend="${el.dataset.graphTrend}"]`); return; }
+  if ((el = hit("[data-graph-pie]"))) openSheet({ path: [newStep(frontGroups[Number(el.dataset.graphPie)])] }, `[data-graph-pie="${el.dataset.graphPie}"]`);
+}
+
+export function mountHubGraphs(container, payload, { onWeekChange, onDistributionClick } = {}) {
+  live = { container, payload, onWeekChange, onDistributionClick };
+  renderPage();
+  // Bound once per container element: this re-runs against the same container
+  // on every refresh and range change, and replacing its children does not
+  // remove a listener bound to the container itself.
+  if (!container.dataset.graphClickBound) {
+    container.dataset.graphClickBound = "true";
+    container.addEventListener("click", onPageClick);
+  }
+  // A refresh arriving under an open pop-up re-draws it in place.
+  if (ui.sheet) renderSheet();
+}
+
+// The viewer changed: forget what the last one had open.
 export function destroyHubGraphs() {
-  // SVG charts are static DOM only; replacing their mount has no retained
-  // canvas instance or listener to dispose. Kept as an explicit lifecycle
-  // hook so a future renderer cannot silently skip teardown.
+  closeSheet();
+  overlay?.remove();
+  overlay = null;
+  ui = freshUi();
+  live = null;
 }

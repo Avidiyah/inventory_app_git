@@ -64,6 +64,7 @@ import {
   loadFilterOptions,
   renderSortControl,
   resetFilterControls,
+  selectFilterValue,
   setShowAll,
   setSortDir,
 } from "./workOrderFilters.js";
@@ -589,26 +590,29 @@ export function openWorkOrdersFilteredByStatus(status) {
   setShowAll(false);
 }
 
-// Called from the User Hub's Graphs tab (hubGraphs.js via userHub.js), one
-// click each on a donut slice, a legend row, or a card's "View all". Same
-// shape as `openWorkOrdersFilteredByStatus` -- reset every other filter
-// first, so a graph always lands on exactly that slice's full company-wide
-// list and nothing carries over from a previous visit.
+// Called from the User Hub's Graphs tab (hubGraphs.js via userHub.js) by a
+// pie's red "View N work orders" button. Same shape as
+// `openWorkOrdersFilteredByStatus` -- reset every other filter first, so a
+// graph always lands on exactly that pie's list and nothing carries over
+// from a previous visit.
 //
-// All four set the same dropdowns the page's own controls do. `priority` is
-// the exact-vendor-text "Priority" control, not the coarser high/medium
-// "Priority level" one: the Graphs cards are cut from raw priority text, so
-// their labels round-trip through this filter exactly.
+// All four set the same dropdowns the page's own controls do, through
+// `selectFilterValue` because the three fetched dropdowns are usually still
+// empty when this runs. `priority` is the exact-vendor-text "Priority"
+// control, not the coarser high/medium "Priority level" one: the Graphs pies
+// are cut from raw priority text, so their labels round-trip through this
+// filter exactly.
 export function openWorkOrdersFilteredByDistribution({
   community = null,
+  communityLabel = null,
   serviceType = null,
   priority = null,
   status = null,
 } = {}) {
   resetFilterControls();
-  if (community && communityFilter) communityFilter.value = community;
-  if (serviceType && serviceTypeFilter) serviceTypeFilter.value = serviceType;
-  if (priority && priorityFilter) priorityFilter.value = priority;
+  selectFilterValue(communityFilter, community, communityLabel || community);
+  selectFilterValue(serviceTypeFilter, serviceType);
+  selectFilterValue(priorityFilter, priority);
   if (status && statusFilter) statusFilter.value = status;
   setShowAll(false);
 }

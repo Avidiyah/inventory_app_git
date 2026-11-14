@@ -403,24 +403,23 @@ export function hubGraphs(overrides = {}) {
     weeks: 12,
     statuses: [{ key: "assigned", label: "Assigned" }],
     communities: [hubGraphCommunity()],
+    cells: [hubGraphCell()],
     duration: { range: { start: "2026-06-18", end: "2026-09-10" }, buckets: [] },
     ...overrides,
   };
 }
 
-// One status distribution: a community's own, or a service-type / priority
-// card inside it. `label` is the raw, case-preserved text the Work Orders
-// <select> options are built from, which is what the drill-down hands over.
-export function hubGraphDistribution(overrides = {}) {
-  return { key: "electrical", label: "Electrical", total: 1, counts: { assigned: 1 }, ...overrides };
+export function hubGraphCommunity(overrides = {}) {
+  return { key: "maple", label: "Maple Ridge", ...overrides };
 }
 
-export function hubGraphCommunity(overrides = {}) {
-  return {
-    key: "maple", label: "Maple Ridge", total: 1, counts: { assigned: 1 },
-    service_types: [], priorities: [],
-    ...overrides,
-  };
+// The live work orders sharing one community set, service type, priority and
+// status; every pie on the Graphs tab is a sum over these. `service_type` and
+// `priority` are the raw, case-preserved text the Work Orders <select> options
+// are built from, which is what the red button hands over. A null priority is
+// a blank ("Not imported") one and gets no pie.
+export function hubGraphCell(overrides = {}) {
+  return { communities: ["maple"], service_type: "Electrical", priority: "Normal", status: "assigned", count: 1, ...overrides };
 }
 
 export function hubGraphBucket(overrides = {}) {

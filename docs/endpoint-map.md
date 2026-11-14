@@ -133,7 +133,7 @@ writes (w).
 | H1 | GET | `/hub` | any authenticated | `hub.py` → `hub.personal_hub` → `work_orders.sweep_stale_sessions` + `attendance.sweep_open_punches` (caller) + `labor_summary.day_summary` + `tools.user_custody_detail` | work_order_labor_sessions (r/w on sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), tool_transactions (r), tools (r), users (r) | `apiGetHub` | `userHub.js`, `hubClock.js`, `hubTechnician.js` |
 | H2 | GET | `/hub/crew` | Team Lead+ | `hub.py` → `hub.crew_hub` → `work_orders.sweep_stale_sessions` + `attendance.sweep_open_punches` (per crew member) + `labor_summary.crew_day_summaries` + `labor_summary.last_worked` | work_order_labor_sessions (r/w on per-member sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), work_order_technicians (r), users (r) | `apiGetHubCrew` | `userHub.js`, `hubSupervisor.js` |
 | H2a | GET | `/hub/admin` | techfm_oa+ | `hub.py` → `hub.admin_hub` → `work_orders.sweep_stale_sessions` + `attendance.sweep_open_punches` (global) + `labor_summary` day totals | work_order_labor_sessions (r/w on sweep), work_order_labor (r; w on sweep), work_orders (r; row lock on sweep), users (r) | `apiGetHubAdmin` | `userHub.js`, `hubAdmin.js` |
-| H5 | GET | `/hub/graphs?weeks=12\|26\|52` | techfm_oa+ | `hub.py` → `hub.graphs_hub` → shared graph/community rules | work_orders (narrow status/location/service/timestamp projections; read-only) | `apiGetHubGraphs` | `userHub.js`, `hubGraphs.js` |
+| H5 | GET | `/hub/graphs?weeks=12\|26\|52` | techfm_oa+ | `hub.py` → `hub.graphs_hub` → shared graph/community rules | work_orders (narrow status/location/service/timestamp projections; read-only) | `apiGetHubGraphs` | `userHub.js`, `hubGraphs.js`, `hubGraphTrends.js` |
 | H6 | GET | `/hub/report?week=` | **admin only** | `hub.py` → `work_order_report.resolve_week` + `report_for_week` (frozen closed rows + live new rows) | work_orders (r), work_order_report_weeks (r/w) | `apiGetHubReport` | `userHub.js`, `hubReport.js` |
 | H7 | GET | `/hub/report/export?week=` | **admin only** | `hub.py` → same as H6 + `work_order_report_xlsx.report_xlsx` | same as H6 | — (plain link) | `hubReport.js` |
 | H8 | GET | `/hub/attendance/week?week=` | **Team Lead+** | `hub.py` → `work_order_report.resolve_week` + `attendance_compare.week_payload` → `attendance_week.week_payload` + `labor_summary.crew_range_summaries` (`cap_running=True`) | attendance_punches (r), users (r), work_order_labor_sessions (r), work_order_labor (r), work_orders (r) — side-effect-free: no sweep, no row locks, no commit; a forgotten clock is clipped by `work_orders.capped_session_end` on read | `apiGetHubAttendanceWeek` | `hubTimesheetsTab.js`, `hubAttendanceDay.js` |
@@ -446,11 +446,13 @@ endpoint or form exists; every other surface resolves an existing number and
   `assigned_idle` (≥1 assigned, 0 minutes, past 10:00 AM Central),
   `stale_work_order` (in_progress/on_hold, 3 days without session activity);
   rendered icon + word, never color alone.
-- Graphs: five membership-based community distributions, each nesting
-  normalized service-type and raw-priority distributions, over every live
-  status. Multi-location rows may match several communities; Academics is the
-  no-community fallback (totals don't sum company-wide); a blank priority gets
-  no card; a blank service type keeps its Unspecified bucket. Labels use the
+- Graphs: the five communities plus `cells` — one per live community set ×
+  normalized service type × raw priority × status, with its row count. The
+  browser sums cells for whatever combination is on screen, so any pie counts
+  a work order once. Multi-location rows list several communities in one cell
+  (community pies overlap; totals don't sum company-wide); Academics is the
+  no-community fallback; a blank priority travels as null and gets no pie; a
+  blank service type keeps its Unspecified bucket. Labels use the
   smallest raw spelling by code point, company-wide — the Work Orders
   dropdowns can select every one. Weekly duration buckets are Central Mon–Sun
   snapshots: circulating age = `snapshot − created_at`; close-out time =
