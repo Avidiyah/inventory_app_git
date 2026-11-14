@@ -6650,18 +6650,18 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 @media (max-width: 600px) {
   #hub-tabpanel-graphs .hub-graphs-header,
   #hub-tabpanel-graphs .hub-graphs-desktop { display: none; }
-  #hub-tabpanel-graphs .hub-graphs-phone { display: grid; gap: var(--space-3); margin-bottom: var(--space-4); }
+  #hub-tabpanel-graphs .hub-graphs-phone { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); margin-bottom: var(--space-4); }
   #hub-tabpanel-graphs .hub-graphs-phone-extra { display: none; }
   #hub-tabpanel-graphs .hub-graphs-phone.expanded .hub-graphs-phone-extra { display: block; }
   #hub-tabpanel-graphs .hub-graphs-phone-range,
   #hub-tabpanel-graphs .hub-graphs-phone-more { background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: var(--radius-md); padding: var(--space-4); box-shadow: var(--shadow-panel); }
-  #hub-tabpanel-graphs .hub-graphs-range-pills { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2); }
+  #hub-tabpanel-graphs .hub-graphs-range-pills { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
   #hub-tabpanel-graphs .hub-graphs-range-pill { min-height: 44px; margin: 0; border-radius: 999px; border: 0; background: var(--panel-nested); color: var(--text-panel-mute); font-weight: var(--fw-semibold); font-size: var(--fs-sm); }
   #hub-tabpanel-graphs .hub-graphs-range-pill.active { background: var(--color-brand); color: #fff; }
   #hub-tabpanel-graphs .hub-graphs-phone-more { display: flex; flex-direction: column; gap: var(--space-2); }
   #hub-tabpanel-graphs .hub-graphs-show-all { width: 100%; min-height: 44px; margin: 0; }
   /* community card: title row, donut left, non-zero legend right */
-  #hub-tabpanel-graphs .hub-graphs-phone .hub-graph-card { display: grid; grid-template-columns: 112px 1fr; column-gap: var(--space-4); align-items: center; background: var(--panel-bg); border: 1px solid var(--panel-border); box-shadow: var(--shadow-panel); }
+  #hub-tabpanel-graphs .hub-graphs-phone .hub-graph-card { display: grid; grid-template-columns: 112px minmax(0, 1fr); column-gap: var(--space-4); align-items: center; background: var(--panel-bg); border: 1px solid var(--panel-border); box-shadow: var(--shadow-panel); }
   #hub-tabpanel-graphs .hub-graphs-phone .hub-graph-card h3 { grid-column: 1 / -1; margin: 0 0 var(--space-3); font-size: var(--fs-md, 1rem); }
   #hub-tabpanel-graphs .hub-graphs-phone .hub-donut-wrap { width: 112px; margin: 0; }
   #hub-tabpanel-graphs .hub-graph-legend-zero { display: none; }

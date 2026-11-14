@@ -137,7 +137,8 @@ describe("the sections", () => {
   it("an empty week shows its own copy and no sections", async () => {
     await openReport();
     expect(sections()).toHaveLength(0);
-    expect(text(".hub-report-empty")).toBe("No work orders closed this week.");
+    // The card also holds a title that only the phone layout shows.
+    expect(text(".hub-report-empty")).toContain("No work orders closed this week.");
   });
 });
 
@@ -150,7 +151,7 @@ describe("the row hand-off", () => {
     await user().click(button);
     await vi.waitFor(() => expect(workOrdersPage().classList.contains("active")).toBe(true));
     expect(byId("work-orders-search").value).toBe("7001");
-    await vi.waitFor(() => expect(listQueries().some((q) => q.q === "7001")).toBe(true));
+    await vi.waitFor(() => expect(listQueries().some((q) => q.text_q === "7001")).toBe(true));
     await vi.waitFor(() => expect(requests().some((r) => r.url.startsWith("/work-orders/lookup"))).toBe(true));
   });
 });

@@ -119,6 +119,8 @@ describe("the roster strip", () => {
     payload.on_shift[0].user.last_name = "<b>Lee</b>";
     view.mountHubAttendanceRoster(host, payload);
     expect(host.querySelector("img")).toBeNull();
-    expect(host.querySelector("b")).toBeNull();
+    // The summary counters are real <b> elements; a name must not add another.
+    expect(host.querySelectorAll("b")).toHaveLength(3);
+    expect(host.textContent).toContain("<b>Lee</b>");
   });
 });

@@ -119,9 +119,7 @@ def test_a_pasted_block_reads_current_and_a_moved_one_reads_stale(db):
     assert tiles[ids["pasted"]].stage == "ready" and tiles[ids["archived"]].archived_at is not None
 
 
-def test_the_tile_list_runs_no_per_order_query(db):
-    """Five seeded orders: a query that ran once per order would repeat."""
-    _seed(db)
+def _statements_for_tile_list(db):
     db.expunge_all()
     statements = []
 
@@ -134,5 +132,18 @@ def test_the_tile_list_runs_no_per_order_query(db):
         smr_service.list_smr_tiles(db)
     finally:
         event.remove(engine, "before_cursor_execute", listener)
-    statement, times = Counter(statements).most_common(1)[0]
-    assert times <= 3, f"{times}x {statement[:120]}"
+    return statements
+
+
+def test_the_tile_list_runs_no_per_order_query(db):
+    """Five more orders must not add statements. Not a cap on one repeated
+    statement: the eager user loads repeat a few times, and how many depends
+    on which users the database already holds (CI's is empty)."""
+    _seed(db)
+    before = _statements_for_tile_list(db)
+    _seed(db)
+    after = _statements_for_tile_list(db)
+    # +2 is slack for the user loads; a per-order query would add five or more.
+    assert len(after) <= len(before) + 2, (
+        f"{len(before)} -> {len(after)}; most repeated: "
+        f"{Counter(after).most_common(1)[0][0][:120]}")

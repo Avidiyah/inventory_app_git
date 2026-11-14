@@ -63,9 +63,10 @@ describe("the performance board", () => {
   it("says nobody has trusted time yet rather than drawing an empty table", () => {
     mount(performanceWindow({ rows: [] }));
     expect(host.querySelector("table")).toBeNull();
-    expect(text(host.querySelector(".hub-leaderboard-empty"))).toBe("Nobody has trusted time this week yet.");
+    // The empty note also holds title and hint spans that only the phone layout shows.
+    expect(text(host.querySelector(".hub-leaderboard-empty"))).toContain("Nobody has trusted time this week yet.");
     mount(performanceWindow({ rows: [], window: "month", floor_minutes: 3600 }));
-    expect(text(host.querySelector(".hub-leaderboard-empty"))).toBe("Nobody has trusted time this month yet.");
+    expect(text(host.querySelector(".hub-leaderboard-empty"))).toContain("Nobody has trusted time this month yet.");
   });
 
   it("names the window in the caption and the floor in the divider for a month", () => {

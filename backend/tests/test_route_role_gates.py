@@ -178,6 +178,7 @@ def test_work_order_list_forwards_joinable_filters(monkeypatch):
         q="2349",
         location_q="2312",
         task_q="sink",
+        text_q="faucet",
         mine=True,
         limit=None,
         # Passed explicitly: a direct call would otherwise receive FastAPI's
@@ -200,6 +201,7 @@ def test_work_order_list_forwards_joinable_filters(monkeypatch):
         "search": "2349",
         "location_search": "2312",
         "task_search": "sink",
+        "text_search": "faucet",
         "mine": True,
         "limit": None,
         # The Newest/Oldest toggle: `sort` reaches the service as a boolean.

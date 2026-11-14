@@ -62,7 +62,7 @@ const handOff = () => [
 describe("count tiles", () => {
   it("renders the three tiles in order; the Ready sub only when non-zero", async () => {
     await openHub({ role: "technician", hub: hubPayload({ counts: { assigned: 3, in_progress: 1, ready_to_complete: 0 } }) });
-    const tiles = Array.from(dash().querySelector(":scope > .hub-tile-grid").querySelectorAll(".hub-tile"));
+    const tiles = Array.from(dash().querySelector(".hub-dash-mine .hub-tile-grid").querySelectorAll(".hub-tile"));
     expect(tiles.map((t) => t.querySelector(".hub-tile-label").textContent))
       .toEqual(["Assigned to me", "In progress", "Ready to complete"]);
     expect(tiles.map((t) => t.querySelector(".hub-tile-value").textContent)).toEqual(["3", "1", "0"]);
@@ -73,7 +73,7 @@ describe("count tiles", () => {
 
   it("Ready to complete carries 'waiting on Team Lead' when non-zero", async () => {
     await openHub({ role: "technician", hub: hubPayload({ counts: { assigned: 3, in_progress: 1, ready_to_complete: 2 } }) });
-    const tiles = dash().querySelector(":scope > .hub-tile-grid").querySelectorAll(".hub-tile");
+    const tiles = dash().querySelector(".hub-dash-mine .hub-tile-grid").querySelectorAll(".hub-tile");
     expect(tiles[2].querySelector(".hub-tile-sub").textContent).toBe("waiting on Team Lead");
   });
 });

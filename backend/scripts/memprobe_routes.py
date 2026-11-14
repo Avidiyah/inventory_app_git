@@ -356,6 +356,7 @@ CATALOGUE: dict[str, Entry] = {k: Entry(exclude="see EXCLUDED") for k in EXCLUDE
     # The seeded work order is not an SMR order, so the cheap refusal path.
     "PUT /work-orders/smr/{work_order_id}/paper-check": Entry(body=J({"checked": True}), as_user=T, expect=400),
     "PUT /work-orders/smr/{work_order_id}/ready": Entry(body=J({"ready": True}), expect=400),
+    "PUT /work-orders/smr/{work_order_id}/paper-reviewed": Entry(body=J({"reviewed": True}), expect=400),
     "POST /work-orders/smr/{work_order_id}/readings": Entry(body=J({"printing_no": 1}), expect=400),
     "POST /work-orders/smr/{work_order_id}/lines": Entry(
         body=J({"vendor": "Belfor", "hours_each": "1.0", "reason_code": "as_read", "work_date": "2026-06-20"}), expect=400),
