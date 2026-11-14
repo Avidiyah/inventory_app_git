@@ -119,17 +119,17 @@
        --color-canvas it lands on ~#191A1C and the panel disappears entirely.
        It only works on the login screen because that sits over a bright logo.
        Frost on a dark ground has to be a light film, not a dark one. */
-    --panel-bg:        rgba(255, 255, 255, .06);
-    --panel-nested:    rgba(255, 255, 255, .05);  /* a card inside a panel */
-    --panel-well:      rgba(255, 255, 255, .04);  /* inset fill, zebra rows */
-    --panel-hover:     rgba(255, 255, 255, .10);
-    --panel-border:    rgba(255, 255, 255, .14);
-    --panel-rule:      rgba(255, 255, 255, .12);  /* hairline */
-    --panel-rule-soft: rgba(255, 255, 255, .08);  /* row separator */
-    /* Contrast measured against the composited panel (#2A2B2D), not the
-       canvas: 12.2:1 and 6.3:1 respectively. */
-    --text-panel:      #EDEEF0;
-    --text-panel-mute: #A9ADB4;   /* secondary text, table headers */
+    --panel-bg:        rgba(255, 255, 255, .035);
+    --panel-nested:    rgba(255, 255, 255, .025);  /* a card inside a panel */
+    --panel-well:      rgba(255, 255, 255, .03);  /* inset fill, zebra rows */
+    --panel-hover:     rgba(255, 255, 255, .08);
+    --panel-border:    rgba(255, 255, 255, .22);
+    --panel-rule:      rgba(255, 255, 255, .20);  /* hairline */
+    --panel-rule-soft: rgba(255, 255, 255, .12);  /* row separator */
+    /* Darker fills, brighter text, firmer edges (2026-11-14 contrast pass):
+       panels sit nearer the canvas, so the borders carry the shape. */
+    --text-panel:      #F7F8FA;
+    --text-panel-mute: #C8CCD2;   /* secondary text, table headers */
 
     /* Radius / shadow / border */
     --radius-sm: 6px; --radius-md: 8px; --radius-pill: 999px;
@@ -4108,7 +4108,7 @@ details[open] > .room-summary::before { content: "\25BE"; /* triangle down */ }
 }
 
 .ms-item-name { font-weight: var(--fw-bold); }
-.ms-item-barcode { color: var(--gray-500); font-size: var(--fs-sm); }
+.ms-item-barcode { color: var(--text-panel-mute); font-size: var(--fs-sm); }
 .ms-item-planned { flex: 0 0 90px; width: 90px; margin-top: 0; margin-left: auto; }
 .ms-item-planned-ro { margin-left: auto; color: var(--gray-700); font-size: var(--fs-sm); }
 
@@ -4162,7 +4162,7 @@ details[open] > .room-summary::before { content: "\25BE"; /* triangle down */ }
 .ms-stage-message { margin-top: var(--space-2); font-size: var(--fs-sm); }
 .ms-item-results { margin-top: var(--space-2); }
 .ms-item-results .scan-choice-btn.is-active { outline: 2px solid currentColor; outline-offset: -2px; }
-.ms-pick-barcode { color: var(--gray-500); font-size: var(--fs-xs); margin-left: var(--space-2); }
+.ms-pick-barcode { color: var(--text-panel-mute); font-size: var(--fs-xs); margin-left: var(--space-2); }
 
 /* =================== MANUAL ENTRY (Scan/Stock fallback) =================== */
 /* #txn-manual-section: search-and-pick (every role) plus browse-all (an
@@ -4524,6 +4524,11 @@ details[open] > .community-summary::before { content: "\25BE"; }
     box-shadow: 0 1px 0 0 #166534, 0 2px 6px -2px rgba(21, 128, 61, .35), var(--shadow-card);
 }
 .wo-card > .wo-body {
+    /* .wo-card centres nothing but aligns flex-start, so without this the body
+       shrink-wraps its widest child and spills past the card's right edge. */
+    align-self: stretch;
+    min-width: 0;
+    box-sizing: border-box;
     background-color: var(--panel-nested);
     color: var(--text-panel);
     border-radius: 0 0 var(--radius-md) var(--radius-md);
@@ -5284,7 +5289,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     border-radius: var(--radius-sm);
 }
 .wo-item-head { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
-.wo-onhand { color: var(--gray-500); font-size: var(--fs-sm); margin-left: auto; }
+.wo-onhand { color: var(--text-panel-mute); font-size: var(--fs-sm); margin-left: auto; }
 .wo-item-actions { display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-2); }
 .wo-line-qty { flex: 0 0 90px; width: 90px; margin-top: 0; }
 .wo-item-actions .secondary-btn,
@@ -5335,7 +5340,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     text-align: right;
     font-size: var(--fs-sm);
 }
-.wo-materials-total .charge-marked { color: var(--gray-500); }
+.wo-materials-total .charge-marked { color: var(--text-panel-mute); }
 
 /* The client's target line under the labor summary and the materials total
    (SMR orders, spec 2026-10-23-smr-target-match). */
@@ -5432,7 +5437,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-labor-charge { font-weight: var(--fw-bold); }
 .wo-add-labor { display: flex; align-items: end; gap: var(--space-2); flex-wrap: wrap; }
 .wo-add-labor label { display: flex; flex-direction: column; gap: var(--space-1); }
-.wo-add-labor label > span { font-size: var(--fs-xs); font-weight: var(--fw-bold); color: var(--gray-500); }
+.wo-add-labor label > span { font-size: var(--fs-xs); font-weight: var(--fw-bold); color: var(--text-panel-mute); }
 .wo-add-labor select,
 .wo-add-labor input { margin-top: 0; }
 .wo-add-labor input { width: 120px; }
