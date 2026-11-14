@@ -77,11 +77,21 @@ function pipelineTileHtml(status, label, count) {
     </button>`;
 }
 
+// Phone view: a proportion bar over the stage tiles. Widths ride on
+// data-grow and are applied via CSSOM (the CSP drops style= attributes).
 function pipelineHtml(pipeline) {
   const tiles = PIPELINE_STAGES.map(([status, label]) =>
     pipelineTileHtml(status, label, pipeline[status])
   ).join("");
-  return `<div class="hub-tile-grid">${tiles}</div>`;
+  const total = PIPELINE_STAGES.reduce((sum, [status]) => sum + pipeline[status], 0);
+  const segs = PIPELINE_STAGES.map(
+    ([status]) => `<i class="hub-bar-seg hub-bar-${status}" data-grow="${pipeline[status]}"></i>`
+  ).join("");
+  return `<div class="hub-dash-card hub-dash-company">
+      <h3 class="hub-dash-title">Company work orders <span class="hub-dash-sub">${total} total</span></h3>
+      <div class="hub-dash-bar" aria-hidden="true">${segs}</div>
+      <div class="hub-tile-grid">${tiles}</div>
+    </div>`;
 }
 
 // `open`-suffixed rows read as "N open"; the last two (review queue, stale)
@@ -98,7 +108,7 @@ function exceptionsHtml(exceptions) {
   const rows = EXCEPTION_ROWS.map(([key, label, showOpenSuffix]) => {
     const count = exceptions[key];
     const value = showOpenSuffix ? `${count} open` : String(count);
-    return `<li class="hub-exceptions-row"><span>${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></li>`;
+    return `<li class="hub-exceptions-row"><span>${escapeHtml(label)}</span><span class="hub-pill${count ? " hub-pill-on" : ""}">${escapeHtml(value)}</span></li>`;
   }).join("");
   return `
     <section class="hub-exceptions">
@@ -144,16 +154,23 @@ function billingHtml(billing) {
 
 export function mountHubAdminSummary(container, payload) {
   container.innerHTML = `
-    ${onClockHtml(payload.on_the_clock)}
-    <div class="hub-tile-grid">
-      ${tileHtml("Team Lead Time", formatHm(payload.supervisor_minutes_today))}
-      ${tileHtml("Technician Time", formatHm(payload.technician_minutes_today))}
+    <div class="hub-dash-card hub-dash-crew">
+      <h3 class="hub-dash-title">Crew time today</h3>
+      ${onClockHtml(payload.on_the_clock)}
+      <div class="hub-tile-grid">
+        ${tileHtml("Team Lead Time", formatHm(payload.supervisor_minutes_today))}
+        ${tileHtml("Technician Time", formatHm(payload.technician_minutes_today))}
+      </div>
     </div>
     ${pipelineHtml(payload.pipeline)}
     <div class="hub-exceptions-billing-grid">
       ${exceptionsHtml(payload.exceptions)}
       ${billingHtml(payload.billing)}
     </div>`;
+
+  container.querySelectorAll(".hub-bar-seg").forEach((seg) => {
+    seg.style.flexGrow = seg.dataset.grow;
+  });
 
   // Bound once per container element, guarded by a dataset flag -- this
   // function re-runs on every live refresh (initial load, the

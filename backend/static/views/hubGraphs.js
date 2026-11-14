@@ -58,7 +58,7 @@ function donutSvg(distribution, statuses) {
 function distributionCard(distribution, statuses, dimension) {
   const rows = statuses.map((status) => {
     const count = distribution.counts[status.key] || 0;
-    return `<li><button type="button" class="hub-graph-legend-row" data-status="${status.key}" aria-label="View ${escapeHtml(distribution.label)} work orders with status ${escapeHtml(status.label)}"><span class="hub-graph-key"><i class="hub-graph-swatch hub-graph-swatch-${status.key}"></i>${escapeHtml(status.label)}</span><span>${count} · ${percent(count, distribution.total)}</span></button></li>`;
+    return `<li${count ? "" : ' class="hub-graph-legend-zero"'}><button type="button" class="hub-graph-legend-row" data-status="${status.key}" aria-label="View ${escapeHtml(distribution.label)} work orders with status ${escapeHtml(status.label)}"><span class="hub-graph-key"><i class="hub-graph-swatch hub-graph-swatch-${status.key}"></i>${escapeHtml(status.label)}</span><span>${count} · ${percent(count, distribution.total)}</span></button></li>`;
   }).join("");
   return `<div class="hub-graph-card"${dimension}><h3>${escapeHtml(distribution.label)}</h3>${donutSvg(distribution, statuses)}<ul class="hub-graph-legend">${rows}</ul><button type="button" class="hub-graph-card-all" data-status="" aria-label="View all ${escapeHtml(distribution.label)} work orders">View all ${distribution.total}</button></div>`;
 }
@@ -243,7 +243,7 @@ function durationCell(bucket, series) {
 }
 
 function durationTable(buckets) {
-  const rows = buckets.map((bucket) => `<tr><th scope="row">${escapeHtml(bucket.start)} – ${escapeHtml(bucket.end)}${bucket.partial ? " (partial)" : ""}</th>${DURATION_SERIES.map((series) => `<td>${durationCell(bucket, series)}</td>`).join("")}<td>${escapeHtml(onTimeSummary(bucket, 1))}</td></tr>`).join("");
+  const rows = buckets.map((bucket) => `<tr><th scope="row">${escapeHtml(bucket.start)} – ${escapeHtml(bucket.end)}${bucket.partial ? " (partial)" : ""}</th>${DURATION_SERIES.map((series) => `<td data-label="${escapeHtml(series.label)}">${durationCell(bucket, series)}</td>`).join("")}<td data-label="Closed within ${ON_TIME_DAYS} days">${escapeHtml(onTimeSummary(bucket, 1))}</td></tr>`).join("");
   return `<details class="hub-duration-details"><summary>View exact weekly values</summary><div class="hub-timesheet-table-wrap"><table class="hub-timesheet-table"><thead><tr><th>Week</th>${DURATION_SERIES.map((series) => `<th>${series.label} (median / p90)</th>`).join("")}<th>Closed within ${ON_TIME_DAYS} days of schedule</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
 }
 
@@ -256,6 +256,19 @@ export function largestCommunityKey(payload) {
     if (!best || community.total > best.total) best = community;
   }
   return best ? best.key : null;
+}
+
+// Phone only: a range pill group and one card per community; the first
+// PHONE_COMMUNITIES show, the rest sit behind "Show all".
+const PHONE_COMMUNITIES = 3;
+const isPhone = () => typeof matchMedia === "function" && matchMedia("(max-width: 600px)").matches;
+
+function phoneGraphs(payload) {
+  const pills = [12, 26, 52].map((w) => `<button type="button" class="hub-graphs-range-pill${payload.weeks === w ? " active" : ""}" data-graph-weeks="${w}" aria-pressed="${payload.weeks === w}">${w} weeks</button>`).join("");
+  const cards = payload.communities.map((row, index) => `<div class="hub-graphs-phone-item${index >= PHONE_COMMUNITIES ? " hub-graphs-phone-extra" : ""}">${distributionCard(row, payload.statuses, communityDimension(row))}</div>`).join("");
+  const more = payload.communities.length - PHONE_COMMUNITIES;
+  const showAll = more > 0 ? `<div class="hub-graphs-phone-more"><b>${more} more communit${more === 1 ? "y" : "ies"}</b><button type="button" class="secondary-btn hub-graphs-show-all" data-graph-showall aria-expanded="false">Show all</button></div>` : "";
+  return `<div class="hub-graphs-phone"><div class="hub-graphs-phone-range"><div class="hub-graphs-range-pills" role="group" aria-label="Duration graph range">${pills}</div></div>${cards}${showAll}</div>`;
 }
 
 const INNER_TABS = [
@@ -271,7 +284,7 @@ export function mountHubGraphs(container, payload, { community, inner, onWeekCha
   // card beneath them shows its own total, and a Priority count would have to
   // explain why it is lower than the community's (blank priorities get no card).
   const communityTabs = payload.communities.map((row) => ({ key: row.key, label: `${row.label} (${row.total})` }));
-  container.innerHTML = `<section class="hub-graphs"><header class="hub-graphs-header"><div><h2>Graphs${tipHtml("hub.graphs")}</h2><p class="hint">Live circulating work orders. Updated ${escapeHtml(updated)}.</p></div><label class="hub-graphs-range">Range <select class="hub-graphs-weeks" aria-label="Duration graph range"><option value="12" ${payload.weeks === 12 ? "selected" : ""}>12 weeks</option><option value="26" ${payload.weeks === 26 ? "selected" : ""}>26 weeks</option><option value="52" ${payload.weeks === 52 ? "selected" : ""}>52 weeks</option></select></label></header><section>${tabStrip(communityTabs, activeCommunity.key, { attribute: "data-graph-tab", label: "Community" })}<p class="hint">A work order that names multiple communities appears in each matching community chart; do not add community totals together.</p><div class="hub-graph-community">${distributionCard(activeCommunity, payload.statuses, communityDimension(activeCommunity))}</div>${tabStrip(INNER_TABS, activeInner, { attribute: "data-graph-inner", label: `Split ${activeCommunity.label} by` })}${innerGrid(activeCommunity, payload.statuses, activeInner)}</section><section class="hub-duration-section"><h2>Work-order age and close-out time</h2><p class="hint">Circulating age is how old the still-open work orders were at each week end; time to close is creation to Closed for work orders closed that week. Hover a dot for its figures.</p>${durationLegend()}${durationSvg(payload.duration.buckets)}<h3 class="hub-ontime-heading">Closed within ${ON_TIME_DAYS} days of schedule</h3><p class="hint">Share of each week's closed work orders that closed no more than ${ON_TIME_DAYS} days after their schedule date; early counts as on time. Work orders without a schedule date are left out and counted separately.</p>${onTimeSvg(payload.duration.buckets)}${durationTable(payload.duration.buckets)}</section></section>`;
+  container.innerHTML = `<section class="hub-graphs"><header class="hub-graphs-header"><div><h2>Graphs${tipHtml("hub.graphs")}</h2><p class="hint">Live circulating work orders. Updated ${escapeHtml(updated)}.</p></div><label class="hub-graphs-range">Range <select class="hub-graphs-weeks" aria-label="Duration graph range"><option value="12" ${payload.weeks === 12 ? "selected" : ""}>12 weeks</option><option value="26" ${payload.weeks === 26 ? "selected" : ""}>26 weeks</option><option value="52" ${payload.weeks === 52 ? "selected" : ""}>52 weeks</option></select></label></header>${isPhone() ? phoneGraphs(payload) : ""}<section class="hub-graphs-desktop">${tabStrip(communityTabs, activeCommunity.key, { attribute: "data-graph-tab", label: "Community" })}<p class="hint">A work order that names multiple communities appears in each matching community chart; do not add community totals together.</p><div class="hub-graph-community">${distributionCard(activeCommunity, payload.statuses, communityDimension(activeCommunity))}</div>${tabStrip(INNER_TABS, activeInner, { attribute: "data-graph-inner", label: `Split ${activeCommunity.label} by` })}${innerGrid(activeCommunity, payload.statuses, activeInner)}</section><section class="hub-duration-section"><h2>Work-order age and close-out time</h2><p class="hint">Circulating age is how old the still-open work orders were at each week end; time to close is creation to Closed for work orders closed that week. Hover a dot for its figures.</p>${durationLegend()}${durationSvg(payload.duration.buckets)}<h3 class="hub-ontime-heading">Closed within ${ON_TIME_DAYS} days of schedule</h3><p class="hint">Share of each week's closed work orders that closed no more than ${ON_TIME_DAYS} days after their schedule date; early counts as on time. Work orders without a schedule date are left out and counted separately.</p>${onTimeSvg(payload.duration.buckets)}${durationTable(payload.duration.buckets)}</section></section>`;
   // Bound once per container element, guarded like hubAdmin.js's own pipeline
   // tiles: `mountHubGraphs` re-runs against the same container on every tab
   // switch and range change, and `container.innerHTML = ...` above only
@@ -281,6 +294,15 @@ export function mountHubGraphs(container, payload, { community, inner, onWeekCha
   if (!container.dataset.distributionClickBound) {
     container.dataset.distributionClickBound = "true";
     container.addEventListener("click", (event) => {
+      const pill = event.target.closest("[data-graph-weeks]");
+      if (pill) { onWeekChange?.(Number(pill.dataset.graphWeeks)); return; }
+      const showAll = event.target.closest("[data-graph-showall]");
+      if (showAll) {
+        const open = container.querySelector(".hub-graphs-phone").classList.toggle("expanded");
+        showAll.textContent = open ? "Show fewer" : "Show all";
+        showAll.setAttribute("aria-expanded", String(open));
+        return;
+      }
       const tab = event.target.closest("[data-graph-tab], [data-graph-inner]");
       if (tab) {
         if (tab.dataset.graphTab) onTabChange?.({ community: tab.dataset.graphTab });

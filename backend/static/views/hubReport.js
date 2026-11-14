@@ -80,15 +80,15 @@ function rowHtml(row) {
   // button, because a button inside a button is hoisted out into a sibling.
   // Every row here is closed, so every one routes to the exact-number search.
   return `<tr>
-      <td>${escapeHtml(COMMUNITY_LABELS[row.community] || row.community)}</td>
-      <td><button type="button" class="hub-report-row-btn" data-number="${escapeHtml(
+      <td data-label="Community">${escapeHtml(COMMUNITY_LABELS[row.community] || row.community)}</td>
+      <td data-label="Number"><button type="button" class="hub-report-row-btn" data-number="${escapeHtml(
         row.number
       )}" data-archived="1">${escapeHtml(row.number)}</button></td>
-      <td>${cellText(row.assigned_to)}</td>
-      <td>${cellText(row.location)}</td>
-      <td>${cellText(row.schedule_date)}</td>
-      <td>${cellText(row.priority)}</td>
-      <td>${escapeHtml(centralStamp(row.archived_at))}</td>
+      <td data-label="Assigned to">${cellText(row.assigned_to)}</td>
+      <td data-label="Location">${cellText(row.location)}</td>
+      <td data-label="Schedule date">${cellText(row.schedule_date)}</td>
+      <td data-label="Priority">${cellText(row.priority)}</td>
+      <td data-label="Closed">${escapeHtml(centralStamp(row.archived_at))}</td>
     </tr>`;
 }
 
@@ -124,7 +124,7 @@ function sectionHtml(label, rows) {
 
 function bodyHtml(payload) {
   if (!payload.rows.length) {
-    return `<p class="hub-report-empty">No work orders closed this week.</p>`;
+    return `<p class="hub-report-empty"><b class="hub-report-empty-title" hidden>Nothing closed yet</b>No work orders closed this week.</p>`;
   }
   return Array.from(groupByServiceType(payload.rows), ([label, rows]) =>
     sectionHtml(label, rows)
@@ -151,6 +151,14 @@ function headerHtml(payload) {
           }>This week</button>
         </div>
         <p class="hub-report-status">${escapeHtml(statusLine(payload))}</p>
+      </div>
+      <div class="hub-report-stats" hidden>
+        <div class="hub-report-stat"><span>Closed work orders</span><b>${escapeHtml(
+          payload.count
+        )}</b></div>
+        <div class="hub-report-stat"><span>New work orders</span><b>${escapeHtml(
+          payload.new_work_order_count
+        )}</b></div>
       </div>
       <div class="hub-report-actions">
         <p class="hub-report-count">${escapeHtml(
