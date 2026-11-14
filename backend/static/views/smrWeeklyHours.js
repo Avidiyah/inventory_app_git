@@ -81,14 +81,16 @@ function legendHtml(vendors) {
 }
 
 function tableHtml({ weeks, vendors, cells }) {
-  const tr = (row, tag = "td") => `<tr>${row.map((c) => `<${tag}>${escapeHtml(String(c))}</${tag}>`).join("")}</tr>`;
+  const heads = ["Week", "Vendor", "Invoiced", ...SEGMENTS.map(([, name]) => name)];
+  // data-label feeds the phone card layout (styles.css), which has no header row.
+  const tr = (row, tag = "td") => `<tr>${row.map((c, i) => `<${tag}${tag === "td" && heads[i] ? ` data-label="${escapeHtml(heads[i])}"` : ""}>${escapeHtml(String(c))}</${tag}>`).join("")}</tr>`;
   const keys = ["invoiced", ...SEGMENTS.map(([key]) => key)];
   const rows = weeks.flatMap((week) => vendors.map((vendor) => {
     const c = cells.find((cell) => cell.week === week && cell.vendor === vendor);
     return c ? [c.week_label || "Undated", SHORT[vendor] || vendor, ...keys.map((key) => hours(c[key]))] : null;
   }).filter(Boolean));
   const foot = ["Total", "", ...keys.map((key) => hours(sum(cells, key)))];
-  return `<table class="smr-hours-table smr-weekly-table"><thead>${tr(["Week", "Vendor", "Invoiced", ...SEGMENTS.map(([, name]) => name)], "th")}</thead>`
+  return `<table class="smr-hours-table smr-weekly-table"><thead>${tr(heads, "th")}</thead>`
     + `<tbody>${rows.map((r) => tr(r)).join("")}</tbody><tfoot>${tr(foot)}</tfoot></table>`;
 }
 

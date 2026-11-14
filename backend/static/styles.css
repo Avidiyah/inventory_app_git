@@ -861,7 +861,7 @@ button:focus-visible {
    don't reflow when the real cards land. */
 .skel-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(245px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(245px, 100%), 1fr));
     gap: var(--space-4);
 }
 
@@ -1543,12 +1543,22 @@ tr:last-child td {
     overflow-x: auto;
 }
 
+/* Phone: wrap instead of scrolling sideways. Wrapping adds no characters,
+   so what gets pasted is unchanged. */
+@media (max-width: 600px) {
+    .pricing-output {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        overflow-x: visible;
+    }
+}
+
 /* IMP-007 Admin Review: green Review cards feed one persistent fixed-width
    receipt. The receipt section is intentionally separate from the queue so a
    close/reopen refresh cannot clear text that still needs to be copied. */
 .admin-review-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
     gap: var(--space-2);
 }
 
@@ -1630,7 +1640,7 @@ tr:last-child td {
 
 .user-requests-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
     gap: var(--space-3);
 }
 
@@ -2330,7 +2340,7 @@ tr.archived-user {
 .hub-graphs-header h2, .hub-graphs h2, .hub-graph-card h3 { margin-top: 0; }
 .hub-graphs-range { display: flex; align-items: center; gap: var(--space-2); white-space: nowrap; }
 .hub-graphs-range select { margin-top: 0; }
-.hub-graph-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)); gap: var(--space-4); }
+.hub-graph-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(245px, 100%), 1fr)); gap: var(--space-4); }
 .hub-graph-card, .hub-duration-section { background: var(--panel-nested); border: var(--border); border-radius: var(--radius-md); padding: var(--space-4); }
 .hub-graph-card h3 { font-size: var(--fs-lg); }
 /* Nested tab strips inside the Graphs panel: community first, then the
@@ -2585,7 +2595,7 @@ tr.archived-user {
    mockup), stacking on narrow ones like every other hub grid. */
 .hub-exceptions-billing-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
     gap: var(--space-4);
 }
 
@@ -2742,7 +2752,7 @@ tr.archived-user {
 
 .hub-crew-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
     gap: var(--space-4);
     margin-top: var(--space-3);
 }
@@ -4822,6 +4832,10 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     white-space: nowrap;
 }
 
+@media (max-width: 600px) {
+    .lu-card-badge { white-space: normal; }
+}
+
 .lu-card-body {
     background-color: var(--color-white);
     color: var(--color-ink);
@@ -4902,6 +4916,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     margin-bottom: var(--space-3);
 }
 .wo-mode-row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.wo-mode-row, .wo-mode-select { max-width: 100%; min-width: 0; }
 .wo-mode-select { margin-top: 0; min-height: var(--btn-h-sm); }
 .wo-controls button { margin-top: 0; min-height: var(--btn-h-sm); }
 .wo-controls > button:not(.secondary-btn):not(.btn-danger) { min-height: var(--btn-h); }
@@ -5613,6 +5628,11 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     }
 
     /* --- Worker tables collapse to stacked cards --- */
+    /* Block, not table: a table sizes to its widest unbreakable cell text and
+       pushes the page sideways. */
+    .stack-table,
+    .stack-table tbody { display: block; width: 100%; }
+    .stack-table td { min-width: 0; overflow-wrap: anywhere; }
     .stack-table thead { display: none; }
 
     .stack-table tr {
@@ -6039,7 +6059,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 /* Tiles. */
 #smr-page .smr-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
     gap: var(--space-3);
 }
 #smr-page .smr-tile {
@@ -6080,7 +6100,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 }
 #smr-page .smr-tile--ready:active { box-shadow: 0 1px 0 0 #166534, 0 2px 6px -2px rgba(21, 128, 61, .35), var(--shadow-card); }
 #smr-page .smr-tile--archived { border-style: dashed; opacity: .7; }
-#smr-page .smr-tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2); width: 100%; margin-bottom: var(--space-1); }
+#smr-page .smr-tile-top { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--space-2); width: 100%; margin-bottom: var(--space-1); }
 #smr-page .smr-tile-weeks { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 #smr-page .smr-week,
 #smr-page .smr-tile-stage,
@@ -6143,6 +6163,21 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 
 /* Hours tab (spec 2026-11-04 D3): standard table, cells "charged / excluded". */
 #smr-page .smr-hours { overflow-x: auto; }
+
+/* Phone: the weekly table becomes one card per row; nothing scrolls sideways. */
+@media (max-width: 600px) {
+    #smr-page .smr-weekly-body { overflow-x: visible; }
+    #smr-page .smr-weekly-table,
+    #smr-page .smr-weekly-table tbody,
+    #smr-page .smr-weekly-table tfoot,
+    #smr-page .smr-weekly-table tr { display: block; width: 100%; }
+    #smr-page .smr-weekly-table thead { display: none; }
+    #smr-page .smr-weekly-table tr { border-bottom: 1px solid var(--panel-rule-soft); padding: var(--space-2) 0; }
+    #smr-page .smr-hours-table.smr-weekly-table td { display: flex; justify-content: space-between; gap: var(--space-3); padding: 2px 0; text-align: right; white-space: normal; border-bottom: 0; }
+    #smr-page .smr-hours-table.smr-weekly-table td:empty { display: none; }
+    #smr-page .smr-weekly-table td::before { content: attr(data-label); color: var(--text-panel-mute); text-align: left; }
+    #smr-page .smr-weekly-table tfoot td:first-child { font-weight: var(--fw-bold); }
+}
 #smr-page .smr-hours-note { margin: 0 0 var(--space-3); font-size: var(--fs-sm); color: var(--text-panel-mute); }
 #smr-page .smr-hours-title { margin: var(--space-4) 0 var(--space-2); font-size: var(--fs-base); }
 #smr-page .smr-hours-table { margin-bottom: var(--space-4); }
