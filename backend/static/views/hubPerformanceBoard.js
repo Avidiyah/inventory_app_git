@@ -54,12 +54,12 @@ function rowHtml(row) {
   return `<tr class="${classes.join(" ")}">
       <td class="hub-leaderboard-rank">${rankHtml(row.rank)}</td>
       <th scope="row">${escapeHtml(userName(row.user))}${notesHtml(row)}</th>
-      <td class="hub-leaderboard-num hub-performance-score">${row.score}</td>
-      <td class="hub-leaderboard-num">${escapeHtml(formatMoney(row.billed_dollars))}</td>
-      <td class="hub-leaderboard-num">${row.efficiency_pct}%</td>
-      <td class="hub-leaderboard-num">${row.accuracy_pct}%</td>
-      <td class="hub-leaderboard-num">${row.counted_days} / ${row.active_days}</td>
-      <td class="hub-leaderboard-num">${formatHm(row.clocked_minutes)}</td>
+      <td class="hub-leaderboard-num hub-performance-score" data-label="Score">${row.score}</td>
+      <td class="hub-leaderboard-num" data-label="Billed $">${escapeHtml(formatMoney(row.billed_dollars))}</td>
+      <td class="hub-leaderboard-num" data-label="Efficiency">${row.efficiency_pct}%</td>
+      <td class="hub-leaderboard-num" data-label="Accuracy">${row.accuracy_pct}%</td>
+      <td class="hub-leaderboard-num" data-label="Clean days">${row.counted_days} / ${row.active_days}</td>
+      <td class="hub-leaderboard-num" data-label="Clocked">${formatHm(row.clocked_minutes)}</td>
     </tr>`;
 }
 
@@ -85,6 +85,6 @@ export function mountPerformanceBoard(container, payload) {
           <tbody>${bodyHtml(payload)}</tbody>
         </table>
       </div>`
-    : `<p class="hint hub-leaderboard-empty">Nobody has trusted time ${windowWord(payload.window)} yet.</p>`;
+    : `<p class="hint hub-leaderboard-empty"><b class="hub-lb-empty-title" hidden>No scores yet ${windowWord(payload.window)}</b>Nobody has trusted time ${windowWord(payload.window)} yet.<span class="hub-lb-empty-more" hidden> Rankings appear once technicians clock in and charge work orders.</span></p>`;
   container.innerHTML = `<section class="hub-leaderboard" aria-label="Performance board">${table}</section>`;
 }

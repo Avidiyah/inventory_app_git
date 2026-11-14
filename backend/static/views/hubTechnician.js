@@ -26,11 +26,12 @@ function tileHtml(label, value, sub) {
 
 function countsHtml(counts) {
   return `
+    <div class="hub-dash-card hub-dash-mine"><h3 class="hub-dash-title">My work orders</h3>
     <div class="hub-tile-grid">
       ${tileHtml("Assigned to me", counts.assigned, "work orders")}
       ${tileHtml("In progress", counts.in_progress, "")}
       ${tileHtml("Ready to complete", counts.ready_to_complete, counts.ready_to_complete ? "waiting on Team Lead" : "")}
-    </div>`;
+    </div></div>`;
 }
 
 // The axis range: `min(8am, earliest session start)` to `max(now, 5pm)`, so
@@ -192,7 +193,7 @@ let mountedList = null;
 
 export function mountHubWorkOrders(container, payload) {
   container.innerHTML = `
-    <div class="hub-wo-list"></div>
+    <div class="hub-wo-list wo-list"></div>
     <p class="hub-wo-view-all"><button type="button" class="secondary-btn" data-action="hub-view-all-work-orders">View all in Work Orders →</button></p>
   `;
   const listContainer = container.querySelector(".hub-wo-list");

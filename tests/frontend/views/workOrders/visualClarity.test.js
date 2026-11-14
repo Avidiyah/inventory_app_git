@@ -67,8 +67,8 @@ describe("C3 Overdue tag", () => {
     const row = await renderOne({ schedule_date, status });
     const tag = row.querySelector(".wo-tag-overdue");
     expect(tag?.textContent).toBe("Overdue");
-    // After the priority tag.
-    expect(tag.previousElementSibling.classList.contains("wo-priority")).toBe(true);
+    // Last chip: after the status pill (and the priority tag, when one shows).
+    expect(tag.previousElementSibling.matches(".wo-status, .wo-priority")).toBe(true);
   });
 
   it.each([
@@ -119,10 +119,10 @@ async function renderCell({ role, status, assigned = true, tracking = false }) {
 }
 
 const primaries = (cardEl) =>
-  Array.from(cardEl.querySelectorAll(".wo-controls > button"))
+  Array.from(cardEl.querySelectorAll(".wo-actionbar > button"))
     .filter((b) => !b.classList.contains("secondary-btn") && !b.classList.contains("btn-danger"));
 const secondaries = (cardEl) =>
-  Array.from(cardEl.querySelectorAll(".wo-controls > button.secondary-btn")).map((b) => b.dataset.action);
+  Array.from(cardEl.querySelectorAll(".wo-actionbar > button.secondary-btn")).map((b) => b.dataset.action);
 
 describe("C4 one primary action per state", () => {
   it.each([
@@ -162,34 +162,46 @@ describe("C4 one primary action per state", () => {
     expect(secondaries(cardEl)).toEqual(["reopen-wo"]);
   });
 
-  it("puts Netfacilities and Archive in a trailing tools group for Admin+", async () => {
+  it("puts Netfacilities, Archive and Edit details in the trailing More menu for Admin+", async () => {
     const admin = await renderCell({ role: "admin", status: "in_progress" });
-    const tools = admin.querySelector(".wo-controls > .wo-controls-tools");
-    expect(tools.parentElement.lastElementChild).toBe(tools);
-    expect(Array.from(tools.querySelectorAll("button"), (b) => b.dataset.action))
+    const more = admin.querySelector(".wo-actionbar > .wo-more");
+    expect(more.parentElement.lastElementChild).toBe(more);
+    const menu = more.querySelector(".wo-more-menu");
+    expect(Array.from(menu.querySelectorAll("[data-action]"), (b) => b.dataset.action))
       .toEqual(["open-netfacilities-wo", "archive-wo"]);
-    expect(tools.querySelector('[data-action="open-netfacilities-wo"]').classList.contains("secondary-btn")).toBe(true);
-    expect(tools.querySelector('[data-action="archive-wo"]').className).toBe("btn-danger");
+    expect(menu.querySelector('[data-action="open-netfacilities-wo"]').classList.contains("secondary-btn")).toBe(true);
+    expect(menu.querySelector('[data-action="archive-wo"]').className).toBe("btn-danger");
+    expect(menu.querySelector("[data-wo-open-edit]").textContent).toBe("Edit details");
   });
 
-  it("gives a Supervisor no tools group", async () => {
+  it("gives a Supervisor only Edit details in the More menu", async () => {
     const sup = await renderCell({ role: "supervisor", status: "in_progress" });
-    expect(sup.querySelector(".wo-controls-tools")).toBeNull();
+    expect(sup.querySelector('[data-action="open-netfacilities-wo"]')).toBeNull();
+    expect(sup.querySelector(".wo-more-menu [data-wo-open-edit]")).not.toBeNull();
   });
 
-  it("keeps the entry-mode selector first in the row", async () => {
+  it("Edit details returns to the Details tab with the editor open", async () => {
     const cardEl = await renderCell({ role: "supervisor", status: "in_progress" });
-    expect(cardEl.querySelector(".wo-controls").firstElementChild.classList.contains("wo-mode-row")).toBe(true);
+    cardEl.querySelector('[data-wo-tab="notes"]').click();
+    cardEl.querySelector("[data-wo-open-edit]").click();
+    expect(cardEl.querySelector(".wo-body").dataset.woTab).toBe("details");
+    expect(cardEl.querySelector(".wo-edit-card").open).toBe(true);
+  });
+
+  it("keeps the entry-mode selector first in the Materials tab", async () => {
+    const cardEl = await renderCell({ role: "supervisor", status: "in_progress" });
+    const content = cardEl.querySelector(".wo-materials-section .wo-section-content");
+    expect(content.firstElementChild.classList.contains("wo-mode-row")).toBe(true);
   });
 });
 
 describe("C5 charging strip", () => {
-  it("sits directly above the controls while my clock runs", async () => {
+  it("leads the card body while my clock runs", async () => {
     const cardEl = await renderCell({ role: "technician", status: "in_progress", tracking: true });
     const strip = cardEl.querySelector(".wo-charging-strip");
     const expected = new Date("2026-09-10T14:14:00Z").toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     expect(strip.textContent).toBe(`Charging since ${expected}`);
-    expect(strip.nextElementSibling.classList.contains("wo-controls")).toBe(true);
+    expect(strip.parentElement.firstElementChild).toBe(strip);
   });
 
   it("is absent with no running session", async () => {
@@ -226,19 +238,19 @@ describe("C6 applied-filter chips and result count", () => {
     expect(chip.querySelector(".wo-filter-chip-swatch.wo-status-on_hold svg.wo-glyph")).not.toBeNull();
   });
 
-  it("uses option text for selects and quotes keyword searches", async () => {
+  it("uses option text for selects and quotes the search", async () => {
     await mountWorkOrders({
       role: "admin",
       cards: [workOrderCard()],
       filterOptions: filterOptions({ supervisors: [{ id: "s1", name: "Sue S" }] }),
       mine: false,
     });
-    el("work-orders-location-search").value = "bldg 4";
+    el("work-orders-search").value = "bldg 4";
     change(el("work-orders-supervisor-filter"), "s1");
     await vi.waitFor(() => expect(chips().length).toBeGreaterThan(1));
     const labels = chips().map((c) => c.getAttribute("aria-label"));
     expect(labels).toContain("Remove filter Team Lead: Sue S");
-    expect(labels).toContain('Remove filter Location: "bldg 4"');
+    expect(labels).toContain('Remove filter Search: "bldg 4"');
   });
 
   it("x resets only that filter and reloads", async () => {
@@ -252,19 +264,19 @@ describe("C6 applied-filter chips and result count", () => {
     await vi.waitFor(() => expect(chips()).toHaveLength(1));
     expect(el("work-orders-status-filter").value).toBe("");
     expect(el("work-orders-search").value).toBe("1234");
-    expect(chips()[0].textContent).toContain("WO #: 1234");
+    expect(chips()[0].textContent).toContain('Search: "1234"');
     expect(listLoads().length).toBeGreaterThan(before);
   });
 
   it("Clear all clears every filter", async () => {
     await mountWorkOrders({ role: "admin", cards: [workOrderCard()], mine: false });
-    el("work-orders-task-search").value = "leak";
+    el("work-orders-search").value = "leak";
     change(el("work-orders-status-filter"), "created");
     await vi.waitFor(() => expect(chips()).toHaveLength(3));
     chips()[2].click();
     await vi.waitFor(() => expect(el("work-orders-filter-chips").hidden).toBe(true));
     expect(el("work-orders-status-filter").value).toBe("");
-    expect(el("work-orders-task-search").value).toBe("");
+    expect(el("work-orders-search").value).toBe("");
   });
 
   it("explains an empty filtered list", async () => {

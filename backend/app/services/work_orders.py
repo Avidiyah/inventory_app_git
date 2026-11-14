@@ -1007,6 +1007,7 @@ def _apply_work_order_filters(
     search: Optional[str] = None,
     location_search: Optional[str] = None,
     task_search: Optional[str] = None,
+    text_search: Optional[str] = None,
     mine: bool = False,
     user: Optional[User] = None,
 ):
@@ -1076,6 +1077,27 @@ def _apply_work_order_filters(
             func.coalesce(WorkOrder.description, "").ilike(like, escape=escape)
         )
 
+    text_pattern = _search_pattern(text_search)
+    if text_pattern is not None:
+        like, escape = text_pattern
+        # The Work Orders page's single search box: number OR location OR task
+        # (the three fields above, ORed instead of ANDed). Notes stay unsearched.
+        query = query.filter(
+            or_(
+                *(
+                    func.coalesce(column, "").ilike(like, escape=escape)
+                    for column in (
+                        WorkOrder.number,
+                        WorkOrder.location,
+                        WorkOrder.community,
+                        WorkOrder.building_number,
+                        WorkOrder.unit_number,
+                        WorkOrder.description,
+                    )
+                )
+            )
+        )
+
     return query
 
 
@@ -1140,6 +1162,7 @@ def list_work_orders(
     search: Optional[str] = None,
     location_search: Optional[str] = None,
     task_search: Optional[str] = None,
+    text_search: Optional[str] = None,
     mine: bool = False,
     limit: Optional[int] = None,
     descending: bool = True,
@@ -1189,6 +1212,7 @@ def list_work_orders(
             search=search,
             location_search=location_search,
             task_search=task_search,
+            text_search=text_search,
             mine=mine,
             user=user,
         )
@@ -1332,6 +1356,7 @@ def list_work_orders_for_export(
     search: Optional[str] = None,
     location_search: Optional[str] = None,
     task_search: Optional[str] = None,
+    text_search: Optional[str] = None,
 ) -> Sequence[WorkOrder]:
     """Work orders for the CSV export in the page's scheduled-date ordering and
     scoped to `user` exactly as the page list is.
@@ -1372,6 +1397,7 @@ def list_work_orders_for_export(
         search=search,
         location_search=location_search,
         task_search=task_search,
+        text_search=text_search,
     )
 
     return _filter_and_sort_by_schedule(
@@ -1523,6 +1549,7 @@ def export_work_orders_csv(
     search: Optional[str] = None,
     location_search: Optional[str] = None,
     task_search: Optional[str] = None,
+    text_search: Optional[str] = None,
 ) -> str:
     """The `scope` work orders as CSV text, one row each.
 
@@ -1552,6 +1579,7 @@ def export_work_orders_csv(
         "search": search,
         "location_search": location_search,
         "task_search": task_search,
+        "text_search": text_search,
     }
     for work_order in list_work_orders_for_export(
         db, user=user, scope=scope, **export_filters

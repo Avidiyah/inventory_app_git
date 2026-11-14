@@ -14,7 +14,7 @@ import { importView } from "../../helpers/shell.js";
 import { attachRequestSection } from "../../helpers/detachedSections.js";
 import { connectFakeRealtime } from "../../helpers/realtime.js";
 import {
-  answerConfirm, card, cardEls, clearRequests, confirmOverlay, expandCard, message,
+  answerConfirm, card, cardEls, clearRequests, confirmOverlay, message,
   mountWorkOrders, openCard, requestFor, requests, respond, state,
 } from "../../helpers/workOrders.js";
 import { item as itemFactory, userRequest, workOrderCard, workOrderDetail } from "../../helpers/factories.js";
@@ -295,46 +295,40 @@ describe("add-requested", () => {
 });
 
 describe("realtime user_request.changed", () => {
-  async function expanded(count, activePage = "work-orders") {
-    const details = Array.from({ length: count }, (_, i) => workOrderDetail({ number: `100${i}` }));
+  // Only the card page holds a full card (list cards open a preview).
+  async function expanded(activePage = "work-orders") {
+    const detail = workOrderDetail({ number: "1000" });
     await mountWorkOrders({
-      cards: details.map((d) => workOrderCard({ id: d.id, number: d.number })),
-      details,
+      cards: [workOrderCard({ id: detail.id, number: detail.number })],
+      details: [detail],
     });
-    const cards = [];
-    for (let i = 0; i < count; i += 1) {
-      cards.push(await expandCard(i));
-      await attachRequestSection(cards[i], details[i]);
-      await settled(cards[i]);
-    }
+    const cardEl = await openCard(0);
+    await attachRequestSection(cardEl, detail);
+    await settled(cardEl);
     rt = await connectFakeRealtime(activePage);
     clearRequests();
-    return { details, cards };
+    return { details: [detail], cards: [cardEl] };
   }
 
-  it("refetches every open card", async () => {
-    const { details } = await expanded(2);
+  it("refetches the open card", async () => {
+    const { details } = await expanded();
     rt.emit("user_request.changed");
-    await vi.waitFor(() => {
-      expect(requestGets(details[0].id)).toBe(1);
-      expect(requestGets(details[1].id)).toBe(1);
-    });
-    expect(requests()).toHaveLength(2);
+    await vi.waitFor(() => expect(requestGets(details[0].id)).toBe(1));
+    expect(requests()).toHaveLength(1);
   });
 
-  it("skips a card with focus inside an open section, and refetches the others", async () => {
-    const { details, cards } = await expanded(2);
+  it("skips a card with focus inside an open section", async () => {
+    const { details, cards } = await expanded();
     const section = cards[0].querySelector(".wo-request-section");
     section.open = true;
     section.querySelector(".wo-request-search").focus();
     rt.emit("user_request.changed");
-    await vi.waitFor(() => expect(requestGets(details[1].id)).toBe(1));
     await quiet();
     expect(requestGets(details[0].id)).toBe(0);
   });
 
   it("an open section without focus does not hold the card", async () => {
-    const { details, cards } = await expanded(1);
+    const { details, cards } = await expanded();
     cards[0].querySelector(".wo-materials-section").open = true;
     rt.emit("user_request.changed");
     await vi.waitFor(() => expect(requestGets(details[0].id)).toBe(1));
@@ -353,7 +347,7 @@ describe("realtime user_request.changed", () => {
   });
 
   it("does not gate on the active page", async () => {
-    const { details } = await expanded(1, "history");
+    const { details } = await expanded("history");
     rt.emit("user_request.changed");
     await vi.waitFor(() => expect(requestGets(details[0].id)).toBe(1));
   });

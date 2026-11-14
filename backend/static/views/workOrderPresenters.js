@@ -303,6 +303,12 @@ export function priorityBadge(card) {
   return `<span class="${priorityBadgeClass(card)}">${glyph}${escapeHtml(label)}</span>`;
 }
 
+// A card shows priority only when it asks someone to act; routine levels stay
+// in the Details tab, so a list of "Normal" tags does not drown the ones that matter.
+export function attentionPriorityBadge(card) {
+  return ATTENTION_BUCKETS.has(priorityBucket(card.priority)) ? priorityBadge(card) : "";
+}
+
 // `schedule_date` is raw import text. Mirrors domain/work_orders.py
 // parse_schedule_date: leading M/D/YYYY (vendor, 2-digit years are 20xx) or
 // YYYY-M-D (hand edits), optionally followed by a time. Returns a comparable
@@ -362,6 +368,28 @@ export function placeMeta(c) {
   if (c.unit_number) parts.push(`Unit ${c.unit_number}`);
   if (parts.length) return parts.join(" · ");
   return c.location || "";
+}
+
+// The card heading and the line under it. Location is what a person reads
+// first (user 2026-11-14), so the building leads and the room follows: an
+// imported "Building: room, corner" splits at its first colon or line break.
+export function placeParts(c) {
+  if (c.community || c.building_number || c.unit_number) {
+    const rest = [];
+    if (c.building_number) rest.push(`Bldg ${c.building_number}`);
+    if (c.unit_number) rest.push(`Unit ${c.unit_number}`);
+    return c.community
+      ? { heading: c.community, detail: rest.join(" · ") }
+      : { heading: rest.shift(), detail: rest.join(" · ") };
+  }
+  const text = String(c.location || "").trim();
+  if (!text) return { heading: "No location", detail: "" };
+  const cut = text.search(/[:\n]/);
+  if (cut <= 0) return { heading: text, detail: "" };
+  return {
+    heading: text.slice(0, cut).trim(),
+    detail: text.slice(cut + 1).trim().replace(/\s*\n\s*/g, ", "),
+  };
 }
 
 export function assignedIds(detail) {

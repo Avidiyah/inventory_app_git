@@ -83,6 +83,15 @@
     --wo-status-ready-to-complete: #6D28D9;
     --wo-status-completed: #2563EB;
     --wo-status-review: #15803D;
+    /* The same hues lifted for text on the dark panels (WO number, chip
+       label, group heading). */
+    --wo-status-text-created: #D1D5DB;
+    --wo-status-text-assigned: #F87171;
+    --wo-status-text-in-progress: #FACC15;
+    --wo-status-text-on-hold: #FB923C;
+    --wo-status-text-ready-to-complete: #A78BFA;
+    --wo-status-text-completed: #60A5FA;
+    --wo-status-text-review: #4ADE80;
 
     /* Feedback text */
     /* Text and left-accent rules only -- never a fill -- so these move to
@@ -861,7 +870,7 @@ button:focus-visible {
    don't reflow when the real cards land. */
 .skel-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(245px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(245px, 100%), 1fr));
     gap: var(--space-4);
 }
 
@@ -1214,7 +1223,7 @@ tr:last-child td {
    column on narrow screens without forcing the page wider than the viewport. */
 .wo-filter-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
     gap: var(--space-3);
     margin-bottom: var(--space-3);
 }
@@ -1255,36 +1264,25 @@ tr:last-child td {
     font-size: var(--fs-lg);
 }
 
-/* Advanced search: native <details>, folded by default. Its summary is a big
-   full-width button sized like the scope toggle (the Users page "+ Add user"
-   pattern, scaled up); the open grid sits straight under it on the page. */
+/* One search box, then a toolbar: Filters (opens the panel below), sort,
+   and the Admin export. Wraps rather than scrolls on a phone. */
+.wo-search { width: 100%; margin: 0; }
+.wo-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin: var(--space-2) 0 var(--space-3);
+}
+.wo-toolbar > * { margin: 0; min-height: var(--btn-h-sm); width: auto; }
+.wo-filters-btn[aria-expanded="true"] { border-color: var(--color-brand); color: var(--color-brand); }
 .wo-advanced {
     margin-bottom: var(--space-3);
-}
-
-.wo-advanced-summary {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-2);
-    min-height: 56px;
-    padding: 0 var(--space-3);
+    padding: var(--space-3);
     border: 1px solid var(--panel-border);
     border-radius: var(--radius-md);
-    color: var(--text-panel);
-    font-size: var(--fs-lg);
-    font-weight: var(--fw-bold);
-    cursor: pointer;
-    list-style: none;
+    background: var(--panel-well);
 }
-
-.wo-advanced-summary::-webkit-details-marker { display: none; }
-.wo-advanced-summary::before { content: "\25B8"; }
-.wo-advanced[open] > .wo-advanced-summary::before { content: "\25BE"; }
-.wo-advanced-summary:hover { background-color: var(--panel-hover); }
-.wo-advanced-summary:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.wo-advanced[open] > .wo-advanced-summary { border-color: var(--color-brand); color: var(--color-brand); }
-.wo-advanced > .wo-filter-grid { margin-top: var(--space-3); }
 
 .wo-filters-actions {
     display: flex;
@@ -1292,28 +1290,6 @@ tr:last-child td {
     gap: var(--space-3);
 }
 
-.wo-filters-count {
-    margin-left: var(--space-1);
-}
-
-.wo-number-search-row input {
-    flex: 1 1 260px;
-}
-
-/* Scheduled-date sort toggle at the end of the number-search row. Sized like
-   the row's other buttons; selected cell takes the primary accent. */
-.wo-sort-seg {
-    margin-left: auto;
-}
-
-.wo-sort-seg .seg-btn {
-    flex: 0 0 auto;
-    min-height: var(--btn-h-sm);
-    padding: 0 var(--space-3);
-    font-size: var(--fs-sm, 0.875rem);
-}
-
-.wo-sort-seg .seg-btn[aria-pressed="true"],
 .wo-scope-seg .seg-btn[aria-pressed="true"],
 .users-scope .seg-btn[aria-pressed="true"] {
     background-color: var(--color-brand);
@@ -1543,12 +1519,22 @@ tr:last-child td {
     overflow-x: auto;
 }
 
+/* Phone: wrap instead of scrolling sideways. Wrapping adds no characters,
+   so what gets pasted is unchanged. */
+@media (max-width: 600px) {
+    .pricing-output {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        overflow-x: visible;
+    }
+}
+
 /* IMP-007 Admin Review: green Review cards feed one persistent fixed-width
    receipt. The receipt section is intentionally separate from the queue so a
    close/reopen refresh cannot clear text that still needs to be copied. */
 .admin-review-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
     gap: var(--space-2);
 }
 
@@ -1630,7 +1616,7 @@ tr:last-child td {
 
 .user-requests-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
     gap: var(--space-3);
 }
 
@@ -2330,7 +2316,7 @@ tr.archived-user {
 .hub-graphs-header h2, .hub-graphs h2, .hub-graph-card h3 { margin-top: 0; }
 .hub-graphs-range { display: flex; align-items: center; gap: var(--space-2); white-space: nowrap; }
 .hub-graphs-range select { margin-top: 0; }
-.hub-graph-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)); gap: var(--space-4); }
+.hub-graph-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(245px, 100%), 1fr)); gap: var(--space-4); }
 .hub-graph-card, .hub-duration-section { background: var(--panel-nested); border: var(--border); border-radius: var(--radius-md); padding: var(--space-4); }
 .hub-graph-card h3 { font-size: var(--fs-lg); }
 /* Nested tab strips inside the Graphs panel: community first, then the
@@ -2585,7 +2571,7 @@ tr.archived-user {
    mockup), stacking on narrow ones like every other hub grid. */
 .hub-exceptions-billing-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
     gap: var(--space-4);
 }
 
@@ -2742,7 +2728,7 @@ tr.archived-user {
 
 .hub-crew-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
     gap: var(--space-4);
     margin-top: var(--space-3);
 }
@@ -4822,6 +4808,10 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     white-space: nowrap;
 }
 
+@media (max-width: 600px) {
+    .lu-card-badge { white-space: normal; }
+}
+
 .lu-card-body {
     background-color: var(--color-white);
     color: var(--color-ink);
@@ -4902,6 +4892,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     margin-bottom: var(--space-3);
 }
 .wo-mode-row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.wo-mode-row, .wo-mode-select { max-width: 100%; min-width: 0; }
 .wo-mode-select { margin-top: 0; min-height: var(--btn-h-sm); }
 .wo-controls button { margin-top: 0; min-height: var(--btn-h-sm); }
 .wo-controls > button:not(.secondary-btn):not(.btn-danger) { min-height: var(--btn-h); }
@@ -5613,6 +5604,11 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     }
 
     /* --- Worker tables collapse to stacked cards --- */
+    /* Block, not table: a table sizes to its widest unbreakable cell text and
+       pushes the page sideways. */
+    .stack-table,
+    .stack-table tbody { display: block; width: 100%; }
+    .stack-table td { min-width: 0; overflow-wrap: anywhere; }
     .stack-table thead { display: none; }
 
     .stack-table tr {
@@ -6039,7 +6035,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 /* Tiles. */
 #smr-page .smr-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
     gap: var(--space-3);
 }
 #smr-page .smr-tile {
@@ -6080,7 +6076,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 }
 #smr-page .smr-tile--ready:active { box-shadow: 0 1px 0 0 #166534, 0 2px 6px -2px rgba(21, 128, 61, .35), var(--shadow-card); }
 #smr-page .smr-tile--archived { border-style: dashed; opacity: .7; }
-#smr-page .smr-tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2); width: 100%; margin-bottom: var(--space-1); }
+#smr-page .smr-tile-top { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--space-2); width: 100%; margin-bottom: var(--space-1); }
 #smr-page .smr-tile-weeks { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 #smr-page .smr-week,
 #smr-page .smr-tile-stage,
@@ -6143,6 +6139,21 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 
 /* Hours tab (spec 2026-11-04 D3): standard table, cells "charged / excluded". */
 #smr-page .smr-hours { overflow-x: auto; }
+
+/* Phone: the weekly table becomes one card per row; nothing scrolls sideways. */
+@media (max-width: 600px) {
+    #smr-page .smr-weekly-body { overflow-x: visible; }
+    #smr-page .smr-weekly-table,
+    #smr-page .smr-weekly-table tbody,
+    #smr-page .smr-weekly-table tfoot,
+    #smr-page .smr-weekly-table tr { display: block; width: 100%; }
+    #smr-page .smr-weekly-table thead { display: none; }
+    #smr-page .smr-weekly-table tr { border-bottom: 1px solid var(--panel-rule-soft); padding: var(--space-2) 0; }
+    #smr-page .smr-hours-table.smr-weekly-table td { display: flex; justify-content: space-between; gap: var(--space-3); padding: 2px 0; text-align: right; white-space: normal; border-bottom: 0; }
+    #smr-page .smr-hours-table.smr-weekly-table td:empty { display: none; }
+    #smr-page .smr-weekly-table td::before { content: attr(data-label); color: var(--text-panel-mute); text-align: left; }
+    #smr-page .smr-weekly-table tfoot td:first-child { font-weight: var(--fw-bold); }
+}
 #smr-page .smr-hours-note { margin: 0 0 var(--space-3); font-size: var(--fs-sm); color: var(--text-panel-mute); }
 #smr-page .smr-hours-title { margin: var(--space-4) 0 var(--space-2); font-size: var(--fs-base); }
 #smr-page .smr-hours-table { margin-bottom: var(--space-4); }
@@ -6159,3 +6170,738 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-card.wo-card-smr-needs_review, .wo-card.wo-card-smr-needs_review:hover { --card-accent: var(--panel-border); border-color: var(--panel-border); }
 .wo-card.wo-card-smr-other, .wo-card.wo-card-smr-other:hover { --card-accent: var(--gray-500); border-color: var(--panel-border); }
 .wo-card.wo-card-smr-ready, .wo-card.wo-card-smr-ready:hover { --card-accent: #15803D; --card-accent-rgb: 21, 128, 61; border-color: #15803D; }
+
+/* UserHub Home: compact cards on phones, existing layout on wider screens. */
+.hub-mobile-only { display: none; }
+.hub-home-attendance { display: contents; }
+.hub-punch-off [data-action="hub-punch-in-shop"] { order: -1; }
+
+@media (max-width: 600px) {
+    #user-hub-page .hub-mobile-only { display: block; }
+    #user-hub-page .hub-desktop-only { display: none; }
+    #user-hub-page .hub-home-title {
+        color: var(--text-panel);
+        margin: 0 0 var(--space-3);
+        font-size: 2rem;
+    }
+    #user-hub-page:not(:has(#hub-tab-home.active)) .hub-home-title { display: none; }
+    /* Section picker: the tab row becomes one card showing the current
+       section; opening it lists every section as an icon tile. */
+    #user-hub-page { /* icon masks, one per section */
+        --hub-ico-home: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22black%22 stroke-width=%221.8%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M3 11l9-8 9 8M5 10v10h14V10%22/%3E%3C/svg%3E");
+        --hub-ico-dashboard: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22black%22 stroke-width=%221.8%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Crect x=%223%22 y=%223%22 width=%227%22 height=%229%22 rx=%221.5%22/%3E%3Crect x=%2214%22 y=%223%22 width=%227%22 height=%225%22 rx=%221.5%22/%3E%3Crect x=%2214%22 y=%2212%22 width=%227%22 height=%229%22 rx=%221.5%22/%3E%3Crect x=%223%22 y=%2216%22 width=%227%22 height=%225%22 rx=%221.5%22/%3E%3C/svg%3E");
+        --hub-ico-timesheets: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22black%22 stroke-width=%221.8%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%229%22/%3E%3Cpath d=%22M12 7v5l3 2%22/%3E%3C/svg%3E");
+        --hub-ico-leaderboards: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22black%22 stroke-width=%221.8%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3%22/%3E%3C/svg%3E");
+        --hub-ico-work-orders: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22black%22 stroke-width=%221.8%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Crect x=%225%22 y=%223%22 width=%2214%22 height=%2218%22 rx=%222%22/%3E%3Cpath d=%22M9 8h6M9 12h6M9 16h3%22/%3E%3C/svg%3E");
+        --hub-ico-graphs: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22black%22 stroke-width=%221.8%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M4 20V4M4 20h16M8 16v-5M13 16V8M18 16v-3%22/%3E%3C/svg%3E");
+        --hub-ico-report: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22black%22 stroke-width=%221.8%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h5%22/%3E%3C/svg%3E");
+    }
+    #user-hub-page .hub-picker {
+        background: var(--panel-bg);
+        border: 1px solid var(--panel-border);
+        border-radius: var(--radius-md);
+        overflow: hidden;
+        margin-bottom: var(--space-4);
+        box-shadow: var(--shadow-panel);
+        backdrop-filter: blur(var(--glass-blur));
+        -webkit-backdrop-filter: blur(var(--glass-blur));
+    }
+    #user-hub-page .hub-picker-current {
+        all: unset;
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        width: 100%;
+        min-height: 56px;
+        padding: var(--space-3);
+        cursor: pointer;
+        color: var(--text-panel);
+    }
+    #user-hub-page .hub-picker-current:focus-visible { outline: 2px solid var(--color-brand); outline-offset: -2px; }
+    #user-hub-page .hub-picker-ico {
+        flex: none;
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        background: var(--color-brand);
+        display: grid;
+        place-items: center;
+    }
+    #user-hub-page .hub-picker-ico::before,
+    #hub-tabs .hub-tab::before {
+        content: "";
+        width: 20px;
+        height: 20px;
+        background: currentColor;
+        -webkit-mask: center / contain no-repeat;
+        mask: center / contain no-repeat;
+    }
+    #user-hub-page .hub-picker-ico::before { color: #fff; }
+    #user-hub-page .hub-picker-text { flex: 1; line-height: 1.2; }
+    #user-hub-page .hub-picker-text small { display: block; color: var(--text-panel-mute); font-size: 0.75rem; }
+    #user-hub-page .hub-picker-text b { font-size: 1.0625rem; }
+    #user-hub-page .hub-picker-chev {
+        width: 10px;
+        height: 10px;
+        border: solid var(--text-panel-mute);
+        border-width: 0 2px 2px 0;
+        transform: rotate(45deg);
+        margin-right: var(--space-1);
+        transition: transform 0.2s;
+    }
+    #user-hub-page .hub-picker.open .hub-picker-chev { transform: rotate(225deg); }
+    #user-hub-page .hub-picker[data-current="home"] .hub-picker-ico::before { -webkit-mask-image: var(--hub-ico-home); mask-image: var(--hub-ico-home); }
+    #user-hub-page .hub-picker[data-current="dashboard"] .hub-picker-ico::before { -webkit-mask-image: var(--hub-ico-dashboard); mask-image: var(--hub-ico-dashboard); }
+    #user-hub-page .hub-picker[data-current="timesheets"] .hub-picker-ico::before { -webkit-mask-image: var(--hub-ico-timesheets); mask-image: var(--hub-ico-timesheets); }
+    #user-hub-page .hub-picker[data-current="leaderboards"] .hub-picker-ico::before { -webkit-mask-image: var(--hub-ico-leaderboards); mask-image: var(--hub-ico-leaderboards); }
+    #user-hub-page .hub-picker[data-current="work-orders"] .hub-picker-ico::before { -webkit-mask-image: var(--hub-ico-work-orders); mask-image: var(--hub-ico-work-orders); }
+    #user-hub-page .hub-picker[data-current="graphs"] .hub-picker-ico::before { -webkit-mask-image: var(--hub-ico-graphs); mask-image: var(--hub-ico-graphs); }
+    #user-hub-page .hub-picker[data-current="report"] .hub-picker-ico::before { -webkit-mask-image: var(--hub-ico-report); mask-image: var(--hub-ico-report); }
+    #hub-tabs #hub-tab-home::before { -webkit-mask-image: var(--hub-ico-home); mask-image: var(--hub-ico-home); }
+    #hub-tabs #hub-tab-dashboard::before { -webkit-mask-image: var(--hub-ico-dashboard); mask-image: var(--hub-ico-dashboard); }
+    #hub-tabs #hub-tab-timesheets::before { -webkit-mask-image: var(--hub-ico-timesheets); mask-image: var(--hub-ico-timesheets); }
+    #hub-tabs #hub-tab-leaderboards::before { -webkit-mask-image: var(--hub-ico-leaderboards); mask-image: var(--hub-ico-leaderboards); }
+    #hub-tabs #hub-tab-work-orders::before { -webkit-mask-image: var(--hub-ico-work-orders); mask-image: var(--hub-ico-work-orders); }
+    #hub-tabs #hub-tab-graphs::before { -webkit-mask-image: var(--hub-ico-graphs); mask-image: var(--hub-ico-graphs); }
+    #hub-tabs #hub-tab-report::before { -webkit-mask-image: var(--hub-ico-report); mask-image: var(--hub-ico-report); }
+    #user-hub-page .hub-tabs { display: none; margin: 0; border-bottom: 0; }
+    #user-hub-page .hub-picker.open .hub-tabs {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--space-2);
+        padding: var(--space-3);
+        border-top: var(--border);
+    }
+    #user-hub-page .hub-tab {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--space-2);
+        padding: var(--space-3) var(--space-1);
+        min-height: 44px;
+        border: 1px solid transparent;
+        border-radius: var(--radius-md);
+        background: var(--panel-nested);
+        font-size: 0.8125rem;
+        text-align: center;
+    }
+    #user-hub-page .hub-tab[hidden] { display: none; }
+    #user-hub-page .hub-tab.active {
+        color: var(--text-panel);
+        border-color: var(--color-brand);
+        background: rgba(200, 16, 46, 0.16);
+    }
+    #hub-tabpanel-home .hub-home-attendance {
+        display: block;
+        background: var(--panel-bg);
+        color: var(--text-panel);
+        border: 1px solid var(--panel-border);
+        border-radius: var(--radius-md);
+        padding: var(--space-4);
+        margin-bottom: var(--space-4);
+        box-shadow: var(--shadow-panel);
+        backdrop-filter: blur(var(--glass-blur));
+        -webkit-backdrop-filter: blur(var(--glass-blur));
+    }
+    #hub-tabpanel-home .hub-home-attendance > section {
+        background: none;
+        border: 0;
+        border-radius: 0;
+        padding: 0;
+        margin: 0;
+        box-shadow: none;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+    }
+    #hub-tabpanel-home #hub-clock-mount {
+        padding: var(--space-4);
+        margin-bottom: var(--space-4);
+    }
+    #hub-tabpanel-home .hub-time-heading {
+        margin: 0 0 var(--space-2);
+        font-size: 1.5rem;
+        line-height: 1.2;
+        grid-column: 1 / -1;
+    }
+    #hub-tabpanel-home .hub-punch-off,
+    #hub-tabpanel-home .hub-clock-off {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: center;
+        gap: var(--space-2);
+    }
+    #hub-tabpanel-home .hub-punch-off .hub-punch-row,
+    #hub-tabpanel-home .hub-clock-off .hub-clock-row { display: contents; }
+    #hub-tabpanel-home .hub-punch-status,
+    #hub-tabpanel-home .hub-clock-status {
+        width: fit-content;
+        max-width: 100%;
+        margin: 0;
+        padding: var(--space-1) var(--space-2);
+        border-radius: var(--radius-md);
+        background: var(--panel-well);
+        font-size: var(--fs-sm);
+    }
+    #hub-tabpanel-home .hub-punch-today,
+    #hub-tabpanel-home .hub-clock-today {
+        text-align: right;
+        font-size: var(--fs-sm);
+        color: var(--text-panel);
+    }
+    #hub-tabpanel-home .hub-punch-today .hub-mobile-only,
+    #hub-tabpanel-home .hub-clock-today .hub-mobile-only { display: inline; }
+    #hub-tabpanel-home .hub-punch-today strong,
+    #hub-tabpanel-home .hub-clock-today strong { white-space: nowrap; font-weight: inherit; }
+    #hub-tabpanel-home .hub-punch-actions,
+    #hub-tabpanel-home .hub-clock-start-wrap {
+        grid-column: 1 / -1;
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--space-3);
+        margin-top: var(--space-3);
+        min-width: 0;
+        width: 100%;
+    }
+    #hub-tabpanel-home .hub-punch-actions .secondary-btn { order: 0; }
+    #hub-tabpanel-home .hub-punch-btn,
+    #hub-tabpanel-home .hub-clock-start-btn,
+    #hub-tabpanel-home .hub-clock-stop-btn {
+        width: 100%;
+        min-width: 0;
+        min-height: 44px;
+        height: auto;
+        margin: 0;
+        padding: var(--space-2) var(--space-3);
+        overflow-wrap: anywhere;
+    }
+    #hub-tabpanel-home .hub-punch-btn.secondary-btn {
+        background: transparent;
+        border-color: var(--text-panel);
+    }
+    #hub-tabpanel-home .hub-punch-note {
+        grid-column: 1 / -1;
+        margin-top: var(--space-2);
+        font-size: var(--fs-sm);
+    }
+    #hub-tabpanel-home #hub-punch-message,
+    #hub-tabpanel-home #hub-clock-message { grid-column: 1 / -1; overflow-wrap: anywhere; }
+    #hub-tabpanel-home .hub-home-attendance > .hub-home-week-punches {
+        margin-top: var(--space-4);
+        padding-top: var(--space-2);
+        border-top: 1px solid var(--panel-rule);
+    }
+    #hub-tabpanel-home .hub-home-week-punches summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 44px;
+        list-style: none;
+    }
+    #hub-tabpanel-home .hub-home-week-punches summary::-webkit-details-marker { display: none; }
+    #hub-tabpanel-home .hub-home-week-punches summary::after { content: "›"; font-size: 1.75rem; }
+    #hub-tabpanel-home .hub-home-week-punches details[open] summary::after { transform: rotate(90deg); }
+    #hub-tabpanel-home .hub-clock-work-order {
+        border-top: 1px solid var(--panel-rule);
+        padding-top: var(--space-3);
+        overflow-wrap: anywhere;
+    }
+    #hub-tabpanel-home .hub-clock-work-order p { margin: 0 0 var(--space-1); }
+    #hub-tabpanel-home .hub-punch-on .hub-punch-row,
+    #hub-tabpanel-home .hub-clock-on .hub-clock-row { flex-direction: column; align-items: stretch; }
+    #hub-tabpanel-home .hub-tile-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+    #hub-tabpanel-home .hub-tile { padding: var(--space-3); margin-bottom: 0; min-width: 0; overflow-wrap: anywhere; }
+    #hub-tabpanel-home .hub-tile-label { font-size: 0.8125rem; line-height: 1.2; min-height: 2.4em; }
+    #hub-tabpanel-home .hub-tile-label { font-weight: var(--fw-semibold); color: var(--text-panel); }
+    #hub-tabpanel-home .hub-tile-value { font-size: 2rem; font-weight: var(--fw-bold); }
+    #hub-tabpanel-home .hub-tile-sub { display: none; }
+
+    /* Dashboard: grouped, labelled cards instead of a long run of loose tiles. */
+    #hub-tabpanel-dashboard #hub-admin-mount { display: flex; flex-direction: column; }
+    #hub-tabpanel-dashboard .hub-exceptions-billing-grid { display: contents; }
+    #hub-tabpanel-dashboard .hub-dash-company { order: 1; }
+    #hub-tabpanel-dashboard .hub-exceptions { order: 2; }
+    #hub-tabpanel-dashboard .hub-dash-crew { order: 3; }
+    #hub-tabpanel-dashboard .hub-billing { order: 4; }
+    #hub-tabpanel-dashboard .hub-priorities,
+    #hub-tabpanel-dashboard .hub-dash-card,
+    #hub-tabpanel-dashboard .hub-exceptions,
+    #hub-tabpanel-dashboard .hub-billing,
+    #hub-tabpanel-dashboard .hub-time-today,
+    #hub-tabpanel-dashboard .hub-tools-out {
+        background: var(--panel-bg);
+        color: var(--text-panel);
+        border: 1px solid var(--panel-border);
+        border-radius: var(--radius-md);
+        padding: var(--space-4);
+        margin: 0 0 var(--space-4);
+        box-shadow: var(--shadow-panel);
+        backdrop-filter: blur(var(--glass-blur));
+        -webkit-backdrop-filter: blur(var(--glass-blur));
+    }
+    #hub-tabpanel-dashboard .hub-dash-title,
+    #hub-tabpanel-dashboard .hub-priorities > .hub-tile-label,
+    #hub-tabpanel-dashboard .hub-exceptions > .hub-tile-label,
+    #hub-tabpanel-dashboard .hub-billing > .hub-tile-label {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin: 0 0 var(--space-3);
+        color: var(--text-panel);
+        font-size: 0.9375rem;
+        font-weight: var(--fw-semibold);
+    }
+    #hub-tabpanel-dashboard .hub-dash-sub { color: var(--text-panel-mute); font-size: 0.75rem; font-weight: var(--fw-regular); }
+    #hub-tabpanel-dashboard .hub-tile-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); margin: 0; }
+    #hub-tabpanel-dashboard .hub-crew .hub-tile-grid,
+    #hub-tabpanel-dashboard .hub-dash-crew .hub-tile-grid,
+    #hub-tabpanel-dashboard .hub-priorities .hub-tile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #hub-tabpanel-dashboard .hub-dash-card .hub-tile,
+    #hub-tabpanel-dashboard .hub-priorities .hub-tile {
+        background: var(--panel-nested);
+        border: 1px solid transparent;
+        border-radius: var(--radius-md);
+        box-shadow: none;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+        padding: var(--space-2) var(--space-3);
+        margin: 0;
+        min-width: 0;
+    }
+    #hub-tabpanel-dashboard .hub-priorities .hub-tile { background: rgba(200, 16, 46, 0.14); border-color: rgba(200, 16, 46, 0.55); padding: var(--space-3); }
+    #hub-tabpanel-dashboard .hub-priorities .hub-tile-value { font-size: 2.125rem; }
+    #hub-tabpanel-dashboard .hub-dash-card .hub-tile-label { font-size: 0.75rem; line-height: 1.2; min-height: 2.4em; overflow-wrap: anywhere; }
+    #hub-tabpanel-dashboard .hub-dash-card .hub-tile-value { font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+    #hub-tabpanel-dashboard .hub-dash-card .hub-tile-sub { display: none; }
+    #hub-tabpanel-dashboard .hub-tile-pipeline-item { padding: var(--space-2) var(--space-3); }
+    #hub-tabpanel-dashboard .hub-dash-bar { display: flex; gap: 2px; height: 8px; border-radius: 99px; overflow: hidden; margin: 0 0 var(--space-3); }
+    #hub-tabpanel-dashboard .hub-bar-seg { display: block; flex: 0 0 auto; flex-basis: 0; min-width: 6px; }
+    #hub-tabpanel-dashboard .hub-bar-seg[data-grow="0"] { display: none; }
+    #hub-tabpanel-dashboard .hub-bar-created { background: #6b7280; }
+    #hub-tabpanel-dashboard .hub-bar-assigned { background: #8aa4d6; }
+    #hub-tabpanel-dashboard .hub-bar-in_progress { background: #4f8fe0; }
+    #hub-tabpanel-dashboard .hub-bar-ready_to_complete { background: #F5B84B; }
+    #hub-tabpanel-dashboard .hub-bar-completed { background: #4ade80; }
+    #hub-tabpanel-dashboard .hub-bar-review { background: #a78bfa; }
+    #hub-tabpanel-dashboard .hub-dash-card .hub-attention-icon { color: #F5B84B; }
+    /* Crew card: the on-the-clock list sits inside it, not as its own card. */
+    #hub-tabpanel-dashboard .hub-onclock-section { background: none; border: 0; box-shadow: none; padding: 0; margin: 0 0 var(--space-3); backdrop-filter: none; -webkit-backdrop-filter: none; }
+    #hub-tabpanel-dashboard .hub-onclock-row { flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
+    /* Follow-up rows: counts as pills, amber when above zero. */
+    #hub-tabpanel-dashboard .hub-exceptions-row { align-items: center; min-height: 44px; }
+    #hub-tabpanel-dashboard .hub-pill { min-width: 30px; text-align: center; padding: 2px var(--space-3); border-radius: 99px; background: var(--panel-nested); color: var(--text-panel-mute); font-weight: var(--fw-bold); font-size: 0.8125rem; }
+    #hub-tabpanel-dashboard .hub-pill-on { background: rgba(245, 184, 75, 0.16); color: #F5B84B; }
+    /* Billing: the total leads, large. */
+    #hub-tabpanel-dashboard .hub-billing .hub-exceptions-list { display: flex; flex-direction: column; }
+    #hub-tabpanel-dashboard .hub-billing-total { order: -1; font-size: 2rem; font-weight: var(--fw-bold); border-bottom: 0; padding-bottom: var(--space-2); }
+}
+
+/* Hub tab phone layouts: Timesheets, Leaderboards, Work Orders, Graphs. */
+/* Timesheets tab. NOTE: the first block (min-width:601px) hides the phone-only extras on desktop; merge it too. */
+@media (min-width: 601px) {
+  #hub-tabpanel-timesheets .hub-roster-head,
+  #hub-tabpanel-timesheets .hub-roster-minis,
+  #hub-tabpanel-timesheets .hub-days-head,
+  #hub-tabpanel-timesheets .hub-day-card-dow,
+  #hub-tabpanel-timesheets .hub-day-card-num { display: none; }
+}
+@media (max-width: 600px) {
+  #hub-tabpanel-timesheets .hub-roster,
+  #hub-tabpanel-timesheets .hub-days {
+    background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: var(--radius-md);
+    padding: var(--space-4); margin: 0 0 var(--space-3); box-shadow: var(--shadow-panel);
+    backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  }
+  #hub-tabpanel-timesheets .hub-roster-head,
+  #hub-tabpanel-timesheets .hub-days-head { display: flex; justify-content: space-between; align-items: center; margin: 0 0 var(--space-3); }
+  #hub-tabpanel-timesheets .hub-roster-head h3,
+  #hub-tabpanel-timesheets .hub-days-head b { margin: 0; font-size: 0.9375rem; font-weight: var(--fw-semibold, 600); }
+  #hub-tabpanel-timesheets .hub-roster-head span,
+  #hub-tabpanel-timesheets .hub-days-head span { color: var(--text-panel-mute); font-size: 0.75rem; }
+  #hub-tabpanel-timesheets .hub-roster-minis { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2); }
+  #hub-tabpanel-timesheets .hub-roster-mini { background: var(--panel-nested); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
+  #hub-tabpanel-timesheets .hub-roster-mini small { display: block; color: var(--text-panel-mute); font-size: 0.72rem; }
+  #hub-tabpanel-timesheets .hub-roster-mini b { font-size: 1.5rem; }
+  #hub-tabpanel-timesheets .hub-roster-counts { display: none; }
+  #hub-tabpanel-timesheets .hub-roster-empty { margin: var(--space-3) 0 0; }
+  #hub-tabpanel-timesheets .hub-roster-strip { margin-top: var(--space-3); }
+  #hub-tabpanel-timesheets .hub-roster-card { flex: 1 1 100%; min-width: 0; }
+  #hub-tabpanel-timesheets .hub-roster-absent { margin-top: var(--space-3); border-top: 1px solid var(--panel-rule-soft); padding-top: var(--space-2); }
+  #hub-tabpanel-timesheets .hub-roster-absent summary { min-height: 44px; display: flex; align-items: center; }
+  /* actions */
+  #hub-tabpanel-timesheets .hub-timesheets-action-row { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-3); }
+  #hub-tabpanel-timesheets .hub-timesheets-action-row button { width: 100%; min-height: 44px; margin: 0; }
+  /* week stepper */
+  #hub-tabpanel-timesheets .hub-hours-toolbar { margin-bottom: var(--space-2); }
+  #hub-tabpanel-timesheets .hub-hours-week-nav { display: grid; grid-template-columns: 44px 1fr 44px; width: 100%; gap: var(--space-2); align-items: center; text-align: center; }
+  #hub-tabpanel-timesheets .hub-hours-week-nav button { min-width: 44px; min-height: 44px; padding: 0; margin: 0; }
+  #hub-tabpanel-timesheets .hub-days-hint { display: none; }
+  /* day rows */
+  #hub-tabpanel-timesheets .hub-day-cards { display: flex; flex-direction: column; gap: 0; }
+  #hub-tabpanel-timesheets .hub-day-card {
+    display: grid; grid-template-columns: 44px 1fr auto 12px; align-items: center; column-gap: var(--space-3);
+    min-height: 56px; padding: var(--space-2) var(--space-1); border: 0; border-top: 1px solid var(--panel-rule-soft);
+    border-radius: 0; background: none; width: 100%;
+  }
+  #hub-tabpanel-timesheets .hub-day-card:first-child { border-top: 0; }
+  #hub-tabpanel-timesheets .hub-day-card-date { grid-column: 1; grid-row: 1 / span 2; display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
+  #hub-tabpanel-timesheets .hub-day-card-full { display: none; }
+  #hub-tabpanel-timesheets .hub-day-card-dow { font-size: 0.6875rem; letter-spacing: 0.06em; color: var(--text-panel-mute); font-weight: 700; }
+  #hub-tabpanel-timesheets .hub-day-card-num { font-size: 1.25rem; font-weight: 700; }
+  #hub-tabpanel-timesheets .hub-day-card-count { grid-column: 2; grid-row: 1; color: var(--text-panel-mute); }
+  #hub-tabpanel-timesheets .hub-hours-punch-note { grid-column: 2; grid-row: 2; font-size: 0.75rem; color: var(--text-panel-mute); }
+  #hub-tabpanel-timesheets .hub-day-card-hours { grid-column: 3; grid-row: 1 / span 2; font-size: 1rem; font-weight: 700; color: var(--text-panel-mute); }
+  #hub-tabpanel-timesheets .hub-day-card::after { content: ""; grid-column: 4; grid-row: 1 / span 2; width: 8px; height: 8px; border: solid var(--text-panel-mute); border-width: 0 2px 2px 0; transform: rotate(-45deg); }
+  #hub-tabpanel-timesheets .hub-day-card.is-today { background: rgba(200, 16, 46, 0.14); border: 1px solid rgba(200, 16, 46, 0.55); border-radius: var(--radius-md); }
+  #hub-tabpanel-timesheets .hub-day-card.is-today .hub-day-card-dow,
+  #hub-tabpanel-timesheets .hub-day-card.is-today .hub-day-card-count,
+  #hub-tabpanel-timesheets .hub-day-card.is-today .hub-day-card-hours { color: var(--text-panel); }
+}
+
+@media (max-width: 600px) {
+    #hub-tabpanel-leaderboards .hub-hours-toolbar,
+    #hub-tabpanel-leaderboards .hub-leaderboards-board {
+        display: block;
+        background: var(--panel-bg);
+        color: var(--text-panel);
+        border: 1px solid var(--panel-border);
+        border-radius: var(--radius-md);
+        padding: var(--space-4);
+        margin: 0 0 var(--space-4);
+        box-shadow: var(--shadow-panel);
+        backdrop-filter: blur(var(--glass-blur));
+        -webkit-backdrop-filter: blur(var(--glass-blur));
+    }
+    #hub-tabpanel-leaderboards .hub-lb-head { display: flex !important;
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin: 0 0 var(--space-3);
+    }
+    #hub-tabpanel-leaderboards .hub-lb-head h3 { margin: 0; font-size: 0.9375rem; font-weight: var(--fw-semibold); color: var(--text-panel); }
+    #hub-tabpanel-leaderboards .hub-lb-head span { color: var(--text-panel-mute); font-size: 0.75rem; }
+    #hub-tabpanel-leaderboards .hub-leaderboards-switch {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        background: var(--panel-nested);
+        padding: 4px;
+        border-radius: var(--radius-md);
+        margin-bottom: var(--space-3);
+    }
+    #hub-tabpanel-leaderboards .hub-leaderboards-switch button { min-height: 44px; margin: 0; width: 100%; background: transparent; border-color: transparent; }
+    #hub-tabpanel-leaderboards .hub-leaderboards-switch [aria-pressed="true"] { background: var(--color-brand); border-color: var(--color-brand); }
+    #hub-tabpanel-leaderboards .hub-hours-week-nav { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+    #hub-tabpanel-leaderboards .hub-hours-week-nav strong { font-size: 0.875rem; text-align: center; }
+    #hub-tabpanel-leaderboards .hub-hours-week-nav button { width: 44px; min-width: 44px; height: 44px; padding: 0; margin: 0; background: var(--panel-nested); border-color: transparent; border-radius: var(--radius-md); }
+    #hub-tabpanel-leaderboards .hub-leaderboards-board .hub-leaderboard {
+        background: none; border: 0; padding: 0; margin: 0; box-shadow: none;
+        backdrop-filter: none; -webkit-backdrop-filter: none;
+    }
+    /* empty state */
+    #hub-tabpanel-leaderboards .hub-leaderboard-empty { text-align: center; padding: var(--space-4) var(--space-2); margin: 0; color: var(--text-panel-mute); font-size: 0.875rem; line-height: 1.4; }
+    #hub-tabpanel-leaderboards .hub-lb-empty-title { display: block !important; color: var(--text-panel); font-size: 0.9375rem; margin-bottom: 4px; }
+    /* populated board: one card-row per person, no table, no sideways scroll */
+    #hub-tabpanel-leaderboards .hub-hours-table-wrap { overflow: visible; background: none; border: 0; }
+    #hub-tabpanel-leaderboards .hub-leaderboard-table,
+    #hub-tabpanel-leaderboards .hub-leaderboard-table tbody { display: block; min-width: 0; width: 100%; }
+    #hub-tabpanel-leaderboards .hub-leaderboard-table thead { display: none; }
+    #hub-tabpanel-leaderboards .hub-leaderboard-row {
+        display: grid;
+        grid-template-columns: 2.5rem minmax(0, 1fr) auto;
+        gap: 2px var(--space-2);
+        align-items: center;
+        padding: var(--space-3) 0;
+        border-top: 1px solid var(--panel-rule-soft);
+        min-height: 44px;
+    }
+    #hub-tabpanel-leaderboards .hub-leaderboard-row:first-child { border-top: 0; }
+    #hub-tabpanel-leaderboards .hub-leaderboard-row { background: none !important; }
+    #hub-tabpanel-leaderboards .hub-lb-empty-more { display: inline !important; }
+    #hub-tabpanel-leaderboards .hub-leaderboard-row > * { display: block; border: 0; padding: 0; min-width: 0; background: none; }
+    #hub-tabpanel-leaderboards .hub-leaderboard-rank { width: auto; text-align: center; grid-row: 1; grid-column: 1; }
+    #hub-tabpanel-leaderboards .hub-leaderboard-row > th { grid-row: 1; grid-column: 2; text-align: left; overflow-wrap: anywhere; }
+    #hub-tabpanel-leaderboards .hub-leaderboard-row > .hub-performance-score { grid-row: 1; grid-column: 3; }
+    #hub-tabpanel-leaderboards .hub-leaderboard-row > td[data-label]:not(.hub-performance-score) {
+        grid-column: 2 / 4; display: flex; justify-content: space-between; color: var(--text-panel-mute); font-size: 0.8125rem; text-align: right;
+    }
+    #hub-tabpanel-leaderboards .hub-leaderboard-row > td[data-label]:not(.hub-performance-score)::before { content: attr(data-label); }
+    #hub-tabpanel-leaderboards .hub-performance-divider,
+    #hub-tabpanel-leaderboards .hub-performance-divider td { display: block; padding: var(--space-2) 0; }
+}
+
+@media (max-width: 600px) {
+  /* The cards themselves: "Work-order cards" block at the end of this file. */
+  #hub-tabpanel-work-orders .hub-wo-view-all { margin: var(--space-3) 0 0; }
+  #hub-tabpanel-work-orders .hub-wo-view-all button {
+    width: 100%;
+    min-height: 44px;
+    background: var(--color-brand);
+    border-color: var(--color-brand);
+    color: #fff;
+    font-weight: var(--fw-bold);
+  }
+}
+
+@media (max-width: 600px) {
+  #hub-tabpanel-graphs .hub-graphs-header,
+  #hub-tabpanel-graphs .hub-graphs-desktop { display: none; }
+  #hub-tabpanel-graphs .hub-graphs-phone { display: grid; gap: var(--space-3); margin-bottom: var(--space-4); }
+  #hub-tabpanel-graphs .hub-graphs-phone-extra { display: none; }
+  #hub-tabpanel-graphs .hub-graphs-phone.expanded .hub-graphs-phone-extra { display: block; }
+  #hub-tabpanel-graphs .hub-graphs-phone-range,
+  #hub-tabpanel-graphs .hub-graphs-phone-more { background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: var(--radius-md); padding: var(--space-4); box-shadow: var(--shadow-panel); }
+  #hub-tabpanel-graphs .hub-graphs-range-pills { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2); }
+  #hub-tabpanel-graphs .hub-graphs-range-pill { min-height: 44px; margin: 0; border-radius: 999px; border: 0; background: var(--panel-nested); color: var(--text-panel-mute); font-weight: var(--fw-semibold); font-size: var(--fs-sm); }
+  #hub-tabpanel-graphs .hub-graphs-range-pill.active { background: var(--color-brand); color: #fff; }
+  #hub-tabpanel-graphs .hub-graphs-phone-more { display: flex; flex-direction: column; gap: var(--space-2); }
+  #hub-tabpanel-graphs .hub-graphs-show-all { width: 100%; min-height: 44px; margin: 0; }
+  /* community card: title row, donut left, non-zero legend right */
+  #hub-tabpanel-graphs .hub-graphs-phone .hub-graph-card { display: grid; grid-template-columns: 112px 1fr; column-gap: var(--space-4); align-items: center; background: var(--panel-bg); border: 1px solid var(--panel-border); box-shadow: var(--shadow-panel); }
+  #hub-tabpanel-graphs .hub-graphs-phone .hub-graph-card h3 { grid-column: 1 / -1; margin: 0 0 var(--space-3); font-size: var(--fs-md, 1rem); }
+  #hub-tabpanel-graphs .hub-graphs-phone .hub-donut-wrap { width: 112px; margin: 0; }
+  #hub-tabpanel-graphs .hub-graph-legend-zero { display: none; }
+  #hub-tabpanel-graphs .hub-graph-legend li:first-child { border-top: 0; }
+  #hub-tabpanel-graphs .hub-graph-legend-row { min-height: 36px; }
+  #hub-tabpanel-graphs .hub-graphs-phone .hub-graph-card-all { grid-column: 1 / -1; min-height: 44px; }
+  /* charts + table: never scroll sideways */
+  #hub-tabpanel-graphs .hub-duration-section { padding: var(--space-3); }
+  #hub-tabpanel-graphs .hub-timesheet-table-wrap { overflow: visible; }
+  #hub-tabpanel-graphs .hub-duration-details table,
+  #hub-tabpanel-graphs .hub-duration-details tbody,
+  #hub-tabpanel-graphs .hub-duration-details tr,
+  #hub-tabpanel-graphs .hub-duration-details th,
+  #hub-tabpanel-graphs .hub-duration-details td { display: block; width: 100%; min-width: 0; }
+  #hub-tabpanel-graphs .hub-duration-details thead { display: none; }
+  #hub-tabpanel-graphs .hub-duration-details tr { padding: var(--space-3) 0; border-top: 1px solid var(--panel-rule-soft); }
+  #hub-tabpanel-graphs .hub-duration-details th, #hub-tabpanel-graphs .hub-duration-details td { border: 0; padding: 2px 0; white-space: normal; overflow-wrap: anywhere; }
+  #hub-tabpanel-graphs .hub-duration-details td::before { content: attr(data-label) ": "; color: var(--text-panel-mute); }
+  #hub-tabpanel-graphs .hub-duration-details summary { min-height: 44px; display: flex; align-items: center; }
+}
+
+@media (max-width: 600px) {
+  #hub-tabpanel-report { min-width: 0; }
+  #hub-tabpanel-report .hub-report-header,
+  #hub-tabpanel-report .hub-report-section,
+  #hub-tabpanel-report .hub-report-empty {
+    display: block;
+    background: var(--panel-bg);
+    color: var(--text-panel);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    margin: 0 0 var(--space-4);
+    box-shadow: var(--shadow-panel);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+  }
+  #hub-tabpanel-report .hub-report-title h2 { margin: 0 0 var(--space-3); font-size: 0.9375rem; font-weight: var(--fw-semibold); }
+  #hub-tabpanel-report .hub-report-weeknav { display: grid; grid-template-columns: 44px 1fr 44px; gap: var(--space-2); align-items: center; margin: 0 0 var(--space-3); }
+  #hub-tabpanel-report .hub-report-week { text-align: center; font-size: 0.875rem; }
+  #hub-tabpanel-report .hub-report-weeknav .secondary-btn { min-height: 44px; min-width: 44px; padding: 0; justify-content: center; }
+  #hub-tabpanel-report .hub-report-this-week { grid-column: 1 / -1; }
+  #hub-tabpanel-report .hub-report-status { margin: 0 0 var(--space-3); color: var(--text-panel-mute); font-size: 0.875rem; }
+  #hub-tabpanel-report .hub-report-stats { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+  #hub-tabpanel-report .hub-report-stats[hidden] { display: grid !important; }
+  #hub-tabpanel-report .hub-report-stat { background: var(--panel-nested); border-radius: var(--radius-md); padding: var(--space-3); min-width: 0; }
+  #hub-tabpanel-report .hub-report-stat span { display: block; color: var(--text-panel-mute); font-size: 0.75rem; line-height: 1.25; min-height: 2.5em; }
+  #hub-tabpanel-report .hub-report-stat b { font-size: 2.125rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  #hub-tabpanel-report .hub-report-actions { display: block; margin-top: var(--space-3); }
+  #hub-tabpanel-report .hub-report-count { display: none; }
+  #hub-tabpanel-report .hub-report-download { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 44px; margin: 0; text-decoration: none; background: var(--color-brand); border-color: var(--color-brand); color: #fff; font-weight: var(--fw-semibold); }
+  #hub-tabpanel-report .hub-report-empty { text-align: center; color: var(--text-panel-mute); font-size: 0.875rem; }
+  #hub-tabpanel-report .hub-report-empty-title { display: block; color: var(--text-panel); font-size: 0.9375rem; margin-bottom: var(--space-1); }
+  #hub-tabpanel-report .hub-report-empty-title[hidden] { display: block !important; }
+  #hub-tabpanel-report .hub-report-section h3 { font-size: 0.9375rem; font-weight: var(--fw-semibold); margin: 0 0 var(--space-3); }
+  #hub-tabpanel-report .hub-timesheet-table-wrap { overflow: visible; background: none; border: 0; box-shadow: none; padding: 0; margin: 0; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  #hub-tabpanel-report .hub-report-row-btn { text-align: right; }
+  #hub-tabpanel-report .hub-report-table,
+  #hub-tabpanel-report .hub-report-table tbody,
+  #hub-tabpanel-report .hub-report-table tr,
+  #hub-tabpanel-report .hub-report-table td { display: block; min-width: 0; width: 100%; }
+  #hub-tabpanel-report .hub-report-table thead { display: none; }
+  #hub-tabpanel-report .hub-report-table tbody > tr:nth-child(even) { background: none; }
+  #hub-tabpanel-report .hub-report-table tr { padding: var(--space-2) 0; border-top: 1px solid var(--panel-rule-soft); }
+  #hub-tabpanel-report .hub-report-table tbody > tr:first-child { border-top: 0; }
+  #hub-tabpanel-report .hub-report-table td { display: flex; justify-content: space-between; gap: var(--space-3); padding: var(--space-1) 0; border: 0; white-space: normal; overflow-wrap: anywhere; text-align: right; font-size: 0.875rem; }
+  #hub-tabpanel-report .hub-report-table td::before { content: attr(data-label); color: var(--text-panel-mute); text-align: left; flex: none; }
+  #hub-tabpanel-report .hub-report-row-btn { min-height: 44px; padding: 0 var(--space-2); }
+}
+
+/* Home counts: label and number take the work-order status hue (lifted for
+   legibility on the dark panel, as with the other status text). */
+#hub-tabpanel-home .hub-tile-grid > .hub-tile:nth-child(1) :is(.hub-tile-label, .hub-tile-value) { color: var(--wo-status-text-assigned); }
+#hub-tabpanel-home .hub-tile-grid > .hub-tile:nth-child(2) :is(.hub-tile-label, .hub-tile-value) { color: var(--wo-status-text-in-progress); }
+#hub-tabpanel-home .hub-tile-grid > .hub-tile:nth-child(3) :is(.hub-tile-label, .hub-tile-value) { color: var(--wo-status-text-ready-to-complete); }
+
+/* ---- Work-order cards (user 2026-11-14) ----
+   Location heading, room, crew; a footer with the chips and the WO number in
+   its status color. Lists group by status and a tap opens the in-place
+   preview; the card page is tabbed with an action bar at the bottom. Scoped
+   to .wo-list (Work Orders page + Hub tab) so the Scan/Stock and Admin Review
+   keycap cards keep their look. */
+.wo-list .wo-card {
+    --wo-st: var(--wo-status-text-created);
+    background: var(--panel-nested);
+    border: 1px solid transparent;
+    border-radius: 14px;
+    box-shadow: none;
+    margin: 0 0 var(--space-2);
+    transform: none;
+}
+.wo-list .wo-card:hover,
+.wo-list .wo-card:active { border-color: var(--panel-border); box-shadow: none; transform: none; }
+.wo-list .wo-card:has(.wo-tag-overdue) { border-color: rgba(248, 113, 113, .35); }
+.wo-list .wo-card[open]:not(.wo-solo) { border-color: var(--panel-border); background: var(--panel-hover); }
+.wo-list :is(.wo-card-status-assigned, .wo-group-assigned) { --wo-st: var(--wo-status-text-assigned); }
+.wo-list :is(.wo-card-status-in_progress, .wo-group-in_progress) { --wo-st: var(--wo-status-text-in-progress); }
+.wo-list :is(.wo-card-status-on_hold, .wo-group-on_hold) { --wo-st: var(--wo-status-text-on-hold); }
+.wo-list :is(.wo-card-status-ready_to_complete, .wo-group-ready_to_complete) { --wo-st: var(--wo-status-text-ready-to-complete); }
+.wo-list :is(.wo-card-status-completed, .wo-group-completed) { --wo-st: var(--wo-status-text-completed); }
+.wo-list :is(.wo-card-status-review, .wo-group-review) { --wo-st: var(--wo-status-text-review); }
+.wo-list :is(.wo-card.wo-card-smr, .wo-group-smr) { --wo-st: var(--text-panel-mute); }
+
+.wo-list .wo-summary {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: var(--space-4);
+    font-weight: var(--fw-regular);
+}
+.wo-list .wo-summary::before { content: none; }
+.wo-list .wo-summary::marker { content: ""; }
+.wo-card-head { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.wo-card-place { font-size: 1.0625rem; font-weight: var(--fw-bold); line-height: 1.25; color: var(--text-panel); overflow-wrap: anywhere; }
+.wo-card-room { font-size: var(--fs-sm); line-height: 1.35; color: var(--text-panel-mute); overflow-wrap: anywhere; }
+.wo-list .wo-meta { margin: 4px 0 0; font-size: var(--fs-xs); color: var(--text-panel-mute); }
+.wo-card-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--panel-rule-soft);
+}
+.wo-card-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.wo-list .wo-title { font-size: var(--fs-sm); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; color: var(--wo-st); white-space: nowrap; }
+.wo-list .wo-status { padding: 2px 9px; background: color-mix(in srgb, var(--wo-st) 16%, transparent); color: var(--wo-st); }
+.wo-list .wo-priority { padding: 2px 9px; border-radius: var(--radius-pill); }
+/* Overdue stays an outline (user 2026-11-14): Assigned shares its red, so the
+   two differ by shape -- a filled tint against a ring with a clock. */
+.wo-list .wo-tag-overdue { padding: 1px 8px; border-radius: var(--radius-pill); background: none; }
+
+/* Status groups. */
+.wo-group { margin: 0 0 var(--space-2); }
+.wo-group-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) 2px var(--space-2);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--wo-st);
+    cursor: pointer;
+    list-style: none;
+}
+.wo-group { --wo-st: var(--wo-status-text-created); }
+.wo-group-head::-webkit-details-marker { display: none; }
+.wo-group-head::after { content: "Hide"; margin-left: auto; color: var(--text-panel-mute); letter-spacing: 0; text-transform: none; }
+.wo-group:not([open]) > .wo-group-head::after { content: "Show"; }
+.wo-group-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--wo-st); }
+.wo-group-count { color: var(--text-panel-mute); }
+.wo-group-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+    gap: 0 var(--space-3);
+    align-items: start;
+}
+
+/* In-place preview. */
+.wo-list .wo-card:not(.wo-solo) > .wo-body { background: none; padding: 0 var(--space-4) var(--space-4); }
+.wo-peek { padding-top: var(--space-3); border-top: 1px solid var(--panel-rule-soft); }
+.wo-peek-meta { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px var(--space-4); margin: 0 0 var(--space-3); font-size: var(--fs-sm); }
+.wo-peek-meta dt { color: var(--text-panel-mute); }
+.wo-peek-meta dd { margin: 0; overflow-wrap: anywhere; }
+.wo-peek-open { width: 100%; margin: 0; }
+
+/* Card page: header card, tabs, bottom action bar. */
+.wo-list .wo-solo .wo-card-place { font-size: var(--fs-lg); }
+.wo-tabs {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    margin: var(--space-3) 0;
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    overflow: hidden;
+}
+.wo-tab {
+    margin: 0;
+    min-height: 40px;
+    padding: 4px var(--space-1);
+    border: 0;
+    border-radius: 0;
+    background: none;
+    color: var(--text-panel-mute);
+    font-size: 0.8125rem;
+    font-weight: var(--fw-semibold);
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+}
+.wo-tab:hover { background: var(--panel-hover); color: var(--text-panel); }
+.wo-tab[aria-selected="true"] { background: var(--panel-bg); color: var(--text-panel); box-shadow: inset 0 -2px 0 var(--color-brand); }
+.wo-body[data-wo-tab]:not([data-wo-tab="details"]) > .wo-tab-details { display: none; }
+.wo-body[data-wo-tab] > .wo-section-card:not([open]) { display: none; }
+.wo-body[data-wo-tab] > .wo-section-card > .wo-section-summary { display: none; }
+.wo-actionbar {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin: var(--space-4) calc(-1 * var(--space-4)) 0;
+    padding: var(--space-3) var(--space-4);
+    background: var(--color-header);
+    border-top: 1px solid var(--panel-rule);
+}
+.wo-actionbar > button { margin: 0; min-height: var(--btn-h-sm); }
+.wo-actionbar > button:not(.secondary-btn):not(.btn-danger) { flex: 1 1 200px; min-height: var(--btn-h); }
+.wo-actionbar > .wo-status-note { flex: 1 1 100%; }
+.wo-more { position: relative; margin-left: auto; }
+.wo-more-btn {
+    display: grid;
+    place-items: center;
+    min-width: 44px;
+    min-height: var(--btn-h-sm);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-md);
+    font-weight: var(--fw-bold);
+    cursor: pointer;
+    list-style: none;
+}
+.wo-more-btn::-webkit-details-marker { display: none; }
+.wo-more[open] > .wo-more-btn { border-color: var(--color-brand); color: var(--color-brand); }
+.wo-more-menu {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 6px);
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    width: max-content;
+    max-width: calc(100vw - 2 * var(--space-4));
+    padding: var(--space-2);
+    background: var(--color-header);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-panel);
+}
+.wo-more-menu > button { width: 100%; margin: 0; }

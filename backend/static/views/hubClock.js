@@ -58,6 +58,7 @@ function onClockHtml() {
     .join(" · ");
   return `
     <div class="hub-clock hub-clock-on">
+      <h2 class="hub-mobile-only hub-time-heading">Work order time</h2>
       <p class="hub-clock-status"><span class="hub-clock-dot"></span> ON THE CLOCK${tipHtml("hub.clock")}</p>
       <p class="hub-clock-subject">${escapeHtml(place)}</p>
       <div class="hub-clock-row">
@@ -85,7 +86,10 @@ function topStartable() {
     .filter(Boolean)
     .join(" · ") || wo.location || "";
   const label = place ? `WO ${wo.number} — ${place}` : `WO ${wo.number}`;
-  return { value: wo.work_order_id, label };
+  const detail = [wo.building_number ? `Bldg ${wo.building_number}` : null,
+    wo.unit_number ? `Unit ${wo.unit_number}` : null].filter(Boolean).join(" · ");
+  return { value: wo.work_order_id, label, number: wo.number,
+    community: wo.community, detail: detail || wo.location || "" };
 }
 
 function offClockHtml() {
@@ -93,14 +97,20 @@ function offClockHtml() {
   const startBtn = top
     ? `<button type="button" class="hub-clock-start-btn" data-action="hub-clock-start" data-value="${escapeHtml(
         top.value
-      )}">Track ${escapeHtml(top.label)}</button>`
+      )}" aria-describedby="hub-clock-work-order"><span class="hub-desktop-only">Track ${escapeHtml(top.label)}</span><span class="hub-mobile-only">Track work order</span></button>`
     : `<p class="hint">Nothing assigned to start a clock on yet.</p>`;
   return `
     <div class="hub-clock hub-clock-off">
-      <p class="hub-clock-status">○ Not clocked in${tipHtml("hub.clock")}</p>
+      <h2 class="hub-mobile-only hub-time-heading">Work order time</h2>
+      <p class="hub-clock-status"><span class="hub-desktop-only">○</span> Not clocked in${tipHtml("hub.clock")}</p>
       <div class="hub-clock-row">
-        <p class="hub-clock-today">Today <strong>${escapeHtml(formatHm(payload.clock.total_minutes_today))}</strong></p>
+        <p class="hub-clock-today">Today <span class="hub-mobile-only" aria-hidden="true">· </span><strong>${escapeHtml(formatHm(payload.clock.total_minutes_today))}</strong></p>
         <div class="hub-clock-start-wrap">
+          ${top ? `<div class="hub-mobile-only hub-clock-work-order" id="hub-clock-work-order">
+            <p><strong>WO ${escapeHtml(top.number)}</strong></p>
+            ${top.community ? `<p>${escapeHtml(top.community)}</p>` : ""}
+            ${top.detail ? `<p>${escapeHtml(top.detail)}</p>` : ""}
+          </div>` : ""}
           ${startBtn}
         </div>
       </div>

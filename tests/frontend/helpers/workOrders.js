@@ -200,10 +200,11 @@ function resolveCard(target) {
   return cards.find((el) => el.querySelector(".wo-title")?.textContent === `WO ${target}`);
 }
 
-// Open a card the way a user does: clicking a summary navigates to the card
-// page (`openWorkOrderPage`), which paints the detail expanded as the only
-// card in the list. Every delegated action still fires off `listEl`, so this
-// is the right fixture for the action tests -- it is what production does.
+// Open a card the way a user does: tapping a summary opens the in-list
+// preview, and its "Open work order" button navigates to the card page
+// (`openWorkOrderPage`), which paints the detail expanded as the only card in
+// the list. Every delegated action still fires off `listEl`, so this is the
+// right fixture for the action tests -- it is what production does.
 export async function openCard(target = 0, detail = null) {
   const cardEl = resolveCard(target);
   if (!cardEl) throw new Error(`No rendered card for ${target}`);
@@ -212,6 +213,7 @@ export async function openCard(target = 0, detail = null) {
     throw new Error(`No detail seeded for ${cardEl.dataset.id}`);
   }
   cardEl.querySelector("summary.wo-summary").click();
+  cardEl.querySelector("[data-peek-open]").click();
   await vi.waitFor(() => {
     // `?? null`: while the skeleton is up there is no body, and `undefined`
     // would pass `not.toBeNull()` before the card has painted.
@@ -222,20 +224,6 @@ export async function openCard(target = 0, detail = null) {
   // makes "the action refreshed the card" satisfiable by the open itself.
   clearRequests();
   return listEl().querySelector("details.wo-card");
-}
-
-// Expand a card in place, without leaving the list. Not a user path -- a
-// summary click navigates -- but the only way to assert on a *list* that has
-// one card's body painted (held-card realtime behaviour, the deferred
-// refresh, `RECENT_LIMIT` with an open row).
-export async function expandCard(target = 0, detail = null) {
-  const cardEl = resolveCard(target);
-  if (!cardEl) throw new Error(`No rendered card for ${target}`);
-  if (detail) seedDetail(detail);
-  cardEl.open = true;
-  await vi.waitFor(() => expect(cardEl.querySelector(".wo-details")).not.toBeNull());
-  clearRequests();
-  return cardEl;
 }
 
 // The one card on screen (list or card page).

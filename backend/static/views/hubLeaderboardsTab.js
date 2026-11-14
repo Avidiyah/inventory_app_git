@@ -44,6 +44,7 @@ function render(panelEl) {
   const switchButton = (name, text) =>
     `<button type="button" class="secondary-btn" data-window="${name}" aria-pressed="${window_ === name}">${text}</button>`;
   panelEl.innerHTML = `<div class="hub-hours-toolbar">
+      <div class="hub-lb-head" hidden><h3>Leaderboard</h3><span>ranked by score</span></div>
       <div class="hub-leaderboards-switch" role="group" aria-label="Window">
         ${switchButton("week", "Week")}${switchButton("month", "Month")}
       </div>

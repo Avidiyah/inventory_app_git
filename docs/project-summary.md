@@ -150,13 +150,14 @@ Capabilities added after the improvement batch include:
   render the same 41-character contract.
   Download names use `MM-DD-YY_HH-MM_filter1-filter2.csv` in UTC; filtered
   exports list every active filter and client exports use `client-<scope>`.
-- Work Orders advanced search composes status, dynamic service type, assigned
-  Team Lead, derived community, exact scheduled date, and number with AND.
+- Work Orders has one search box (number, location or task) plus a Filters
+  panel (status, dynamic service type, assigned Team Lead, derived community,
+  exact scheduled date), all combined with AND; cards are grouped by status.
   Community membership is derived from structured/raw location text; Academics
   is the fallback. Cards and operational exports sort parsed Scheduled Date
-  descending, with malformed/blank legacy values last. Export filtered CSV sits
-  beside Search and uses the full active result set; For Client is unchanged.
-  When an TechFM OA and above number search exactly identifies an archived row, the
+  descending, with malformed/blank legacy values last. Export CSV sits in the
+  toolbar and uses the full active result set; For Client is unchanged.
+  When an TechFM OA and above search exactly matches an archived number, the
   shared modal says `Work Order has been closed.` and offers Restore or Close;
   Restore uses the existing unarchive endpoint and reloads the matching live card.
 - Expanded Work Order controls follow the backend role matrix. TechFM OA and above Edit

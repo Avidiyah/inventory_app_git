@@ -120,6 +120,12 @@ function render() {
     : `<p class="hint hub-roster-empty">Nobody is clocked in right now.</p>`;
   container.innerHTML = `<section class="hub-roster" aria-labelledby="hub-roster-heading">
     <h4 id="hub-roster-heading" class="sr-only">On shift now</h4>
+    <div class="hub-roster-head"><h3>On shift now</h3><span>live</span></div>
+    <div class="hub-roster-minis">
+      <div class="hub-roster-mini"><small>On shift</small><b>${Number(payload.on_shift_count) || 0}</b></div>
+      <div class="hub-roster-mini"><small>Charging</small><b>${Number(payload.charging_count) || 0}</b></div>
+      <div class="hub-roster-mini"><small>Idle</small><b>${Number(payload.idle_count) || 0}</b></div>
+    </div>
     <p class="hub-roster-counts" aria-live="polite">${escapeHtml(counts)}</p>
     ${strip}
     ${absentHtml(payload.absent || [])}

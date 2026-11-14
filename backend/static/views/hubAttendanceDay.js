@@ -57,8 +57,13 @@ export function mountHubAttendanceDays(container, payload, { onWeekChange, onOpe
       started_at: punches.map((p) => p.started_at).sort()[0],
       ended_at: punches.some((p) => !p.ended_at) ? null : punches.map((p) => p.ended_at).sort().at(-1),
     }]) : "";
-    return `<button type="button" class="hub-day-card" data-date="${escapeHtml(date)}" aria-label="${escapeHtml(`${longLabel(date)}, ${count}, ${formatHm(minutes)} paid`)}">
-      <span class="hub-day-card-date">${escapeHtml(cardLabel(date))}${flags}</span>
+    const d = isoDate(date);
+    const dow = d.toLocaleDateString([], { weekday: "short", timeZone: "UTC" }).toUpperCase();
+    const now = new Date();
+    const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const isToday = date === todayIso;
+    return `<button type="button" class="hub-day-card${isToday ? " is-today" : ""}" data-date="${escapeHtml(date)}" aria-label="${escapeHtml(`${longLabel(date)}, ${count}, ${formatHm(minutes)} paid`)}">
+      <span class="hub-day-card-date"><span class="hub-day-card-dow" aria-hidden="true">${isToday ? "TODAY" : escapeHtml(dow)}</span><span class="hub-day-card-num" aria-hidden="true">${d.getUTCDate()}</span><span class="hub-day-card-full">${escapeHtml(cardLabel(date))}</span>${flags}</span>
       <span class="hub-day-card-count">${escapeHtml(count)}</span>
       <span class="hub-day-card-hours">${formatHm(minutes)}</span>
       ${span ? `<span class="hub-hours-punch-note">${escapeHtml(span)}</span>` : ""}
@@ -77,6 +82,7 @@ export function mountHubAttendanceDays(container, payload, { onWeekChange, onOpe
         </div>
       </div>
       <h3 id="hub-days-heading" class="sr-only">Days</h3>
+      <div class="hub-days-head" aria-hidden="true"><b>This week</b><span>tap a day for details</span></div>
       <p class="hint hub-days-hint">Tap a day to see who clocked in.</p>
       <div class="hub-day-cards">${cards}</div>
       ${dst}

@@ -43,6 +43,8 @@ import {
   emptyTechnicianSelectionHtml,
   renderBody,
   renderTechnicianSearch,
+  showWorkOrderTab,
+  syncWorkOrderTabs,
   technicianSelectionHtml,
 } from "./workOrderCardHtml.js";
 import { getAllItems, itemsLoading } from "./workOrderReferenceData.js";
@@ -584,3 +586,35 @@ listEl.addEventListener("change", async (event) => {
     if (msg) setMessage(msg, friendlyError(err, "Could not switch mode."), "error");
   }
 });
+
+// Card tabs and the "More" menu's Edit details. A tab opens its section
+// <details> and closes the rest; Edit details returns to the Details tab with
+// the editor open.
+listEl.addEventListener("click", (event) => {
+  // `.wo-tab`: the body carries data-wo-tab too (the active tab, for CSS).
+  const tab = event.target.closest(".wo-tab[data-wo-tab]");
+  if (tab) {
+    showWorkOrderTab(tab.closest(".wo-body"), tab.dataset.woTab);
+    return;
+  }
+  const edit = event.target.closest("[data-wo-open-edit]");
+  if (!edit) return;
+  const bodyEl = edit.closest(".wo-body");
+  edit.closest("details.wo-more").open = false;
+  showWorkOrderTab(bodyEl, "details");
+  const editor = bodyEl.querySelector(".wo-edit-card");
+  if (editor) {
+    editor.open = true;
+    editor.scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+});
+
+// A section opened or closed by any path (a repaint's reopen, a draft resume)
+// keeps the tab bar in step. `toggle` does not bubble: capture phase.
+listEl.addEventListener(
+  "toggle",
+  (event) => {
+    if (event.target.matches?.(".wo-body > .wo-section-card")) syncWorkOrderTabs(event.target.parentElement);
+  },
+  true
+);

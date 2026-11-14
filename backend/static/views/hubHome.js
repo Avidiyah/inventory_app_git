@@ -42,12 +42,13 @@ function shortTime(iso) {
 function errorPunchHtml() {
   return `
     <section class="hub-punch hub-punch-error">
+      <h2 class="hub-mobile-only hub-time-heading">Shop time</h2>
       <p class="hub-punch-status">Could not load your shift.</p>
       <button type="button" class="secondary-btn hub-punch-retry" data-action="hub-punch-retry">Retry</button>
     </section>`;
 }
 
-const SHOP_HINT = "Shop time is paid but does not count on the Leaderboards.";
+const SHOP_HINT = "Shop time is paid and excluded from leaderboards.";
 
 // Shop hours (2026-11-11): one open punch is either shop or work-order time,
 // and the switch button flips it in one tap (starting a job clock also
@@ -57,6 +58,7 @@ function onShiftHtml() {
   const shop = Boolean(punch.shop);
   return `
     <section class="hub-punch hub-punch-on${shop ? " hub-punch-shop" : ""}">
+      <h2 class="hub-mobile-only hub-time-heading">${shop ? "Shop time" : "Shift time"}</h2>
       <p class="hub-punch-status"><span class="hub-punch-dot"></span> ${shop ? "IN THE SHOP" : "ON SHIFT"}</p>
       <div class="hub-punch-row">
         <div>
@@ -76,12 +78,13 @@ function onShiftHtml() {
 function offShiftHtml() {
   return `
     <section class="hub-punch hub-punch-off">
-      <p class="hub-punch-status">&#9675; Not punched in</p>
+      <h2 class="hub-mobile-only hub-time-heading">Shop time</h2>
+      <p class="hub-punch-status"><span class="hub-desktop-only">&#9675;</span> Not punched in</p>
       <div class="hub-punch-row">
-        <p class="hub-punch-today">Today <strong>${escapeHtml(formatHm(attendance.clocked_minutes_today))}</strong></p>
+        <p class="hub-punch-today">Today <span class="hub-mobile-only" aria-hidden="true">· </span><strong>${escapeHtml(formatHm(attendance.clocked_minutes_today))}</strong></p>
         <div class="hub-punch-actions">
-          <button type="button" class="secondary-btn hub-punch-btn" data-action="hub-punch-in-shop">Punch in to the shop</button>
           <button type="button" class="hub-punch-btn" data-action="hub-punch-in">Punch in</button>
+          <button type="button" class="secondary-btn hub-punch-btn" data-action="hub-punch-in-shop">Punch in to the shop</button>
         </div>
       </div>
       <p class="hub-punch-note">${SHOP_HINT}</p>
@@ -182,8 +185,10 @@ export function mountHubHome(mountEl, hubPayload, attendancePayload, { onChanged
   refreshCallback = onChanged || null;
 
   container.innerHTML = `
-    ${punchHtml()}
-    ${weekPunchesHtml()}
+    <div class="hub-home-attendance">
+      ${punchHtml()}
+      ${weekPunchesHtml()}
+    </div>
     <div id="hub-home-clock-slot"></div>
     ${countsHtml()}`;
 

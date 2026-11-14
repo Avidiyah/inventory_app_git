@@ -46,6 +46,7 @@ import {
   takePendingSoloNumber,
 } from "./workOrderRouting.js";
 import {
+  peekHtml,
   renderBody,
   summaryHtml,
 } from "./workOrderCardHtml.js";
@@ -80,12 +81,8 @@ import {
 import {
   isAdminPlus,
   isSupervisorPlus,
-  overdueTag,
-  priorityBadge,
-  statusBadge,
+  statusLabel,
   workOrderCardClass,
-  placeMeta,
-  assignedNames,
 } from "./workOrderPresenters.js";
 
 const listEl = document.getElementById("work-orders-list");
@@ -100,13 +97,12 @@ const technicianFilter = document.getElementById("work-orders-technician-filter"
 const communityFilter = document.getElementById("work-orders-community-filter");
 const scheduledDateFilter = document.getElementById("work-orders-date-filter");
 const searchInput = document.getElementById("work-orders-search");
-const searchBtn = document.getElementById("work-orders-search-btn");
-const locationSearchInput = document.getElementById("work-orders-location-search");
-const taskSearchInput = document.getElementById("work-orders-task-search");
 const clearFiltersBtn = document.getElementById("work-orders-clear-filters");
 const scopeSeg = document.getElementById("work-orders-scope");
 const filtersCountEl = document.getElementById("work-orders-filters-count");
-const sortSeg = document.getElementById("work-orders-sort");
+const filtersBtn = document.getElementById("work-orders-filters-btn");
+const filtersPanel = document.getElementById("work-orders-advanced");
+const sortSelect = document.getElementById("work-orders-sort");
 const moreEl = document.getElementById("work-orders-more");
 // The filters/search block. Hidden in solo mode ("card page"), where the list
 // holds one work order and there is nothing to filter.
@@ -191,11 +187,6 @@ export async function loadWorkOrders({
   checkArchivedSearch = false,
   background = false,
 } = {}) {
-  // Any completed full load -- nav entry, filter change, Show all, Clear
-  // filters, or this call itself -- genuinely satisfies a pending deferred
-  // refresh, so this states a truth rather than defends against a bug.
-  deferredListRefresh = false;
-
   // Promote the one-shot before the solo branch below can return early: a
   // number-search request arrives via `openWorkOrdersByNumberSearch`, which
   // never sets `pendingSoloNumber`, so the two paths cannot both be pending.
@@ -296,7 +287,7 @@ export async function loadWorkOrders({
       }
     }
     if (checkArchivedSearch) {
-      await offerRestoreForExactArchivedSearch(filters.q, archivedLookupToken);
+      await offerRestoreForExactArchivedSearch(filters.textQ, archivedLookupToken);
     }
   } catch (err) {
     if (archivedLookupToken !== archivedSearchToken) return;
@@ -324,7 +315,44 @@ function renderCards(cards) {
     listEl.innerHTML = `<p class="hint">No work orders match.</p>`;
     return;
   }
-  cards.forEach((c) => listEl.appendChild(buildCard(c)));
+  appendGroupedCards(listEl, cards, (c) => buildCard(c));
+}
+
+// Status groups, in the order a crew works them (user 2026-11-14). Each group
+// is a native <details>; Completed starts folded unless it is all there is.
+// Order within a group is the server's (the sort control's).
+const GROUP_ORDER = ["in_progress", "assigned", "created", "on_hold", "ready_to_complete", "review", "completed"];
+const FOLDED_GROUPS = new Set(["completed"]);
+
+function groupKey(card) {
+  return card.smr ? "smr" : card.status;
+}
+
+function appendGroupedCards(container, cards, build) {
+  const groups = new Map();
+  for (const card of cards) {
+    const key = groupKey(card);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(card);
+  }
+  const keys = [
+    ...GROUP_ORDER.filter((key) => groups.has(key)),
+    ...[...groups.keys()].filter((key) => !GROUP_ORDER.includes(key)),
+  ];
+  for (const key of keys) {
+    const group = document.createElement("details");
+    group.className = `wo-group wo-group-${key}`;
+    group.dataset.status = key;
+    group.open = !(FOLDED_GROUPS.has(key) && keys.length > 1);
+    const label = key === "smr" ? "SMR" : statusLabel(key);
+    group.innerHTML =
+      `<summary class="wo-group-head"><span class="wo-group-dot" aria-hidden="true"></span>` +
+      `<span>${escapeHtml(label)}</span><span class="wo-group-count">· ${groups.get(key).length}</span></summary>` +
+      `<div class="wo-group-cards"></div>`;
+    const list = group.querySelector(".wo-group-cards");
+    groups.get(key).forEach((card) => list.appendChild(build(card)));
+    container.appendChild(group);
+  }
 }
 
 // The "Show all" / "Show recent only" control beneath the list. Only meaningful on
@@ -390,7 +418,20 @@ async function refreshCardSummary(cardEl) {
   }
   const summary = cardEl.querySelector("summary.wo-summary");
   if (summary) summary.innerHTML = summaryHtml(detail);
-  cardEl.className = workOrderCardClass(detail);
+  setCardClass(cardEl, detail);
+
+  if (!isSoloActive()) {
+    // A list card: a status change moves it to another group, which only a
+    // reload places correctly (the server owns the order within a group).
+    const group = cardEl.closest(".wo-group");
+    if (group && group.dataset.status !== groupKey(detail)) {
+      runOrDeferListRefresh();
+      return;
+    }
+    const peek = cardEl.querySelector(".wo-body");
+    if (peek) peek.innerHTML = peekHtml(detail);
+    return;
+  }
 
   // A badge alone is not enough: an expanded, non-held card still shows its
   // body, and the body's status actions (renderBody picks them off
@@ -433,22 +474,14 @@ export function heldWorkOrderCards() {
   return Array.from(listEl.querySelectorAll("details.wo-card")).filter(isHeld);
 }
 
-function anyCardHeld() {
-  if (!listEl) return false;
-  return Array.from(listEl.querySelectorAll("details.wo-card")).some(isHeld);
-}
-
-// A full list refetch rebuilds every card (renderCards clears the list), so it
-// must never run while an editor is open. Restore and reconnect are both rare,
-// so deferring until the last hold clears costs nothing.
-let deferredListRefresh = false;
-
+// Editors exist only on the card page (list cards open a read-only preview),
+// so only the card page can be held; a list refetch is always safe.
 function runOrDeferListRefresh() {
   if (isSoloActive()) {
     // A list refetch would replace the card page with the list -- silently,
     // with the card's URL still in the address bar. On a card page the only
-    // row that can matter is the one on screen, so refresh that instead. A
-    // held card defers exactly as it does in the list.
+    // row that can matter is the one on screen, so refresh that instead, or
+    // defer it while an editor is open.
     const cardEl = listEl.querySelector("details.wo-card");
     if (!cardEl) return;
     if (isHeld(cardEl)) {
@@ -458,11 +491,6 @@ function runOrDeferListRefresh() {
     void refreshCardSummary(cardEl);
     return;
   }
-  if (anyCardHeld()) {
-    deferredListRefresh = true;
-    return;
-  }
-  deferredListRefresh = false;
   void loadWorkOrders({ background: true });
 }
 
@@ -481,28 +509,34 @@ function buildCard(card, { onOpen, solo = false } = {}) {
 
   const body = document.createElement("div");
   body.className = "wo-body";
-  body.innerHTML = skeletonCard({ lines: 3, hasHeader: false });
 
   el.appendChild(summary);
   el.appendChild(body);
-  el.addEventListener("toggle", () => {
-    if (el.open && !el.dataset.loaded) openDetail(card.id, body, el);
-  });
-  summary.addEventListener("click", (event) => {
-    // Cards navigate rather than expand in place. `preventDefault` suppresses
-    // the native toggle, and covers the keyboard path with it: Enter and Space
-    // on a focused summary both dispatch a click, so there is no second path
-    // to intercept. It also makes the card page's own card non-collapsible,
-    // which is right -- there is nothing to collapse to.
-    event.preventDefault();
-    // Being *the* solo card is a property of this card, passed in by
-    // `showSoloCard`. It used to read the module-global `soloActive`, which
-    // silently broke every other list: `exitSolo` runs only inside
-    // `loadWorkOrders`, so leaving the card page for the User Hub left the
-    // flag set, and the hub's own cards (built by `mountWorkOrderList`, a
-    // different container on a different page) went dead on click until the
-    // Work Orders page was visited again.
-    if (solo) return;
+
+  // Being *the* solo card is a property of this card, passed in by
+  // `showSoloCard`. It used to read the module-global `soloActive`, which
+  // silently broke every other list: `exitSolo` runs only inside
+  // `loadWorkOrders`, so leaving the card page for the User Hub left the flag
+  // set, and the hub's own cards (built by `mountWorkOrderList`, a different
+  // container on a different page) went dead on click until the Work Orders
+  // page was visited again.
+  if (solo) {
+    body.innerHTML = skeletonCard({ lines: 3, hasHeader: false });
+    el.addEventListener("toggle", () => {
+      if (el.open && !el.dataset.loaded) openDetail(card.id, body, el);
+    });
+    // The card page's own card is not collapsible: there is nothing to
+    // collapse to. `preventDefault` covers Enter and Space too, which both
+    // dispatch a click on a focused summary.
+    summary.addEventListener("click", (event) => event.preventDefault());
+    return el;
+  }
+
+  // A list card opens in place as a preview built from the row it already
+  // has (user 2026-11-14); its button goes to the full card.
+  body.innerHTML = peekHtml(card);
+  body.addEventListener("click", (event) => {
+    if (!event.target.closest("[data-peek-open]")) return;
     if (onOpen) {
       onOpen(card);
       return;
@@ -510,6 +544,13 @@ function buildCard(card, { onOpen, solo = false } = {}) {
     void openWorkOrderPage({ id: card.id, number: card.number });
   });
   return el;
+}
+
+// Every className write goes through workOrderCardClass (it keeps the urgent
+// fire); the card page's `wo-solo` modifier rides along.
+function setCardClass(cardEl, card) {
+  const solo = cardEl.classList.contains("wo-solo");
+  cardEl.className = workOrderCardClass(card) + (solo ? " wo-solo" : "");
 }
 
 async function openDetail(workOrderId, bodyEl, cardEl) {
@@ -602,7 +643,7 @@ export function mountWorkOrderList({ container, lockedFilter = null, onOpen } = 
       container.innerHTML = `<p class="hint">No work orders match.</p>`;
       return;
     }
-    cards.forEach((card) => container.appendChild(buildCard(card, { onOpen })));
+    appendGroupedCards(container, cards, (card) => buildCard(card, { onOpen }));
   }
   return { refresh };
 }
@@ -621,23 +662,11 @@ function paintDetail(detail, bodyEl, cardEl) {
   if (!cardEl) return;
 
   cardEl.dataset.loaded = "1";
-  cardEl.className = workOrderCardClass(detail);
-  // The badges carry glyphs, so they are rewritten whole from the presenters
-  // rather than patched by className/textContent. Priority and schedule date
-  // are both edited in this card's own editor, so the priority pill and the
-  // Overdue tag have to follow a save the way the status badge does.
-  const badge = cardEl.querySelector(".wo-status");
-  if (badge) badge.outerHTML = statusBadge(detail.status);
-  cardEl.querySelector(".wo-tag-overdue")?.remove();
-  const priorityPill = cardEl.querySelector(".wo-priority");
-  if (priorityPill) priorityPill.outerHTML = priorityBadge(detail) + overdueTag(detail);
-  const meta = cardEl.querySelector(".wo-meta");
-  if (meta) {
-    const place = placeMeta(detail);
-    const technicianNames = assignedNames(detail);
-    const assignee = technicianNames.length ? ` · ${technicianNames.join(", ")}` : "";
-    meta.textContent = `${place ? place + " · " : ""}${detail.items.length} items${assignee}`;
-  }
+  setCardClass(cardEl, detail);
+  // The header follows every save: status, priority, schedule (Overdue),
+  // location, crew and item count are all edited on this card.
+  const summary = cardEl.querySelector(":scope > summary.wo-summary");
+  if (summary) summary.innerHTML = summaryHtml(detail);
   // This repaint already reflects the latest data, so any missed socket
   // update while the card was held is now satisfied -- every repaint path
   // (Cancel, Save details, materials/labor actions, initial expansion)
@@ -658,16 +687,14 @@ export async function refreshCard(cardEl, reopenSelector = null) {
 
 // --- filter / search controls --------------------------------------------
 
-// #16: search live-updates as you type (100 ms debounce, user 2026-11-13), like the
-// History work-order filter so the two sibling pages behave the same way.
-// The Search button and Enter stay as redundant explicit triggers -- nothing
-// is removed, so no one loses the click-to-search workflow.
+// One search box over number, location and task (user 2026-11-14). Live as you
+// type (100 ms debounce, user 2026-11-13); Enter searches at once. The
+// archived-number prompt still fires when the text is an exact closed number.
 let woSearchDebounce = null;
 function runWorkOrderNumberSearch() {
   loadWorkOrders({ checkArchivedSearch: true });
 }
 
-if (searchBtn) searchBtn.addEventListener("click", runWorkOrderNumberSearch);
 if (searchInput) {
   searchInput.addEventListener("input", () => {
     clearTimeout(woSearchDebounce);
@@ -681,28 +708,6 @@ if (searchInput) {
   });
 }
 
-// The Location and Task/symptom keyword searches reuse the number bar's
-// 100 ms debounce + immediate Enter, but run plain loadWorkOrders():
-// checkArchivedSearch stays a number-search-only behavior, because only an
-// exact number can name an archived work order.
-function wireKeywordSearch(input) {
-  if (!input) return () => {};
-  let debounce = null;
-  const run = () => loadWorkOrders();
-  input.addEventListener("input", () => {
-    clearTimeout(debounce);
-    debounce = setTimeout(run, 100);
-  });
-  input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      clearTimeout(debounce);
-      run();
-    }
-  });
-  return () => clearTimeout(debounce);
-}
-const cancelLocationSearchDebounce = wireKeywordSearch(locationSearchInput);
-const cancelTaskSearchDebounce = wireKeywordSearch(taskSearchInput);
 [mineFilter, statusFilter, serviceTypeFilter, priorityFilter, supervisorFilter, technicianFilter, communityFilter, scheduledDateFilter].forEach((control) => {
   if (!control) return;
   control.addEventListener("change", () => {
@@ -711,26 +716,30 @@ const cancelTaskSearchDebounce = wireKeywordSearch(taskSearchInput);
   });
 });
 
-if (sortSeg) {
+if (sortSelect) {
   renderSortControl();
-  sortSeg.addEventListener("click", (event) => {
-    const btn = event.target.closest("[data-sort]");
-    if (!btn || !SORT_VALUES.has(btn.dataset.sort) || btn.dataset.sort === getSortDir()) return;
-    setSortDir(btn.dataset.sort);
+  sortSelect.addEventListener("change", () => {
+    if (!SORT_VALUES.has(sortSelect.value) || sortSelect.value === getSortDir()) return;
+    setSortDir(sortSelect.value);
     try {
       localStorage.setItem(SORT_STORAGE_KEY, getSortDir());
     } catch {
       // Best effort only.
     }
-    renderSortControl();
     loadWorkOrders();
+  });
+}
+
+// The Filters button shows and hides the panel under the toolbar.
+if (filtersBtn && filtersPanel) {
+  filtersBtn.addEventListener("click", () => {
+    filtersPanel.hidden = !filtersPanel.hidden;
+    filtersBtn.setAttribute("aria-expanded", String(!filtersPanel.hidden));
   });
 }
 
 function cancelSearchDebounces() {
   clearTimeout(woSearchDebounce);
-  cancelLocationSearchDebounce();
-  cancelTaskSearchDebounce();
 }
 
 function clearFilters(keepScope = false) {
@@ -747,9 +756,8 @@ function clearFilters(keepScope = false) {
 // still widens everything.
 if (clearFiltersBtn) clearFiltersBtn.addEventListener("click", () => clearFilters(true));
 
-// Scope toggle (My Work Orders | All) and the Advanced search panel (a native
-// <details>; the browser owns open/closed). The toggle and the panel's checkbox
-// are one setting: `mineFilter` stays the source of truth and renderScope()
+// Scope toggle (My Work Orders | All) and the Filters button's count. The
+// toggle and the panel's checkbox are one setting: `mineFilter` stays the source of truth and renderScope()
 // mirrors it after every load.
 function renderScope() {
   if (scopeSeg) {
@@ -758,10 +766,10 @@ function renderScope() {
     });
   }
   if (filtersCountEl) {
-    // Everything the panel holds, bar the scope checkbox (WO# search is on the page).
-    const { mine, q, ...inPanel } = currentFilters();
+    // Everything the panel holds, bar the scope checkbox (search is on the page).
+    const { mine, textQ, ...inPanel } = currentFilters();
     const count = Object.values(inPanel).filter(Boolean).length;
-    filtersCountEl.textContent = ` (${count})`;
+    filtersCountEl.textContent = ` · ${count}`;
     filtersCountEl.hidden = count === 0;
   }
 }
@@ -827,13 +835,6 @@ if (listEl) {
   listEl.addEventListener(
     "toggle",
     () => {
-      if (deferredListRefresh && !anyCardHeld()) {
-        // Route through the single function that knows a socket-driven
-        // refresh must be silent -- do not duplicate its background flag here.
-        runOrDeferListRefresh();
-        return;
-      }
-
       const cards = Array.from(listEl.querySelectorAll("details.wo-card"));
       for (const cardEl of cards) {
         if (cardEl.dataset.missedUpdate !== "1" || isHeld(cardEl)) continue;

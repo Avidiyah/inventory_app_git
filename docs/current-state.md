@@ -636,10 +636,20 @@ Work orders:
 
 - A work order is a standalone entity; **identity is its `number`**, unique
   case-insensitively + trimmed.
-- **Cards are pages.** Clicking a work-order card navigates to
-  `/workorder_card/<number>` and renders that one work order as a page rather
-  than expanding it in-list: the filter and import sections hide and a Back
-  control appears above the card. The card remains a `details.wo-card` inside
+- **List cards preview; the card page edits.** A list card (Work Orders page
+  and Hub tab, both `.wo-list`) leads with the location (building, then room),
+  crew and items, with chips and the WO number (in its status's lifted
+  `--wo-status-text-*` hue) in a footer; cards sit in status groups (In-Progress,
+  Assigned, Created, On-Hold, Ready to Complete, Review, Completed; Completed
+  folded unless alone). A tap opens a read-only preview from the row itself
+  (task, schedule, crew; no fetch). Its "Open work order" navigates to
+  `/workorder_card/<number>`: the filter and import sections hide and a Back
+  control appears above the card. The card page is tabbed (Details · Notes ·
+  Materials · Labor · Invoice): each tab opens one section `<details>`, so the
+  held-editor rule is unchanged; the entry-mode select sits in Materials; a
+  sticky bottom bar holds the status actions and a ⋯ menu (Netfacilities,
+  Archive, Edit details). Only the card page can be held, so a list refetch is
+  always safe. The card remains a `details.wo-card` inside
   `#work-orders-list` — moving it into another container would silently break
   the delegated action layer (~20 click branches, the technician picker, the
   billing editor) and the realtime subscriber's card lookup, with no error.
@@ -669,8 +679,11 @@ Work orders:
   routed to me as Team Lead or assigned to me as technician; **on by default for
   every role**, so the RECENT_LIMIT cap applies only once it is cleared), status,
   exact normalized service type, routed Team Lead, derived community, exact
-  scheduled date, and number substring all combine with AND before the caller's
-  normal visibility scope is applied. Default sort is newest scheduled date first.
+  scheduled date, and the page's one search box (`text_q`: number OR location OR
+  task, never notes) all combine with AND before the caller's normal visibility
+  scope is applied. `q` / `location_q` / `task_q` remain for the SMR page and deep
+  links. Filters live behind a Filters button (its count excludes scope and
+  search); sort is a select. Default sort is newest scheduled date first.
   Community membership checks both `community` and raw CSV `location` for
   Scholars, Centennial, Commons (`commons`/`cimarron`/`cimmarron`), or Young
   Hall. A multi-location row may match several named communities; Academics is

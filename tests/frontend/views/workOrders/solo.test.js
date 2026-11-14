@@ -95,12 +95,8 @@ describe("opening a card page", () => {
     expect(document.getElementById("work-orders-more").hidden).toBe(true);
     expect(cardEls()).toHaveLength(1);
     expect(card().open).toBe(true);
-    // Observed, and it looks wrong: `showSoloCard` adds `.wo-solo` and then
-    // `paintDetail` assigns `className = workOrderCardClass(detail)`, which
-    // wipes it -- the card page's presentation modifier never survives the
-    // first paint. Filed in docs/open-work.md.
-    expect(card().classList.contains("wo-solo")).toBe(false);
-    expect(card().className).toBe("wo-card wo-card-status-assigned");
+    // The card page's presentation modifier survives every repaint.
+    expect(card().className).toBe("wo-card wo-card-status-assigned wo-solo");
     expect(backBtn().textContent).toBe("← Back to work orders");
     expect(String(detail.id)).toBe(card().dataset.id);
   });
@@ -145,6 +141,7 @@ describe("renderSoloError", () => {
     await mountWorkOrders({ role: "admin", cards: [listCard] });
     // No detail seeded, so the fixture answers 404.
     cardEls()[0].querySelector("summary.wo-summary").click();
+    cardEls()[0].querySelector("[data-peek-open]").click();
     await vi.waitFor(() => expect(listEl().querySelector("p.error")).not.toBeNull());
     expect(listEl().querySelector("p.error").textContent).toBe("Not found");
     expect(backBtn()).not.toBeNull();

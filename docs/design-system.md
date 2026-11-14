@@ -197,9 +197,16 @@ is deliberately amended.
   Normal / Low / None / Unknown are a neutral outline; only Emergency /
   Urgent / High are filled, with a warning glyph. Overdue is a static
   `--color-brand-light` outline tag.
-- **Controls row**: one filled primary per state (the lifecycle's next step,
-  `--btn-h`), other workflow buttons `.secondary-btn`, Admin+ tools
-  (Netfacilities, Archive) in a trailing `.wo-controls-tools` group.
+- **List cards** (`.wo-list`): location heading, room under it, crew · items,
+  then a footer of chips and the WO number. In a list the status pill is a
+  tint of its lifted `--wo-status-text-*` hue, and the number takes the same
+  hue. Routine priority is hidden on the card. Overdue stays an outline, because
+  Assigned shares its red and they must differ by shape. Status-group headings
+  use the same hue.
+- **Action bar** (card page, sticky bottom): one filled primary per state (the
+  lifecycle's next step, `--btn-h`), other workflow buttons `.secondary-btn`,
+  then a ⋯ menu (`.wo-more`) with Admin+ tools (Netfacilities, Archive) and
+  Team Lead+ Edit details.
 
 ### Text on dark glass
 
