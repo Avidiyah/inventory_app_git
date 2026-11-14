@@ -56,7 +56,10 @@ describe("who sees what", () => {
     expect(section().querySelector("summary").textContent).toBe("Labor");
     expect(section().open).toBe(true);
     expect(invoice().querySelector("summary").textContent).toBe("Invoice");
-    expect(invoice().open).toBe(true);
+    // One tab at a time: the order lands on Labor, Invoice is the next tab.
+    expect(invoice().open).toBe(false);
+    expect(card().querySelector('.wo-tab[aria-selected="true"]').dataset.woTab).toBe("labor");
+    expect(card().querySelector('.wo-tab[data-wo-tab="invoice"]')).not.toBeNull();
     expect(card().textContent).not.toContain("Printing 1");
     expect(card().textContent).not.toContain("Paper corrections");
     expect(card().textContent).not.toContain("NetFacilities Record Before Correction");

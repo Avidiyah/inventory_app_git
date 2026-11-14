@@ -334,7 +334,10 @@ def test_only_the_solo_card_suppresses_its_own_click():
     code = work_orders_source()
 
     assert "function buildCard(card, { onOpen, solo = false } = {})" in code
-    assert "if (solo) return;" in code
+    # Only the solo card suppresses its summary click; a list card toggles
+    # its in-place preview.
+    assert 'summary.addEventListener("click", (event) => event.preventDefault());' in code
+    assert code.index("if (solo) {") < code.index("event.preventDefault());")
     # The module that owns `buildCard` never consults the global; the routing
     # module keeps its own `soloActive` guard for scroll stamping, which is
     # a different question.
@@ -344,34 +347,29 @@ def test_only_the_solo_card_suppresses_its_own_click():
 
 
 
-def test_work_orders_ui_wires_location_and_task_searches():
-    """The two keyword filters exist in the grid, feed currentFilters, clear
-    with Clear filters, and reach the API as `location_q` / `task_q` --
-    without inheriting the number bar's archived-restore lookup."""
+def test_work_orders_ui_wires_one_search_box():
+    """The page's one search box (number, location or task) feeds
+    currentFilters as `textQ`, clears with Clear filters, and reaches the list
+    and the export as `text_q`. `location_q` / `task_q` stay in api.js for the
+    SMR page."""
     html = (
         Path(__file__).resolve().parents[1] / "static" / "pages" / "work-orders.html"
     ).read_text(encoding="utf-8")
-    assert 'id="work-orders-location-search"' in html
-    assert 'id="work-orders-task-search"' in html
-    # Both live in their own inline row beneath the number-search bar --
-    # deliberately out of the filter grid.
-    assert '<div class="filter-row wo-keyword-search-row">' in html
+    assert 'id="work-orders-search"' in html
+    assert 'placeholder="Search number, location or task"' in html
+    assert 'id="work-orders-location-search"' not in html
+    assert 'id="work-orders-task-search"' not in html
 
     code = work_orders_source()
-    assert 'getElementById("work-orders-location-search")' in code
-    assert 'getElementById("work-orders-task-search")' in code
-    assert "locationQ: locationSearchInput" in code
-    assert "taskQ: taskSearchInput" in code
-    assert "wireKeywordSearch(locationSearchInput)" in code
-    assert "wireKeywordSearch(taskSearchInput)" in code
-    assert 'if (locationSearchInput) locationSearchInput.value = "";' in code
-    assert 'if (taskSearchInput) taskSearchInput.value = "";' in code
+    assert "textQ: searchInput ? searchInput.value.trim()" in code
+    assert "textQ: searchInput," in code
+    assert 'if (searchInput) searchInput.value = "";' in code
 
     view = _view("../api.js")
+    assert 'params.set("text_q", textQ)' in view
+    assert 'params.set("text_q", filters.textQ)' in view
     assert 'params.set("location_q", locationQ)' in view
     assert 'params.set("task_q", taskQ)' in view
-    assert 'params.set("location_q", filters.locationQ)' in view
-    assert 'params.set("task_q", filters.taskQ)' in view
 
 
 def _ordered_numbers(db, token, query):

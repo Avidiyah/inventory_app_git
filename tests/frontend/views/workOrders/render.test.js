@@ -77,9 +77,20 @@ describe("summaryHtml", () => {
     expect(badge.className).toBe(`wo-status wo-status-${status}`);
   });
 
-  it("composes an imported row's place from `location` alone", async () => {
-    const { row } = await renderOne({ location: "Hallway B", item_count: 2 });
-    expect(row.querySelector(".wo-meta").textContent).toBe("Hallway B · 2 items");
+  it("leads with the building and puts the room under it", async () => {
+    const { row } = await renderOne({
+      location: "C.F. Gayles Gym: 150 Sports Medicine Storage, NW corner", item_count: 2,
+    });
+    expect(row.querySelector(".wo-card-place").textContent).toBe("C.F. Gayles Gym");
+    expect(row.querySelector(".wo-card-room").textContent).toBe("150 Sports Medicine Storage, NW corner");
+    expect(row.querySelector(".wo-meta").textContent).toBe("2 items");
+  });
+
+  it("uses a location with no colon whole, as the heading", async () => {
+    const { row } = await renderOne({ location: "Hallway B", item_count: 1 });
+    expect(row.querySelector(".wo-card-place").textContent).toBe("Hallway B");
+    expect(row.querySelector(".wo-card-room")).toBeNull();
+    expect(row.querySelector(".wo-meta").textContent).toBe("1 item");
   });
 
   it("prefers the legacy community/building/unit trio and tags the row", async () => {
@@ -87,28 +98,52 @@ describe("summaryHtml", () => {
       legacy: true, community: "Maple Ridge", building_number: "3", unit_number: "12",
       location: "ignored", item_count: 1,
     });
-    expect(row.querySelector(".wo-meta").textContent).toBe("Maple Ridge · Bldg 3 · Unit 12 · 1 items");
+    expect(row.querySelector(".wo-card-place").textContent).toBe("Maple Ridge");
+    expect(row.querySelector(".wo-card-room").textContent).toBe("Bldg 3 · Unit 12");
     expect(row.querySelector(".wo-legacy-tag").textContent).toBe("Legacy");
   });
 
-  it("omits the place entirely when there is neither", async () => {
+  it("says so when there is no place, and drops an empty meta line", async () => {
     const { row } = await renderOne({ location: null, item_count: 0 });
-    expect(row.querySelector(".wo-meta").textContent).toBe("0 items");
+    expect(row.querySelector(".wo-card-place").textContent).toBe("No location");
+    expect(row.querySelector(".wo-meta")).toBeNull();
     expect(row.querySelector(".wo-legacy-tag")).toBeNull();
   });
 
-  it("appends the assigned names, joined", async () => {
+  it("puts the assigned names before the item count", async () => {
     const { row } = await renderOne({
       assigned_to_names: ["Ada L", "Grace H"], location: null, item_count: 3,
     });
-    expect(row.querySelector(".wo-meta").textContent).toBe("3 items · Ada L, Grace H");
+    expect(row.querySelector(".wo-meta").textContent).toBe("Ada L, Grace H · 3 items");
   });
 
   it("falls back to the singular legacy assignee field", async () => {
     const { row } = await renderOne({
       assigned_to_names: [], assigned_to_name: "Solo Tech", location: null, item_count: 0,
     });
-    expect(row.querySelector(".wo-meta").textContent).toBe("0 items · Solo Tech");
+    expect(row.querySelector(".wo-meta").textContent).toBe("Solo Tech");
+  });
+
+  it("previews task, schedule and crew in place, with the way into the card", async () => {
+    const { row } = await renderOne({
+      description: "Patch flashing", schedule_date: "2026-11-03", supervisor_name: "Nate Y",
+      assigned_to_names: ["Ada L"],
+    });
+    row.querySelector("summary").click();
+    expect(row.open).toBe(true);
+    const terms = [...row.querySelectorAll(".wo-peek dt")].map((dt) => dt.textContent);
+    expect(terms).toEqual(["Task", "Scheduled", "Crew"]);
+    expect(row.querySelector(".wo-peek").textContent).toContain("Nate Y (Team Lead) · Ada L");
+    expect(row.querySelector("[data-peek-open]").textContent).toBe("Open work order ›");
+  });
+
+  it("groups the list by status in working order, Completed folded", async () => {
+    const cards = ["completed", "created", "in_progress"].map((status) => workOrderCard({ status }));
+    await mountWorkOrders({ role: "admin", cards });
+    const groups = [...listEl().querySelectorAll(".wo-group")];
+    expect(groups.map((g) => g.dataset.status)).toEqual(["in_progress", "created", "completed"]);
+    expect(groups.map((g) => g.open)).toEqual([true, true, false]);
+    expect(groups[0].querySelector(".wo-group-head").textContent).toBe("In-Progress· 1");
   });
 
   it("escapes a number carrying markup", async () => {
@@ -135,15 +170,18 @@ describe("priorityBucket and the priority pill", () => {
   ])("buckets %s as %s", async (priority, bucket) => {
     const { row } = await renderOne({ priority, status: "assigned" });
     const pill = row.querySelector(".wo-priority");
-    expect(pill.textContent).toBe(priority);
-    expect(pill.className).toContain(`wo-priority-${bucket}`);
+    // The card shows priority only when it asks someone to act.
+    if (["emergency", "urgent", "high"].includes(bucket)) {
+      expect(pill.textContent).toBe(priority);
+      expect(pill.className).toContain(`wo-priority-${bucket}`);
+    } else {
+      expect(pill).toBeNull();
+    }
   });
 
-  it("labels a null priority 'No priority' and buckets it as none", async () => {
+  it("shows no pill for a null priority", async () => {
     const { row } = await renderOne({ priority: null });
-    const pill = row.querySelector(".wo-priority");
-    expect(pill.textContent).toBe("No priority");
-    expect(pill.className).toBe("wo-priority wo-priority-none");
+    expect(row.querySelector(".wo-priority")).toBeNull();
   });
 });
 
@@ -182,8 +220,8 @@ describe("workOrderCardClass", () => {
   });
 });
 
-describe("the skeleton", () => {
-  it("shows a skeleton card while the list is in flight, and clears it", async () => {
+describe("the list body", () => {
+  it("paints each card's preview from the row, with no skeleton and no fetch", async () => {
     const { mod } = await mountWorkOrders({ role: "admin" });
     let release;
     const held = new Promise((resolve) => { release = resolve; });
@@ -192,14 +230,13 @@ describe("the skeleton", () => {
       await held;
       return HttpResponse.json(state.cards);
     };
-    // The list is only repainted by `renderCards`, so the skeleton under test
-    // is the card body's, painted by `buildCard` before its detail lands.
     const pending = mod.loadWorkOrders();
     expect(listEl().querySelector(".skel-line")).toBeNull();
     release();
     await pending;
     expect(cardEls()).toHaveLength(1);
-    expect(cardEls()[0].querySelector(".wo-body .skel-line")).not.toBeNull();
+    expect(cardEls()[0].querySelector(".wo-body .skel-line")).toBeNull();
+    expect(cardEls()[0].querySelector(".wo-body .wo-peek")).not.toBeNull();
   });
 });
 
@@ -700,10 +737,31 @@ describe("the whole card body", () => {
   it("renders every section a supervisor sees, once", async () => {
     const { cardEl } = await renderBody({}, { role: "supervisor" });
     for (const selector of [
-      ".wo-controls", ".wo-details", ".wo-edit-card", ".wo-notes-section",
+      ".wo-tabs", ".wo-actionbar", ".wo-details", ".wo-edit-card", ".wo-notes-section",
       ".wo-materials-section", ".wo-labor-section", ".wo-message",
     ]) {
       expect(cardEl.querySelectorAll(selector), selector).toHaveLength(1);
     }
+  });
+
+  it("opens one section per tab and lands on Details", async () => {
+    const { cardEl } = await renderBody({}, { role: "supervisor" });
+    const body = cardEl.querySelector(".wo-body");
+    const tabs = [...body.querySelectorAll(".wo-tab")].map((t) => t.dataset.woTab);
+    expect(tabs).toEqual(["details", "notes", "materials", "labor"]);
+    expect(body.dataset.woTab).toBe("details");
+    body.querySelector('[data-wo-tab="materials"]').click();
+    expect(body.querySelector(".wo-materials-section").open).toBe(true);
+    expect(body.querySelector(".wo-notes-section").open).toBe(false);
+    expect(body.querySelector('.wo-tab[aria-selected="true"]').dataset.woTab).toBe("materials");
+    // The entry mode sits with the materials it governs.
+    expect(body.querySelector(".wo-materials-section .wo-mode-select")).not.toBeNull();
+  });
+
+  it("keeps the message as the body's last child, under the action bar", async () => {
+    const { cardEl } = await renderBody({}, { role: "supervisor" });
+    const body = cardEl.querySelector(".wo-body");
+    expect(body.lastElementChild.className).toBe("wo-message");
+    expect(body.lastElementChild.previousElementSibling.className).toBe("wo-actionbar");
   });
 });

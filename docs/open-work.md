@@ -293,7 +293,6 @@ edit to the area, or a user report matching one.
 | Defect | Pinned by |
 | --- | --- |
 | `workOrderCardHtml.js detailsViewHtml` — the Priority row is `detail.priority \|\| "Not imported"`, always truthy, so the `.wo-details-empty` empty state is dead markup. | `render.test.js` |
-| `workOrderRouting.js showSoloCard` adds `.wo-solo`, then `paintDetail` overwrites `className` with `workOrderCardClass(detail)` — the card-page modifier never survives the first paint. | `solo.test.js` |
 | `save-details` on an `assigned` row with no technicians: the editor's status options are `[created, in_progress, on_hold]`, so the select falls back to `created` and an untouched save silently rolls the status back. | `editorActions.test.js` |
 | `hoursInputValue` writes the literal string `"NaN"` for a non-numeric duration; a number input then renders blank. | `editorActions.test.js` |
 

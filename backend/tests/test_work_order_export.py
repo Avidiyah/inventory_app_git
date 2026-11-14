@@ -532,6 +532,7 @@ def test_route_forwards_operational_export_filters(db, monkeypatch):
         q="WO-123",
         location_q="Bldg 7",
         task_q="leak",
+        text_q="gym",
         user=admin,
         db=db,
     )
@@ -540,7 +541,7 @@ def test_route_forwards_operational_export_filters(db, monkeypatch):
     assert re.search(
         r'filename="\d{2}-\d{2}-\d{2}_\d{2}-\d{2}_status-in-progress-service-repair-'
         r'supervisor-avery-able-community-commons-priority-emergency-'
-        r'date-2026-07-28-number-wo-123-location-bldg-7-task-leak\.csv"',
+        r'date-2026-07-28-number-wo-123-location-bldg-7-task-leak-search-gym\.csv"',
         response.headers["content-disposition"],
     )
     assert captured == {
@@ -555,6 +556,7 @@ def test_route_forwards_operational_export_filters(db, monkeypatch):
         "search": "WO-123",
         "location_search": "Bldg 7",
         "task_search": "leak",
+        "text_search": "gym",
     }
 
 

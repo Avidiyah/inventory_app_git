@@ -38,9 +38,9 @@ import {
   paperCheckHtml,
   targetMaterialsHtml,
   notesLogContentsHtml,
-  placeMeta,
+  placeParts,
   priorWorkBannerHtml,
-  priorityBadge,
+  attentionPriorityBadge,
   overdueTag,
   statusBadge,
   statusLabel,
@@ -465,20 +465,49 @@ function detailsEditorHtml(detail) {
 // real-time single-card update, so the two projections cannot drift. Accepts a
 // WorkOrderDetail as well: the schema subclasses WorkOrderCard, so a detail
 // response carries every field this reads.
+//
+// Card layout (user 2026-11-14): location heading, room under it, crew and
+// items, then a footer with the chips and the WO number, which is a serial
+// (a search key) and takes its status color from the card's status class.
 export function summaryHtml(card) {
-  const place = placeMeta(card);
-  const technicianNames = assignedNames(card);
-  const assignee = technicianNames.length
-    ? ` · ${escapeHtml(technicianNames.join(", "))}`
-    : "";
+  const { heading, detail } = placeParts(card);
+  const items = Number(card.item_count) || 0;
+  const meta = [
+    assignedNames(card).join(", "),
+    items ? `${items} item${items === 1 ? "" : "s"}` : "",
+  ].filter(Boolean).join(" · ");
   const legacyTag = card.legacy ? `<span class="wo-legacy-tag">Legacy</span>` : "";
+  // SMR27 is an audit of past work: no live status, priority or due date (user 2026-11-07).
+  const chips = card.smr ? "" : statusBadge(card.status) + attentionPriorityBadge(card) + overdueTag(card);
   return (
-    `<span class="wo-title">WO ${escapeHtml(card.number)}</span>` +
-    // SMR27 is an audit of past work: no live status, priority or due date (user 2026-11-07).
-    (card.smr ? "" : statusBadge(card.status) + priorityBadge(card) + overdueTag(card)) +
-    legacyTag +
-    `<span class="wo-meta">${place ? escapeHtml(place) + " · " : ""}${card.item_count} items${assignee}</span>`
+    `<span class="wo-card-head">` +
+    `<span class="wo-card-place">${escapeHtml(heading)}</span>` +
+    (detail ? `<span class="wo-card-room">${escapeHtml(detail)}</span>` : "") +
+    (meta ? `<span class="wo-meta">${escapeHtml(meta)}</span>` : "") +
+    `</span>` +
+    `<span class="wo-card-foot"><span class="wo-card-chips">${chips}${legacyTag}</span>` +
+    `<span class="wo-title">WO ${escapeHtml(card.number)}</span></span>`
   );
+}
+
+// The in-list preview a tap opens (user 2026-11-14): what the job is, when, and
+// who, from the list row itself -- no fetch -- plus the way into the full card.
+export function peekHtml(card) {
+  const crew = [
+    card.supervisor_name ? `${card.supervisor_name} (Team Lead)` : "",
+    ...assignedNames(card),
+  ].filter(Boolean).join(" · ");
+  const rows = [
+    ["Task", card.description],
+    ["Scheduled", card.schedule_date],
+    ["Crew", crew],
+  ].filter(([, value]) => value);
+  const meta = rows.length
+    ? `<dl class="wo-peek-meta">${rows
+        .map(([label, value]) => `<dt>${label}</dt><dd>${importedDetailValueHtml(label === "Task" ? "Symptom / task" : label, value)}</dd>`)
+        .join("")}</dl>`
+    : `<p class="hint">No task or schedule on this work order yet.</p>`;
+  return `<div class="wo-peek">${meta}<button type="button" class="wo-peek-open" data-peek-open>Open work order ›</button></div>`;
 }
 
 export function renderBody(detail, bodyEl) {
@@ -495,9 +524,8 @@ export function renderBody(detail, bodyEl) {
     `<p class="hint">No materials logged yet.</p>`;
 
   const { primary, secondary, tools } = statusActionsHtml(detail);
-  const statusActions =
-    (detail.smr ? "" : primary + secondary) + (tools ? `<div class="wo-controls-tools">${tools}</div>` : "");
 
+  // Materials' entry mode lives in the Materials tab, beside what it governs.
   // An SMR order is locked on Retroactive (the server forces it): shown, greyed out.
   const modeControl = sup
     ? `<div class="wo-mode-row">
@@ -509,14 +537,40 @@ export function renderBody(detail, bodyEl) {
      </div>`
     : "";
 
+  const showLabor = sup || assignedToCurrentUser || detail.smr;
+  const invoice = smrInvoiceSectionHtml(detail);
+  const itemCount = detail.items.length;
+  const laborMinutes = Number(detail.labor_minutes) || 0;
+  const tabs = [
+    ["details", "Details"],
+    ["notes", "Notes"],
+    ["materials", itemCount ? `Materials · ${itemCount}` : "Materials"],
+    ...(showLabor ? [["labor", laborMinutes ? `Labor · ${hoursInputValue(laborMinutes)} h` : "Labor"]] : []),
+    ...(invoice ? [["invoice", "Invoice"]] : []),
+  ];
+  const tabBar = `<div class="wo-tabs" role="tablist" aria-label="Work order sections">${tabs
+    .map(([key, label]) => `<button type="button" class="wo-tab" role="tab" data-wo-tab="${key}" aria-selected="false">${escapeHtml(label)}</button>`)
+    .join("")}</div>`;
+
+  // The bottom bar: the lifecycle's next step and its siblings, then a "More"
+  // menu holding the Admin tools and Edit details.
+  const more = (tools || sup)
+    ? `<details class="wo-more"><summary class="wo-more-btn" aria-label="More actions">⋯</summary>
+         <div class="wo-more-menu">${tools}${sup ? `<button type="button" class="secondary-btn" data-wo-open-edit>Edit details</button>` : ""}</div>
+       </details>`
+    : "";
+  const statusActions = (detail.smr ? "" : primary + secondary) + more;
+
   bodyEl.innerHTML =
     chargingStripHtml(detail) +
-    ((modeControl || statusActions) ? `<div class="wo-controls">${modeControl}${statusActions}</div>` : "") +
-    (detail.smr ? readyRowHtml(detail, canEditSmrLines()) : "") +
     crewLockHtml(detail) +
     priorWorkBannerHtml(detail) +
+    tabBar +
+    `<div class="wo-tab-details">` +
+    (detail.smr ? readyRowHtml(detail, canEditSmrLines()) : "") +
     `<div class="wo-details">${detailsViewHtml(detail)}</div>` +
     (sup ? detailsEditorHtml(detail) : "") +
+    `</div>` +
     `<details class="wo-section-card wo-notes-section"${gated ? " open" : ""}>
        <summary class="wo-section-summary">Notes</summary>
        <div class="wo-section-content">
@@ -532,6 +586,7 @@ export function renderBody(detail, bodyEl) {
     `<details class="wo-section-card wo-materials-section">
        <summary class="wo-section-summary">Materials</summary>
        <div class="wo-section-content">
+         ${modeControl}
          <div class="wo-items">${items}</div>
          ${materialsTotalHtml(detail)}
          ${targetMaterialsHtml(detail)}
@@ -547,9 +602,49 @@ export function renderBody(detail, bodyEl) {
        </div>
      </details>` +
     // An SMR order shows Labor to everyone, then its Invoice section.
-    (sup || assignedToCurrentUser || detail.smr ? laborSectionHtml(detail) : "") +
-    smrInvoiceSectionHtml(detail) +
+    (showLabor ? laborSectionHtml(detail) : "") +
+    invoice +
+    (statusActions ? `<div class="wo-actionbar">${statusActions}</div>` : "") +
+    // Stays the body's last child: setMessage replaces its class, and the
+    // action handler finds it by position after that.
     `<p class="wo-message"></p>`;
+  syncWorkOrderTabs(bodyEl, { settle: true });
+}
+
+// Tab -> the section <details> it opens. Details is the absence of any open
+// section, so the held-editor rule (an open section holds the card) is unchanged.
+const SECTION_BY_TAB = {
+  notes: ".wo-notes-section",
+  materials: ".wo-materials-section",
+  labor: ".wo-labor-section",
+  invoice: ".wo-smr-invoice",
+};
+
+function topSections(bodyEl) {
+  return Object.entries(SECTION_BY_TAB)
+    .map(([key, selector]) => [key, bodyEl.querySelector(`:scope > ${selector}`)])
+    .filter(([, el]) => el);
+}
+
+export function showWorkOrderTab(bodyEl, key) {
+  for (const [tab, el] of topSections(bodyEl)) el.open = tab === key;
+  syncWorkOrderTabs(bodyEl);
+}
+
+// Mirrors which section is open onto the tab bar. `settle` keeps only the
+// first open section (a gated Notes, or an SMR order's open Labor), since a
+// fresh render may open more than one.
+export function syncWorkOrderTabs(bodyEl, { settle = false } = {}) {
+  let active = "details";
+  for (const [tab, el] of topSections(bodyEl)) {
+    if (!el.open) continue;
+    if (active === "details") active = tab;
+    else if (settle) el.open = false;
+  }
+  bodyEl.dataset.woTab = active;
+  bodyEl.querySelectorAll(":scope > .wo-tabs > .wo-tab").forEach((tab) => {
+    tab.setAttribute("aria-selected", String(tab.dataset.woTab === active));
+  });
 }
 
 function renderLineHtml(it, locked = false) {

@@ -19,9 +19,7 @@ const technicianFilter = document.getElementById("work-orders-technician-filter"
 const communityFilter = document.getElementById("work-orders-community-filter");
 const scheduledDateFilter = document.getElementById("work-orders-date-filter");
 const searchInput = document.getElementById("work-orders-search");
-const locationSearchInput = document.getElementById("work-orders-location-search");
-const taskSearchInput = document.getElementById("work-orders-task-search");
-const sortSeg = document.getElementById("work-orders-sort");
+const sortSelect = document.getElementById("work-orders-sort");
 
 let filterOptionsLoaded = false;
 
@@ -115,10 +113,7 @@ try {
 }
 
 export function renderSortControl() {
-  if (!sortSeg) return;
-  sortSeg.querySelectorAll("[data-sort]").forEach((btn) => {
-    btn.setAttribute("aria-pressed", String(btn.dataset.sort === sortDir));
-  });
+  if (sortSelect) sortSelect.value = sortDir;
 }
 
 export function currentFilters() {
@@ -133,9 +128,8 @@ export function currentFilters() {
     community: communityFilter ? communityFilter.value : "",
     priority: priorityFilter ? priorityFilter.value : "",
     scheduledDate: scheduledDateFilter ? scheduledDateFilter.value : "",
-    q: searchInput ? searchInput.value.trim() : "",
-    locationQ: locationSearchInput ? locationSearchInput.value.trim() : "",
-    taskQ: taskSearchInput ? taskSearchInput.value.trim() : "",
+    // The one search box: number, location or task (server `text_q`).
+    textQ: searchInput ? searchInput.value.trim() : "",
   };
 }
 
@@ -150,9 +144,7 @@ const FILTER_CONTROLS = {
   assignedToId: technicianFilter,
   community: communityFilter,
   scheduledDate: scheduledDateFilter,
-  q: searchInput,
-  locationQ: locationSearchInput,
-  taskQ: taskSearchInput,
+  textQ: searchInput,
 };
 
 export function filterControl(key) {
@@ -179,8 +171,6 @@ export function resetFilterControls() {
     if (control) control.value = "";
   });
   if (searchInput) searchInput.value = "";
-  if (locationSearchInput) locationSearchInput.value = "";
-  if (taskSearchInput) taskSearchInput.value = "";
 }
 
 export function getShowAll() { return showAll; }

@@ -83,6 +83,15 @@
     --wo-status-ready-to-complete: #6D28D9;
     --wo-status-completed: #2563EB;
     --wo-status-review: #15803D;
+    /* The same hues lifted for text on the dark panels (WO number, chip
+       label, group heading). */
+    --wo-status-text-created: #D1D5DB;
+    --wo-status-text-assigned: #F87171;
+    --wo-status-text-in-progress: #FACC15;
+    --wo-status-text-on-hold: #FB923C;
+    --wo-status-text-ready-to-complete: #A78BFA;
+    --wo-status-text-completed: #60A5FA;
+    --wo-status-text-review: #4ADE80;
 
     /* Feedback text */
     /* Text and left-accent rules only -- never a fill -- so these move to
@@ -1214,7 +1223,7 @@ tr:last-child td {
    column on narrow screens without forcing the page wider than the viewport. */
 .wo-filter-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
     gap: var(--space-3);
     margin-bottom: var(--space-3);
 }
@@ -1255,36 +1264,25 @@ tr:last-child td {
     font-size: var(--fs-lg);
 }
 
-/* Advanced search: native <details>, folded by default. Its summary is a big
-   full-width button sized like the scope toggle (the Users page "+ Add user"
-   pattern, scaled up); the open grid sits straight under it on the page. */
+/* One search box, then a toolbar: Filters (opens the panel below), sort,
+   and the Admin export. Wraps rather than scrolls on a phone. */
+.wo-search { width: 100%; margin: 0; }
+.wo-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin: var(--space-2) 0 var(--space-3);
+}
+.wo-toolbar > * { margin: 0; min-height: var(--btn-h-sm); width: auto; }
+.wo-filters-btn[aria-expanded="true"] { border-color: var(--color-brand); color: var(--color-brand); }
 .wo-advanced {
     margin-bottom: var(--space-3);
-}
-
-.wo-advanced-summary {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-2);
-    min-height: 56px;
-    padding: 0 var(--space-3);
+    padding: var(--space-3);
     border: 1px solid var(--panel-border);
     border-radius: var(--radius-md);
-    color: var(--text-panel);
-    font-size: var(--fs-lg);
-    font-weight: var(--fw-bold);
-    cursor: pointer;
-    list-style: none;
+    background: var(--panel-well);
 }
-
-.wo-advanced-summary::-webkit-details-marker { display: none; }
-.wo-advanced-summary::before { content: "\25B8"; }
-.wo-advanced[open] > .wo-advanced-summary::before { content: "\25BE"; }
-.wo-advanced-summary:hover { background-color: var(--panel-hover); }
-.wo-advanced-summary:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.wo-advanced[open] > .wo-advanced-summary { border-color: var(--color-brand); color: var(--color-brand); }
-.wo-advanced > .wo-filter-grid { margin-top: var(--space-3); }
 
 .wo-filters-actions {
     display: flex;
@@ -1292,28 +1290,6 @@ tr:last-child td {
     gap: var(--space-3);
 }
 
-.wo-filters-count {
-    margin-left: var(--space-1);
-}
-
-.wo-number-search-row input {
-    flex: 1 1 260px;
-}
-
-/* Scheduled-date sort toggle at the end of the number-search row. Sized like
-   the row's other buttons; selected cell takes the primary accent. */
-.wo-sort-seg {
-    margin-left: auto;
-}
-
-.wo-sort-seg .seg-btn {
-    flex: 0 0 auto;
-    min-height: var(--btn-h-sm);
-    padding: 0 var(--space-3);
-    font-size: var(--fs-sm, 0.875rem);
-}
-
-.wo-sort-seg .seg-btn[aria-pressed="true"],
 .wo-scope-seg .seg-btn[aria-pressed="true"],
 .users-scope .seg-btn[aria-pressed="true"] {
     background-color: var(--color-brand);
@@ -6656,55 +6632,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 }
 
 @media (max-width: 600px) {
-  #hub-tabpanel-work-orders .hub-wo-list {
-    background: var(--panel-bg);
-    border: 1px solid var(--panel-border);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-panel);
-    -webkit-backdrop-filter: var(--glass-blur);
-    backdrop-filter: var(--glass-blur);
-    padding: var(--space-2) var(--space-4);
-  }
-  #hub-tabpanel-work-orders .wo-card {
-    background: none;
-    border: 0;
-    border-top: 1px solid var(--panel-rule-soft);
-    border-radius: 0;
-    box-shadow: none;
-    padding: var(--space-3) 0;
-    margin: 0;
-    min-height: 44px;
-  }
-  #hub-tabpanel-work-orders .wo-card:first-child { border-top: 0; }
-  #hub-tabpanel-work-orders .wo-summary {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
-    padding: 0;
-    list-style: none;
-  }
-  #hub-tabpanel-work-orders .wo-summary::-webkit-details-marker { display: none; }
-  #hub-tabpanel-work-orders .wo-summary::marker { content: ""; }
-  #hub-tabpanel-work-orders .wo-title {
-    font-size: 15px;
-    font-weight: var(--fw-bold);
-    color: var(--text-panel);
-  }
-  #hub-tabpanel-work-orders .wo-status,
-  #hub-tabpanel-work-orders .wo-priority,
-  #hub-tabpanel-work-orders .wo-tag-overdue {
-    font-size: 11.5px;
-    padding: 2px 9px;
-    border-radius: 99px;
-  }
-  #hub-tabpanel-work-orders .wo-meta {
-    flex: 0 0 100%;
-    margin-top: 2px;
-    font-size: 13.5px;
-    line-height: 1.35;
-    color: var(--text-panel-mute);
-  }
+  /* The cards themselves: "Work-order cards" block at the end of this file. */
   #hub-tabpanel-work-orders .hub-wo-view-all { margin: var(--space-3) 0 0; }
   #hub-tabpanel-work-orders .hub-wo-view-all button {
     width: 100%;
@@ -6803,6 +6731,177 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 
 /* Home counts: label and number take the work-order status hue (lifted for
    legibility on the dark panel, as with the other status text). */
-#hub-tabpanel-home .hub-tile-grid > .hub-tile:nth-child(1) :is(.hub-tile-label, .hub-tile-value) { color: #F87171; }
-#hub-tabpanel-home .hub-tile-grid > .hub-tile:nth-child(2) :is(.hub-tile-label, .hub-tile-value) { color: var(--wo-status-in-progress); }
-#hub-tabpanel-home .hub-tile-grid > .hub-tile:nth-child(3) :is(.hub-tile-label, .hub-tile-value) { color: #A78BFA; }
+#hub-tabpanel-home .hub-tile-grid > .hub-tile:nth-child(1) :is(.hub-tile-label, .hub-tile-value) { color: var(--wo-status-text-assigned); }
+#hub-tabpanel-home .hub-tile-grid > .hub-tile:nth-child(2) :is(.hub-tile-label, .hub-tile-value) { color: var(--wo-status-text-in-progress); }
+#hub-tabpanel-home .hub-tile-grid > .hub-tile:nth-child(3) :is(.hub-tile-label, .hub-tile-value) { color: var(--wo-status-text-ready-to-complete); }
+
+/* ---- Work-order cards (user 2026-11-14) ----
+   Location heading, room, crew; a footer with the chips and the WO number in
+   its status color. Lists group by status and a tap opens the in-place
+   preview; the card page is tabbed with an action bar at the bottom. Scoped
+   to .wo-list (Work Orders page + Hub tab) so the Scan/Stock and Admin Review
+   keycap cards keep their look. */
+.wo-list .wo-card {
+    --wo-st: var(--wo-status-text-created);
+    background: var(--panel-nested);
+    border: 1px solid transparent;
+    border-radius: 14px;
+    box-shadow: none;
+    margin: 0 0 var(--space-2);
+    transform: none;
+}
+.wo-list .wo-card:hover,
+.wo-list .wo-card:active { border-color: var(--panel-border); box-shadow: none; transform: none; }
+.wo-list .wo-card:has(.wo-tag-overdue) { border-color: rgba(248, 113, 113, .35); }
+.wo-list .wo-card[open]:not(.wo-solo) { border-color: var(--panel-border); background: var(--panel-hover); }
+.wo-list :is(.wo-card-status-assigned, .wo-group-assigned) { --wo-st: var(--wo-status-text-assigned); }
+.wo-list :is(.wo-card-status-in_progress, .wo-group-in_progress) { --wo-st: var(--wo-status-text-in-progress); }
+.wo-list :is(.wo-card-status-on_hold, .wo-group-on_hold) { --wo-st: var(--wo-status-text-on-hold); }
+.wo-list :is(.wo-card-status-ready_to_complete, .wo-group-ready_to_complete) { --wo-st: var(--wo-status-text-ready-to-complete); }
+.wo-list :is(.wo-card-status-completed, .wo-group-completed) { --wo-st: var(--wo-status-text-completed); }
+.wo-list :is(.wo-card-status-review, .wo-group-review) { --wo-st: var(--wo-status-text-review); }
+.wo-list :is(.wo-card.wo-card-smr, .wo-group-smr) { --wo-st: var(--text-panel-mute); }
+
+.wo-list .wo-summary {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: var(--space-4);
+    font-weight: var(--fw-regular);
+}
+.wo-list .wo-summary::before { content: none; }
+.wo-list .wo-summary::marker { content: ""; }
+.wo-card-head { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.wo-card-place { font-size: 1.0625rem; font-weight: var(--fw-bold); line-height: 1.25; color: var(--text-panel); overflow-wrap: anywhere; }
+.wo-card-room { font-size: var(--fs-sm); line-height: 1.35; color: var(--text-panel-mute); overflow-wrap: anywhere; }
+.wo-list .wo-meta { margin: 4px 0 0; font-size: var(--fs-xs); color: var(--text-panel-mute); }
+.wo-card-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--panel-rule-soft);
+}
+.wo-card-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.wo-list .wo-title { font-size: var(--fs-sm); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; color: var(--wo-st); white-space: nowrap; }
+.wo-list .wo-status { padding: 2px 9px; background: color-mix(in srgb, var(--wo-st) 16%, transparent); color: var(--wo-st); }
+.wo-list .wo-priority { padding: 2px 9px; border-radius: var(--radius-pill); }
+/* Overdue stays an outline (user 2026-11-14): Assigned shares its red, so the
+   two differ by shape -- a filled tint against a ring with a clock. */
+.wo-list .wo-tag-overdue { padding: 1px 8px; border-radius: var(--radius-pill); background: none; }
+
+/* Status groups. */
+.wo-group { margin: 0 0 var(--space-2); }
+.wo-group-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) 2px var(--space-2);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--wo-st);
+    cursor: pointer;
+    list-style: none;
+}
+.wo-group { --wo-st: var(--wo-status-text-created); }
+.wo-group-head::-webkit-details-marker { display: none; }
+.wo-group-head::after { content: "Hide"; margin-left: auto; color: var(--text-panel-mute); letter-spacing: 0; text-transform: none; }
+.wo-group:not([open]) > .wo-group-head::after { content: "Show"; }
+.wo-group-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--wo-st); }
+.wo-group-count { color: var(--text-panel-mute); }
+.wo-group-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+    gap: 0 var(--space-3);
+    align-items: start;
+}
+
+/* In-place preview. */
+.wo-list .wo-card:not(.wo-solo) > .wo-body { background: none; padding: 0 var(--space-4) var(--space-4); }
+.wo-peek { padding-top: var(--space-3); border-top: 1px solid var(--panel-rule-soft); }
+.wo-peek-meta { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px var(--space-4); margin: 0 0 var(--space-3); font-size: var(--fs-sm); }
+.wo-peek-meta dt { color: var(--text-panel-mute); }
+.wo-peek-meta dd { margin: 0; overflow-wrap: anywhere; }
+.wo-peek-open { width: 100%; margin: 0; }
+
+/* Card page: header card, tabs, bottom action bar. */
+.wo-list .wo-solo .wo-card-place { font-size: var(--fs-lg); }
+.wo-tabs {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    margin: var(--space-3) 0;
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    overflow: hidden;
+}
+.wo-tab {
+    margin: 0;
+    min-height: 40px;
+    padding: 4px var(--space-1);
+    border: 0;
+    border-radius: 0;
+    background: none;
+    color: var(--text-panel-mute);
+    font-size: 0.8125rem;
+    font-weight: var(--fw-semibold);
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+}
+.wo-tab:hover { background: var(--panel-hover); color: var(--text-panel); }
+.wo-tab[aria-selected="true"] { background: var(--panel-bg); color: var(--text-panel); box-shadow: inset 0 -2px 0 var(--color-brand); }
+.wo-body[data-wo-tab]:not([data-wo-tab="details"]) > .wo-tab-details { display: none; }
+.wo-body[data-wo-tab] > .wo-section-card:not([open]) { display: none; }
+.wo-body[data-wo-tab] > .wo-section-card > .wo-section-summary { display: none; }
+.wo-actionbar {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin: var(--space-4) calc(-1 * var(--space-4)) 0;
+    padding: var(--space-3) var(--space-4);
+    background: var(--color-header);
+    border-top: 1px solid var(--panel-rule);
+}
+.wo-actionbar > button { margin: 0; min-height: var(--btn-h-sm); }
+.wo-actionbar > button:not(.secondary-btn):not(.btn-danger) { flex: 1 1 200px; min-height: var(--btn-h); }
+.wo-actionbar > .wo-status-note { flex: 1 1 100%; }
+.wo-more { position: relative; margin-left: auto; }
+.wo-more-btn {
+    display: grid;
+    place-items: center;
+    min-width: 44px;
+    min-height: var(--btn-h-sm);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-md);
+    font-weight: var(--fw-bold);
+    cursor: pointer;
+    list-style: none;
+}
+.wo-more-btn::-webkit-details-marker { display: none; }
+.wo-more[open] > .wo-more-btn { border-color: var(--color-brand); color: var(--color-brand); }
+.wo-more-menu {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 6px);
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    width: max-content;
+    max-width: calc(100vw - 2 * var(--space-4));
+    padding: var(--space-2);
+    background: var(--color-header);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-panel);
+}
+.wo-more-menu > button { width: 100%; margin: 0; }

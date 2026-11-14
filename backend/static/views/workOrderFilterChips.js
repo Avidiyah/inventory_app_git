@@ -24,15 +24,13 @@ const CHIP_PREFIX = {
   assignedToId: "Technician",
   community: "Community",
   scheduledDate: "Scheduled",
-  q: "WO #",
-  locationQ: "Location",
-  taskQ: "Task",
+  textQ: "Search",
 };
 
 // Free-text searches are quoted so a trailing space or a one-letter search is
 // visible for what it is. Selects show their option text (a supervisor's name,
 // not their id).
-const QUOTED = new Set(["locationQ", "taskQ"]);
+const QUOTED = new Set(["textQ"]);
 
 function chipValueText(key, value) {
   const control = filterControl(key);

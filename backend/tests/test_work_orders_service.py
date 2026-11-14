@@ -2920,6 +2920,28 @@ def test_task_search_matches_description_not_notes(db):
     assert noted.id not in found
 
 
+def test_text_search_matches_number_or_location_or_task_never_notes(db):
+    """The page's one search box ORs the three fields the separate searches AND."""
+    sup = _seed_user(db, "supervisor")
+    tag = uuid.uuid4().hex[:8]
+
+    def make(**fields):
+        return wos.get_or_create_work_order(
+            db, number=f"WO-TXT-{uuid.uuid4().hex[:8]}", created_by_id=sup.id, **fields
+        )
+
+    by_number = wos.get_or_create_work_order(db, number=f"WO-{tag}", created_by_id=sup.id)
+    by_location = make(location=f"Gym {tag}: storage room")
+    by_unit = make(community="Maple Ridge", unit_number=f"U{tag}")
+    by_task = make(description=f"Leak near {tag} drain")
+    by_notes = make(description="Paint touch-up")
+    wos.update_work_order(db, by_notes.id, user=sup, fields={"notes": f"mentions {tag}"})
+
+    found = {w.id for w in wos.list_work_orders(db, user=sup, text_search=tag.upper())}
+    assert {by_number.id, by_location.id, by_unit.id, by_task.id} <= found
+    assert by_notes.id not in found
+
+
 def test_keyword_searches_escape_like_wildcards(db):
     sup = _seed_user(db, "supervisor")
     literal = wos.get_or_create_work_order(

@@ -552,6 +552,7 @@ export async function apiListWorkOrders({
   q = null,
   locationQ = null,
   taskQ = null,
+  textQ = null,
   mine = false,
   limit = null,
   sort = null,
@@ -567,6 +568,7 @@ export async function apiListWorkOrders({
   if (q) params.set("q", q);
   if (locationQ) params.set("location_q", locationQ);
   if (taskQ) params.set("task_q", taskQ);
+  if (textQ) params.set("text_q", textQ);
   if (mine) params.set("mine", "true");
   if (limit != null) params.set("limit", limit);
   if (sort) params.set("sort", sort);
@@ -798,6 +800,7 @@ export async function apiExportWorkOrders(
   if (filters.q) params.set("q", filters.q);
   if (filters.locationQ) params.set("location_q", filters.locationQ);
   if (filters.taskQ) params.set("task_q", filters.taskQ);
+  if (filters.textQ) params.set("text_q", filters.textQ);
   const response = await rawFetch(`/work-orders/export?${params}`, {
     credentials: "include",
     cache: "no-store",

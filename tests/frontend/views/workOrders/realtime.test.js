@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { installFakeWebSocket } from "../../helpers/fakeSocket.js";
 import {
-  cardEls, expandCard, listEl, mountWorkOrders, openCard, requests, seedDetail, seedList, state,
+  cardEls, listEl, mountWorkOrders, openCard, requests, seedDetail, seedList, state,
 } from "../../helpers/workOrders.js";
 import { restoreBrowserStubs, stubScroll } from "../../helpers/browserStubs.js";
 import { workOrderCard, workOrderDetail } from "../../helpers/factories.js";
@@ -50,37 +50,47 @@ const listGets = () =>
 const quiet = () => new Promise((resolve) => setTimeout(resolve, 30));
 
 describe("a frame naming a rendered card", () => {
-  it("repaints that card's summary in place", async () => {
+  it("repaints that card's summary in place while its status holds", async () => {
     const detail = workOrderDetail({ number: "4242", status: "assigned" });
     const listCard = workOrderCard({ id: detail.id, number: "4242", status: "assigned" });
     await mountConnected({ cards: [listCard], details: [detail] });
-    seedDetail({ ...detail, status: "completed", priority: "Urgent" });
+    seedDetail({ ...detail, priority: "Urgent" });
 
     statusChanged(detail.id);
     await vi.waitFor(() =>
-      expect(cardEls()[0].querySelector(".wo-status").textContent).toBe("Completed"));
-    expect(cardEls()[0].className).toBe("wo-card wo-card-status-completed");
+      expect(cardEls()[0].querySelector(".wo-priority")?.textContent).toBe("Urgent"));
+    expect(cardEls()[0].className).toBe("wo-card wo-card-status-assigned wo-card-urgent");
     expect(detailGets(detail.id)).toBe(1);
     expect(listGets()).toBe(0);
   });
 
-  it("leaves an open, unheld card open and repaints its body too", async () => {
+  it("reloads the list when the status moves the card to another group", async () => {
     const detail = workOrderDetail({ number: "4242", status: "assigned" });
-    await mountConnected({
-      cards: [workOrderCard({ id: detail.id, number: "4242" })],
-      details: [detail],
-    });
-    const cardEl = await expandCard(0);
+    const listCard = workOrderCard({ id: detail.id, number: "4242", status: "assigned" });
+    await mountConnected({ cards: [listCard], details: [detail] });
     seedDetail({ ...detail, status: "completed" });
+    seedList([{ ...listCard, status: "completed" }]);
 
     statusChanged(detail.id);
     await vi.waitFor(() =>
-      expect(cardEl.querySelector(".wo-status").textContent).toBe("Completed"));
+      expect(listEl().querySelector(".wo-group").dataset.status).toBe("completed"));
+    expect(listGets()).toBe(1);
+  });
+
+  it("leaves an open preview open and repaints it too", async () => {
+    const detail = workOrderDetail({ number: "4242", status: "assigned" });
+    await mountConnected({
+      cards: [workOrderCard({ id: detail.id, number: "4242", status: "assigned" })],
+      details: [detail],
+    });
+    const cardEl = cardEls()[0];
+    cardEl.open = true;
+    seedDetail({ ...detail, description: "Patch the roof flashing" });
+
+    statusChanged(detail.id);
+    await vi.waitFor(() =>
+      expect(cardEl.querySelector(".wo-peek").textContent).toContain("Patch the roof flashing"));
     expect(cardEl.open).toBe(true);
-    // The body's actions follow the badge: no Completed badge over a live
-    // "Mark Completed" button.
-    expect(cardEl.querySelector('[data-action="complete-wo"]')).toBeNull();
-    expect(cardEl.querySelector('[data-action="reopen-wo"]')).not.toBeNull();
   });
 
   it("drops the loaded flag on a collapsed card so the next expansion re-fetches", async () => {
@@ -181,8 +191,8 @@ describe("frames this page ignores", () => {
 });
 
 describe("a held card", () => {
-  // "Held" is any of the four editor sections being open: refreshing would
-  // discard an unsaved note, quantity, or technician selection.
+  // "Held" is any of the four editor sections being open on the card page:
+  // refreshing would discard an unsaved note, quantity, or technician selection.
   it.each([
     ".wo-edit-card", ".wo-notes-section", ".wo-materials-section", ".wo-labor-section",
   ])("defers the update while %s is open", async (selector) => {
@@ -192,7 +202,7 @@ describe("a held card", () => {
       details: [detail],
       role: "supervisor",
     });
-    const cardEl = await expandCard(0);
+    const cardEl = await openCard(0);
     cardEl.querySelector(selector).open = true;
 
     statusChanged(detail.id);
@@ -208,7 +218,7 @@ describe("a held card", () => {
       details: [detail],
       role: "supervisor",
     });
-    const cardEl = await expandCard(0);
+    const cardEl = await openCard(0);
     cardEl.querySelector(".wo-edit-card").open = true;
     statusChanged(detail.id);
     await quiet();
@@ -244,29 +254,6 @@ describe("a membership change or a reconnect", () => {
     ws.last().emitOpen();
     vi.useRealTimers();
     await vi.waitFor(() => expect(cardEls()).toHaveLength(2));
-  });
-
-  it("defers the list refetch while any card is held, and flushes it on the next toggle", async () => {
-    const detail = workOrderDetail({ number: "1", status: "in_progress" });
-    await mountConnected({
-      cards: [workOrderCard({ id: detail.id, number: "1", status: "in_progress" })],
-      details: [detail],
-      role: "supervisor",
-    });
-    const cardEl = await expandCard(0);
-    cardEl.querySelector(".wo-notes-section").open = true;
-
-    seedList([
-      workOrderCard({ id: detail.id, number: "1" }),
-      workOrderCard({ number: "2" }),
-    ]);
-    emit({ type: EVENT, id: null, req: null });
-    await quiet();
-    expect(listGets()).toBe(0);
-
-    cardEl.querySelector(".wo-notes-section").open = false;
-    await vi.waitFor(() => expect(cardEls()).toHaveLength(2));
-    expect(listGets()).toBe(1);
   });
 
   it("refreshes only the card on screen when a card page is showing", async () => {

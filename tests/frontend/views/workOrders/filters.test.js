@@ -119,9 +119,7 @@ describe("Clear filters", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     await mountWorkOrders({ role: "admin" });
     el("work-orders-status-filter").value = "completed";
-    el("work-orders-search").value = "123";
-    typeIn(el("work-orders-location-search"), "hall");
-    typeIn(el("work-orders-task-search"), "leak");
+    typeIn(el("work-orders-search"), "hall");
     el("work-orders-clear-filters").click();
     await flush();
     expect(listUrls()).toHaveLength(1);
@@ -131,31 +129,27 @@ describe("Clear filters", () => {
     for (const id of [
       "work-orders-status-filter", "work-orders-service-filter", "work-orders-priority-filter",
       "work-orders-supervisor-filter", "work-orders-technician-filter", "work-orders-community-filter",
-      "work-orders-date-filter",
-      "work-orders-search", "work-orders-location-search", "work-orders-task-search",
+      "work-orders-date-filter", "work-orders-search",
     ]) {
       expect(el(id).value, id).toBe("");
     }
-    // The two keyword debounces armed above must not fire a second load.
+    // The search debounce armed above must not fire a second load.
     vi.advanceTimersByTime(1000);
     await flush();
     expect(listUrls()).toHaveLength(1);
   });
 });
 
-describe("the keyword searches", () => {
-  it.each([
-    ["work-orders-location-search", "location_q=hall"],
-    ["work-orders-task-search", "task_q=leak"],
-  ])("%s coalesces typing into one load after 100 ms", async (id, param) => {
+describe("the search box", () => {
+  it("coalesces typing into one text_q load after 100 ms", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     await mountWorkOrders({ role: "admin" });
-    const input = el(id);
+    const input = el("work-orders-search");
     typeIn(input, "h");
     vi.advanceTimersByTime(50);
     typeIn(input, "ha");
     vi.advanceTimersByTime(50);
-    typeIn(input, id.includes("location") ? "hall" : "leak");
+    typeIn(input, "hall");
     await flush();
     expect(listUrls()).toHaveLength(0);
     vi.advanceTimersByTime(99);
@@ -164,14 +158,15 @@ describe("the keyword searches", () => {
     vi.advanceTimersByTime(1);
     await flush();
     expect(listUrls()).toHaveLength(1);
-    expect(listUrls()[0]).toContain(param);
+    expect(listUrls()[0]).toContain("text_q=hall");
+    expect(listUrls()[0]).not.toMatch(/[?&]q=/);
   });
 
-  it("Enter flushes the keyword search immediately", async () => {
+  it("Enter flushes the search immediately", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    await mountWorkOrders({ role: "admin" });
-    typeIn(el("work-orders-location-search"), "hall");
-    pressEnter(el("work-orders-location-search"));
+    await mountWorkOrders({ role: "admin", lookup: { found: false } });
+    typeIn(el("work-orders-search"), "hall");
+    pressEnter(el("work-orders-search"));
     await flush();
     expect(listUrls()).toHaveLength(1);
     // The cancelled debounce does not fire a second one.
@@ -180,24 +175,15 @@ describe("the keyword searches", () => {
     expect(listUrls()).toHaveLength(1);
   });
 
-  it("the number search debounces the same way and asks for the archived check", async () => {
+  it("asks for the archived check, since the text may be a closed number", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     await mountWorkOrders({ role: "admin", lookup: { found: false } });
     typeIn(el("work-orders-search"), "12345");
     vi.advanceTimersByTime(250);
     await flush();
     expect(listUrls()).toHaveLength(1);
-    expect(listUrls()[0]).toContain("q=12345");
-    // The archived lookup is the number search's own extra step.
+    expect(listUrls()[0]).toContain("text_q=12345");
     await vi.waitFor(() => expect(requestFor("/work-orders/lookup")).not.toBeNull());
-  });
-
-  it("the Search button runs it without waiting", async () => {
-    await mountWorkOrders({ role: "admin", lookup: { found: false } });
-    el("work-orders-search").value = "12345";
-    el("work-orders-search-btn").click();
-    await flush();
-    expect(listUrls()).toHaveLength(1);
   });
 });
 
@@ -220,22 +206,27 @@ describe("My Work Orders", () => {
     expect(listUrls().at(-1)).toBe("/work-orders/?limit=10&sort=scheduled_desc");
   });
 
-  it("Advanced search is a folded panel whose button counts the active filters", async () => {
+  it("Filters opens a hidden panel and its button counts the active filters", async () => {
     await mountWorkOrders({ role: "admin" });
     const panel = el("work-orders-advanced");
-    expect(panel.tagName).toBe("DETAILS");
-    expect(panel.open).toBe(false);
-    expect(panel.querySelector("summary").textContent).toContain("Advanced search");
+    const button = el("work-orders-filters-btn");
+    expect(panel.hidden).toBe(true);
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    button.click();
+    expect(panel.hidden).toBe(false);
+    expect(button.getAttribute("aria-expanded")).toBe("true");
     expect(panel.contains(el("work-orders-status-filter"))).toBe(true);
     expect(el("work-orders-filters-count").hidden).toBe(true);
     change(el("work-orders-status-filter"), "completed");
     // The count is redrawn once the filtered list has landed, not on the change.
     await vi.waitFor(() => expect(el("work-orders-filters-count").hidden).toBe(false));
-    expect(el("work-orders-filters-count").textContent).toBe(" (1)");
-    // The scope is not an "advanced" filter: switching it leaves the count alone.
+    expect(el("work-orders-filters-count").textContent).toBe(" · 1");
+    // Neither the scope nor the search box counts: both sit outside the panel.
     el("work-orders-scope").querySelector('[data-scope="all"]').click();
+    el("work-orders-search").value = "hall";
+    pressEnter(el("work-orders-search"));
     await flush();
-    expect(el("work-orders-filters-count").textContent).toBe(" (1)");
+    expect(el("work-orders-filters-count").textContent).toBe(" · 1");
   });
 
   it("the big toggle and the panel's checkbox are one setting", async () => {
@@ -266,35 +257,33 @@ describe("My Work Orders", () => {
 });
 
 describe("the sort control", () => {
-  it("marks the active direction, newest first by default", async () => {
+  it("shows the active direction, newest first by default", async () => {
     await mountWorkOrders({ role: "admin" });
-    const buttons = [...el("work-orders-sort").querySelectorAll("[data-sort]")];
-    expect(buttons.map((b) => b.getAttribute("aria-pressed"))).toEqual(["true", "false"]);
+    expect(el("work-orders-sort").value).toBe("scheduled_desc");
   });
 
   it("switches direction, persists it, and reloads", async () => {
     await mountWorkOrders({ role: "admin" });
-    el("work-orders-sort").querySelector('[data-sort="scheduled_asc"]').click();
+    change(el("work-orders-sort"), "scheduled_asc");
     await flush();
     expect(listUrls()[0]).toContain("sort=scheduled_asc");
     expect(localStorage.getItem("workOrders.sort")).toBe("scheduled_asc");
-    const buttons = [...el("work-orders-sort").querySelectorAll("[data-sort]")];
-    expect(buttons.map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "true"]);
+    expect(el("work-orders-sort").value).toBe("scheduled_asc");
   });
 
-  it("ignores a click on the direction already active", async () => {
+  it("ignores a change to the direction already active", async () => {
     await mountWorkOrders({ role: "admin" });
-    el("work-orders-sort").querySelector('[data-sort="scheduled_desc"]').click();
+    change(el("work-orders-sort"), "scheduled_desc");
     await flush();
     expect(listUrls()).toHaveLength(0);
   });
 
-  it("ignores an unrecognised data-sort", async () => {
+  it("ignores an unrecognised value", async () => {
     await mountWorkOrders({ role: "admin" });
-    const rogue = document.createElement("button");
-    rogue.dataset.sort = "by_vibes";
+    const rogue = document.createElement("option");
+    rogue.value = "by_vibes";
     el("work-orders-sort").appendChild(rogue);
-    rogue.click();
+    change(el("work-orders-sort"), "by_vibes");
     await flush();
     expect(listUrls()).toHaveLength(0);
   });
@@ -565,7 +554,7 @@ describe("mountWorkOrderList", () => {
     expect(listUrls().at(-1)).toBe("/work-orders/?status=in_progress&mine=true");
   });
 
-  it("hands a click to onOpen instead of opening the card page", async () => {
+  it("previews on a tap and hands Open to onOpen instead of the card page", async () => {
     stubScroll();
     const { mod } = await mountWorkOrders({ role: "technician" });
     const container = document.createElement("div");
@@ -575,6 +564,8 @@ describe("mountWorkOrderList", () => {
     const onOpen = vi.fn();
     await mod.mountWorkOrderList({ container, onOpen }).refresh();
     container.querySelector("summary.wo-summary").click();
+    expect(onOpen).not.toHaveBeenCalled();
+    container.querySelector("[data-peek-open]").click();
     expect(onOpen).toHaveBeenCalledTimes(1);
     expect(onOpen.mock.calls[0][0].number).toBe("A1");
     expect(window.location.pathname).toBe("/");

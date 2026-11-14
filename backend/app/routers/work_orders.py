@@ -325,6 +325,7 @@ def _export_filename(
     search: Optional[str],
     location_search: Optional[str],
     task_search: Optional[str],
+    text_search: Optional[str] = None,
 ) -> str:
     """`MM-DD-YY_HH-MM_filter1-filter2.csv` for the honored filters.
 
@@ -356,6 +357,8 @@ def _export_filename(
             parts.extend(("location", location_search))
         if task_search and task_search.strip():
             parts.extend(("task", task_search))
+        if text_search and text_search.strip():
+            parts.extend(("search", text_search))
     tokens = [_filename_slug(part) for part in parts]
     filters = "-".join(token for token in tokens if token) or "all"
     return f"{stamp}_{filters}.csv"
@@ -624,6 +627,7 @@ def list_work_orders(
     q: Optional[str] = Query(None),
     location_q: Optional[str] = Query(None),
     task_q: Optional[str] = Query(None),
+    text_q: Optional[str] = Query(None),
     mine: bool = Query(False),
     limit: Optional[int] = Query(None, ge=1, le=MAX_LIST_ROWS),
     sort: Literal["scheduled_desc", "scheduled_asc"] = Query("scheduled_desc"),
@@ -637,6 +641,7 @@ def list_work_orders(
     `scheduled_date`, number `q`, `location_q` (substring over raw location
     plus structured community/building/unit), and `task_q` (substring over
     the Task/Symptom description; never `notes`) filters combine with AND.
+    `text_q` is the page's single search box: number OR location OR task.
     Community is
     membership-based over structured community plus raw CSV location; Academics
     is the no-known-term fallback. Priority is an exact vendor value, or
@@ -668,6 +673,7 @@ def list_work_orders(
                 search=q,
                 location_search=location_q,
                 task_search=task_q,
+                text_search=text_q,
                 mine=mine,
                 limit=limit,
                 descending=sort != "scheduled_asc",
@@ -787,6 +793,7 @@ def export_work_orders(
     q: Optional[str] = None,
     location_q: Optional[str] = None,
     task_q: Optional[str] = None,
+    text_q: Optional[str] = None,
     user: User = Depends(require_min_role(roles.ROLE_TECHFM_OA)),
     db: Session = Depends(get_db),
 ):
@@ -799,8 +806,8 @@ def export_work_orders(
     `variant=full` leads with the import's own headers and also accepts the Work
     Orders page's exact `service_type`, routed `supervisor_id`, derived
     `community`, exact `priority`, exact `scheduled_date`,
-    number `q`, location keyword `location_q`, and task keyword `task_q`
-    filters. They combine
+    number `q`, location keyword `location_q`, task keyword `task_q`, and the
+    any-field `text_q` filters. They combine
     with `scope` using AND and have no result cap. `variant=client` remains the
     existing scope-only billing sheet. 400 on an unrecognised scope, community,
     or variant.
@@ -820,6 +827,7 @@ def export_work_orders(
             search=q,
             location_search=location_q,
             task_search=task_q,
+            text_search=text_q,
         )
     except DomainError as exc:
         raise to_http(exc)
@@ -835,6 +843,7 @@ def export_work_orders(
         search=q,
         location_search=location_q,
         task_search=task_q,
+        text_search=text_q,
     )
     return Response(
         content=body,
