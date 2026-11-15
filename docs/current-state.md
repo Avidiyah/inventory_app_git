@@ -106,7 +106,7 @@ Path shorthand:
 | Scan-and-go work-order batch | `static/views/transactions.js`, `static/views/scan.js`, `routers/transactions.py`, `services/transactions.py`, `static/pages/transaction.html` | `tests/frontend/views/transactions.test.js`, transaction/domain tests, manual UI check for the camera |
 | Mass staging API/domain | `domain/mass_staging.py`, `services/mass_staging.py`, `routers/mass_stages.py`, `schemas/mass_stages.py`, `models.py` | `test_mass_staging.py`, `test_mass_staging_load.py`, `test_mass_stages_api.py` |
 | Mass staging UI (community tree) | `static/views/massStage.js`, `static/pages/mass-stage.html`, `static/api.js`, then backend mass-stage files | `tests/frontend/views/massStage.test.js` (all thirteen `data-action` branches, named by `massStageActionCoverage.test.js`), backend mass-stage tests, manual UI check |
-| Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `services/work_order_signature.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_work_order_signature.py`, `test_work_order_line_sync.py`, `test_work_order_billing.py`, `test_route_role_gates.py` |
+| Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `services/work_order_conflicts.py`, `field_stamps.py`, `services/work_order_signature.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_work_order_conflicts.py`, `test_work_order_field_stamps.py`, `test_work_order_signature.py`, `test_work_order_line_sync.py`, `test_work_order_billing.py`, `test_route_role_gates.py` |
 | Work Orders UI | `static/views/workOrder*.js` (barrel: `workOrders.js`), `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | `tests/frontend/views/workOrders/` (characterization: render, roles, actions, editor, filters, solo, realtime, integrations, plus the action/export audit), `backend/tests/e2e/test_work_orders.py`, backend work-order tests |
 | User Hub Graphs | `domain/hub.py`, `domain/work_orders.py`, `services/hub.py`, `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubGraphs.js` (tiles, pop-up, pie drill), `static/views/hubGraphTrends.js` (weekly trend charts), `static/views/workOrderList.js`, `static/views/workOrderFilters.js` (`selectFilterValue`), `static/pages/user-hub.html`, `static/styles.css`, `static/tips.js`, `static/api.js` | `test_hub_graphs_domain.py`, hub service/router/gate/realtime tests, `tests/frontend/views/userHub.test.js` (tab shell, lazy fetch, failure isolation), `tests/frontend/views/hubGraphs.test.js` (tile grid and grouping switch, the pop-up, the three-way drill, trends, the Work Orders hand-off); manual role/realtime checks. Aggregation semantics: endpoint-map → User Hub reads |
 | User Hub Report (Admin weekly closed report) | `services/work_order_report.py` (week resolution, window, lazy closed-row freeze, live new-work-order rows), `services/work_order_report_xlsx.py` + `services/_xlsx_theme.py`, `models.py` (`WorkOrderReportWeek`), `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubReport.js`, `static/views/workOrderList.js` (`openWorkOrdersByNumberSearch`), `static/pages/user-hub.html`, `static/styles.css`, `static/api.js` | `test_work_order_report.py` (resolve/window/projection/freeze/new work orders), `test_work_order_report_xlsx.py`, `test_work_order_report_weeks.py`, `test_xlsx_theme.py`, hub router + role-gate tests, `tests/frontend/views/userHub.test.js` (tab shell), `tests/frontend/views/hubReport.test.js` (week picker, counts, sections, hand-off, skeleton and retry); manual Excel check. **Admin-only**; completed closed rows are a **frozen record**, while `New Work Orders` is selected live by `created_at`, blocked by community, and always appears last in Excel; contract in endpoint-map → `HubReportResponse` |
@@ -457,6 +457,17 @@ unauthorised oversized upload is 403. Refusals log
 ## Hard Invariants
 
 These are the constraints most likely to break real behavior if missed.
+
+Work Orders save conflicts (W3):
+
+- The flush listener in `app/field_stamps.py` is the only writer of
+  `work_order_field_stamps` and of `updated_by_id` on material lines and labor
+  entries; the actor is `session.info["actor_id"]`, set by `get_current_user`.
+  Never stamp from a route.
+- Edit details, material quantity and billing, and labor hours send expected
+  values (`workOrderConflict.js` reads them from the edited element's defaults
+  and `data-original-*` / `data-expected-minutes` / `data-billable-quantity`,
+  which a W2 live patch leaves alone). Edit details sends only dirty fields.
 
 Attendance:
 

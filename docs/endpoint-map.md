@@ -353,9 +353,9 @@ endpoint or form exists; every other surface resolves an existing number and
   `enrichment_job_id`).
 - Edit details (`PATCH /work-orders/{id}`): Team Lead sees routing and
   status; TechFM OA+ also imported metadata. `number` is not editable — the
-  import matches on it. The patch carries the editor's original
-  `supervisor_id` as `expected_supervisor_id`; a stale value returns 409
-  naming the current Team Lead and the UI reloads on dismiss. The status
+  import matches on it. The patch sends only changed fields, each with the
+  value the editor showed in `expected` (W3); a stale one returns 409
+  `field_conflict` and the card offers Keep theirs / Save mine. The status
   selector offers In-Progress from Created/Assigned (replacing the old
   standalone start action), rollback, and On-Hold; Review stays outside it.
   Created/Assigned is normalized from technician presence.
@@ -721,7 +721,15 @@ contain active Technician or Team Lead accounts (including the acting
 Team Lead). Owners retain global authority but are not assignment targets.
 `supervisor_id?` may be paired with `expected_supervisor_id?`, including an
 explicit NULL expectation for pickup. The expectation is a concurrency
-precondition, not a stored field and not an update by itself.
+precondition, not a stored field and not an update by itself (cached clients
+only; the current UI sends `expected`).
+`expected?: WorkOrderExpected` — `{field: value}` for `status`, `location`,
+`service_type`, `schedule_date`, `output_to`, `vendor_assignee`,
+`description`, `priority`, `supervisor_id`, `assigned_to_ids`; unknown key 422.
+Compared under the row lock (text trimmed, blank = null, line breaks ignored;
+crew as a set) before the legacy check; any mismatch refuses the whole save.
+Item `PATCH` takes `expected_quantity?`, billing `expected_billable_quantity?`
+(present `null` = billed in full), labor `expected_minutes?`. Absent = no check.
 
 **`WorkOrderLookup`** — return of `GET /work-orders/lookup?number=`: `found: bool`,
 `archived: bool`, `id: UUID?`, `number: str?`. Deliberately reports an *archived*
@@ -1111,6 +1119,7 @@ non-domain exceptions become FastAPI's default 500.
 | `StageItemNotFoundError` | 404 | planned stage item not found (incl. loading an unplanned item) |
 | `WorkOrderNotFoundError` | 404 | work order unknown or archived (every recognised role sees every live work order; an unrecognised role also gets 404 for one it is not assigned to) |
 | `WorkOrderAssignmentConflictError` | **409** | a routing patch's `expected_supervisor_id` differs from the freshly locked row; names its current Team Lead when assigned |
+| `WorkOrderFieldConflictError` | **409** | an `expected*` value differs from the locked row. Detail is an object: `{code: "field_conflict", message, conflicts: [{field, label, current, current_label, changed_by, seconds_ago}]}`; who/when from `work_order_field_stamps` or the line's `updated_by_id`/`updated_at`, age server-computed, null when unknown |
 | `WorkOrderStateError` | 400 | invalid live status/mode, assigned-worker completion/hold outside In-Progress, assigned-worker resume outside On-Hold, Review before Completed, or number collision on edit |
 | `ToolNotFoundError` | 404 | tool id/barcode unknown or archived |
 | `DuplicateToolBarcodeError` | 400 | barcode held by a **live** tool (no archived-conflict/override flow, unlike items) |
