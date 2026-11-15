@@ -427,7 +427,7 @@ describe("conflicts and the action bar", () => {
         }
       }
     }
-  });
+  }, 120_000); // 490 full renders + patches: ~20 s alone, ~70 s beside the rest of the suite
 
   it("sections and the More menu keep the open state the user gave them", async () => {
     const { patch } = await open();
