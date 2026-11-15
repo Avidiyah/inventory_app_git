@@ -53,6 +53,8 @@ const ACTIONS = [
   "smr-add-line", "smr-edit-line", "smr-update-line", "smr-delete-line",
   "smr-cancel-line", "smr-generate-block", "smr-mark-pasted", "smr-print-block",
   "smr-ready", "smr-not-ready", "smr-paper-reviewed", "smr-not-paper-reviewed",
+  // W3 conflict message (workOrderConflict.js).
+  "keep-theirs-wo", "save-mine-wo",
 ];
 
 // The thirteen exports other views import. P4 must re-export every one.

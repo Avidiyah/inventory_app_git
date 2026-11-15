@@ -47,6 +47,7 @@ import {
   syncWorkOrderTabs,
   technicianSelectionHtml,
 } from "./workOrderCardHtml.js";
+import { resolveConflict } from "./workOrderConflict.js";
 import { actionsSettling } from "./workOrderLiveBody.js";
 import { getAllItems, itemsLoading } from "./workOrderReferenceData.js";
 import { exitSolo } from "./workOrderRouting.js";
@@ -229,6 +230,12 @@ listEl.addEventListener("click", async (event) => {
       // An SMR order's Labor and Invoice actions (workOrderSmrActions.js);
       // its branches share this catch.
       await handleSmrAction(action, btn, cardEl, msg);
+    } else if (action === "keep-theirs-wo") {
+      // W3: the choice lives in workOrderConflict.js's per-card entry, not in
+      // the message line this handler just cleared.
+      await resolveConflict(cardEl, "keep");
+    } else if (action === "save-mine-wo") {
+      await resolveConflict(cardEl, "mine");
     } else if (action === "ack-notes-wo") {
       // The notes are open (the button lives inside them): the read is the
       // unlock. Held in the DOM, which the open section keeps from repainting.

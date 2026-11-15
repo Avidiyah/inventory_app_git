@@ -89,6 +89,17 @@ function triggerOf(menu) {
   return menu ? menu.querySelector(".menu-trigger") : null;
 }
 
+// Point a combo at `value`: its hidden select, trigger label and selected
+// option. No change event (a programmatic set, e.g. W3's Keep theirs).
+export function setComboValue(menu, value) {
+  const native = menu.querySelector(".menu-native");
+  if (native) native.value = value;
+  const picked = optionsOf(menu).find((opt) => opt.dataset.value === value);
+  const label = menu.querySelector(".menu-trigger-label");
+  if (label && picked) label.textContent = picked.textContent;
+  optionsOf(menu).forEach((opt) => opt.setAttribute("aria-selected", String(opt === picked)));
+}
+
 export function closeMenu(menu) {
   const list = listOf(menu);
   const trigger = triggerOf(menu);
@@ -146,12 +157,7 @@ document.addEventListener("click", (event) => {
     // is the only difference in what a pick means.
     const native = menu.querySelector(".menu-native");
     if (native) {
-      native.value = btn.dataset.value;
-      const label = menu.querySelector(".menu-trigger-label");
-      if (label) label.textContent = btn.textContent;
-      optionsOf(menu).forEach((opt) =>
-        opt.setAttribute("aria-selected", String(opt === btn))
-      );
+      setComboValue(menu, btn.dataset.value);
       // Callers that watch the select for changes (the Notes editor swaps its
       // value input on type change) get the event they already listen for.
       native.dispatchEvent(new Event("change", { bubbles: true }));
