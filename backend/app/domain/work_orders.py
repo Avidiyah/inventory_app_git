@@ -56,6 +56,18 @@ STATUS_READY_TO_COMPLETE = "ready_to_complete"
 STATUS_COMPLETED = "completed"
 STATUS_REVIEW = "review"
 
+# The card's own status words (static/views/workOrderPresenters.js statusLabel),
+# used where the server writes a sentence the card shows (W3 conflicts).
+STATUS_LABELS = {
+    STATUS_CREATED: "Created",
+    STATUS_ASSIGNED: "Assigned",
+    STATUS_IN_PROGRESS: "In-Progress",
+    STATUS_ON_HOLD: "On-Hold",
+    STATUS_READY_TO_COMPLETE: "Ready to Complete",
+    STATUS_COMPLETED: "Completed",
+    STATUS_REVIEW: "Review",
+}
+
 # Lifecycle order, which is also the order every dropdown and filter renders in.
 ALL_STATUSES: tuple[str, ...] = (
     STATUS_CREATED,

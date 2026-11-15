@@ -79,6 +79,7 @@ from app.services import _list_cap
 from app.services._like import like_pattern
 from app.services import low_stock
 from app.services import material_requests
+from app.services import work_order_conflicts
 from app.services import user_requests as request_service
 
 
@@ -1897,6 +1898,7 @@ def update_work_order(
     user: Optional[User],
     fields: dict,
     expected_supervisor_id: object = _UNSET,
+    expected: Optional[dict] = None,
 ) -> WorkOrder:
     """Explicit edit (overwrite) of the fields present in `fields` -- any of
     number / community / building_number / unit_number / description / notes /
@@ -1923,6 +1925,11 @@ def update_work_order(
     # Completed -- the narrow endpoints each reject it -- so it is also the
     # only place the reopen rule can be recognised.
     previous = work_order.status
+
+    # W3: refuse a save based on values someone else has since changed. Runs
+    # before the legacy routing check so a client sending both gets this body.
+    if expected:
+        work_order_conflicts.check_details(db, work_order, expected)
 
     # Check the stale routing value before current visibility: a supervisor who
     # loaded this row while it was unrouted must receive the named 409 after

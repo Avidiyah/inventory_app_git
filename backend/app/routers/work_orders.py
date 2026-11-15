@@ -955,8 +955,11 @@ def update_work_order(
     fields = payload.model_dump(exclude_unset=True)
     has_supervisor_precondition = "expected_supervisor_id" in fields
     expected_supervisor_id = fields.pop("expected_supervisor_id", None)
+    fields.pop("expected", None)
     try:
         update_kwargs = {}
+        if payload.expected is not None:
+            update_kwargs["expected"] = payload.expected.model_dump(exclude_unset=True)
         if has_supervisor_precondition:
             update_kwargs["expected_supervisor_id"] = expected_supervisor_id
         work_order = wo_service.update_work_order(

@@ -73,6 +73,9 @@ class WorkOrderUpdate(BaseModel):
     # it originally rendered (including an explicit null) so a stale pickup
     # cannot overwrite a supervisor selected in another request or by import.
     expected_supervisor_id: Optional[UUID] = None
+    # W3: the values the editor showed for the fields it sends. Absent = no
+    # check (cached clients). Presence of each key is what matters.
+    expected: Optional["WorkOrderExpected"] = None
 
     @field_validator("number")
     @classmethod
@@ -100,9 +103,40 @@ class WorkOrderUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _at_least_one(self):
-        if not (self.model_fields_set - {"expected_supervisor_id"}):
+        if not (self.model_fields_set - {"expected_supervisor_id", "expected"}):
             raise ValueError("Provide at least one field to update.")
         return self
+
+
+class WorkOrderExpected(BaseModel):
+    """What the Edit details form showed for each field it sends (W3).
+
+    Same normalisation as the update (trim, blank -> None). The server compares
+    each present key under the row lock and refuses the save on a mismatch."""
+
+    model_config = {"extra": "forbid"}
+
+    status: Optional[str] = None
+    location: Optional[str] = None
+    service_type: Optional[str] = None
+    schedule_date: Optional[str] = None
+    output_to: Optional[str] = None
+    vendor_assignee: Optional[str] = None
+    description: Optional[str] = None
+    priority: Optional[str] = None
+    supervisor_id: Optional[UUID] = None
+    assigned_to_ids: Optional[list[UUID]] = None
+
+    @field_validator(
+        "status", "location", "service_type", "schedule_date", "output_to",
+        "vendor_assignee", "description", "priority",
+    )
+    @classmethod
+    def _trim(cls, v):
+        return _stripped_or_none(v)
+
+
+WorkOrderUpdate.model_rebuild()
 
 
 class WorkOrderItemCreate(BaseModel):

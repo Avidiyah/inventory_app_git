@@ -293,6 +293,20 @@ class WorkOrderNotFoundError(DomainError):
     Maps to 404."""
 
 
+class WorkOrderFieldConflictError(DomainError):
+    """Raised when a save's expected value no longer matches the row (W3).
+
+    `conflicts` is a list of `{field, label, current, current_label,
+    changed_by, seconds_ago}`; `body` is the structured 409 detail the card
+    reads to offer Keep theirs / Save mine. Maps to 409."""
+
+    def __init__(self, conflicts: list):
+        self.conflicts = conflicts
+        message = "Someone else changed this work order."
+        self.body = {"code": "field_conflict", "message": message, "conflicts": conflicts}
+        super().__init__(message)
+
+
 class WorkOrderAssignmentConflictError(DomainError):
     """Raised when a work-order routing write is based on a stale supervisor
     value. Carries the current supervisor's display name when one is assigned

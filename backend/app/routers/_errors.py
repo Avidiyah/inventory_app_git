@@ -61,6 +61,7 @@ from app.domain.errors import (
     UserRequestNotFoundError,
     WorkOrderAlreadySignedError,
     WorkOrderAssignmentConflictError,
+    WorkOrderFieldConflictError,
     WorkOrderNotFoundError,
     WorkOrderSignatureError,
     WorkOrderStateError,
@@ -82,6 +83,7 @@ _STATUS_MAP: dict[type[DomainError], int] = {
     ToolNotFoundError: 404,
     WorkOrderNotFoundError: 404,
     WorkOrderAssignmentConflictError: 409,
+    WorkOrderFieldConflictError: 409,
     WorkOrderStateError: 400,
     WorkOrderSignatureError: 422,
     WorkOrderAlreadySignedError: 409,
@@ -141,5 +143,9 @@ def to_http(exc: DomainError) -> HTTPException:
     should raise. Defaults: status 400, detail = exception message,
     or `"Request failed."` if the exception carries no message."""
     status = _STATUS_MAP.get(type(exc), 400)
-    detail = _DEFAULT_DETAILS.get(type(exc)) or (str(exc) if str(exc) else "Request failed.")
+    detail = (
+        getattr(exc, "body", None)
+        or _DEFAULT_DETAILS.get(type(exc))
+        or (str(exc) if str(exc) else "Request failed.")
+    )
     return HTTPException(status_code=status, detail=detail)
