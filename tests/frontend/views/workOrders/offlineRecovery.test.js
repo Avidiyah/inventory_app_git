@@ -87,6 +87,27 @@ describe("add-labor offline recovery", () => {
   });
 });
 
+describe("save-details replay conflict (W3 rule 12)", () => {
+  it("a replay refused as a conflict marks the draft and names the change, without buttons", async () => {
+    const { mod, detail } = await open({ role: "admin", priority: "P1" });
+    card().querySelector(".wo-edit-card").open = true;
+    server.use(http.patch("/work-orders/:id", () => HttpResponse.error()));
+    card().querySelector(".wo-edit-priority").value = "P3";
+    click("save-details");
+    await vi.waitFor(() => expect(message().textContent).not.toBe(""));
+
+    respond("patch", "/work-orders/:id", { detail: { code: "field_conflict", message: "x", conflicts: [{
+      field: "priority", label: "Priority", current: "P2", current_label: "P2", changed_by: "Maria Lopez", seconds_ago: 30,
+    }] } }, { status: 409 });
+    await mod.replayPendingDrafts();
+    const key = `wo-draft:${detail.id}:details`;
+    await vi.waitFor(() => expect(JSON.parse(localStorage.getItem(key)).lastError.status).toBe(409));
+    const line = document.getElementById("wo-sec-msg");
+    expect(line.textContent).toBe("Maria Lopez changed Priority to P2 30 seconds ago.");
+    expect(line.querySelector("button")).toBeNull();
+  });
+});
+
 describe("edit-item offline recovery", () => {
   it("drafts with the row's own id, and replays against that same row", async () => {
     const { mod, detail } = await open({ items: [workOrderItem({ id: "wi1", quantity: "2" })] });
@@ -102,7 +123,8 @@ describe("edit-item offline recovery", () => {
     respond("patch", "/work-orders/:id/items/:woItemId", { ok: true });
     await mod.replayPendingDrafts();
     await vi.waitFor(() => expect(requestFor("/items/wi1", "PATCH")).not.toBeNull());
-    expect(requestFor("/items/wi1", "PATCH").body).toEqual({ quantity: 5 });
+    // W3: the replay carries the quantity the row showed when it was drafted.
+    expect(requestFor("/items/wi1", "PATCH").body).toEqual({ quantity: 5, expected_quantity: "2" });
     expect(localStorage.getItem(key)).toBeNull();
   });
 });

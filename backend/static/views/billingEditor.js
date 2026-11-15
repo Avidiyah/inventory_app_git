@@ -56,7 +56,8 @@ export function openBillingEditor(cell, { quantity, billable, onSave }) {
       await onSave(value);  // persists, then repaints the row (discarding this editor)
     } catch (err) {
       cell.querySelectorAll("button").forEach((b) => { b.disabled = false; });
-      setMessage(msg, friendlyError(err, "Could not update the charge."), "error");
+      // `handled`: the page already explained it elsewhere (W3 conflict line).
+      if (!err?.handled) setMessage(msg, friendlyError(err, "Could not update the charge."), "error");
     }
   }
 

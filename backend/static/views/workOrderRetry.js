@@ -29,6 +29,7 @@ import {
   markDraftError,
   setPendingResume,
 } from "../workOrderDrafts.js";
+import { isFieldConflict, showConflict } from "./workOrderConflict.js";
 import { STATUS_CHANGED_EVENT, heldWorkOrderCards, refreshCard } from "./workOrderList.js";
 
 const listEl = document.getElementById("work-orders-list");
@@ -71,6 +72,12 @@ export async function replayPendingDrafts() {
       // won't change on its own.
       if (err?.status === undefined || err.status === 401) continue;
       markDraftError(draft.workOrderId, draft.section, err);
+      // W3 rule 12: someone else changed it first. Say who and what; the
+      // person reopens the editor and saves again (no buttons here).
+      if (isFieldConflict(err) && cardEl) {
+        showConflict(cardEl, err.detail.conflicts);
+        continue;
+      }
       // `.wo-message` loses its own class once `setMessage` has painted it
       // once (className is overwritten wholesale -- see docs/open-work.md),
       // so a card that already showed the original inline failure has none

@@ -54,7 +54,7 @@ import { comboHtml } from "../menus.js";
 function renderLaborEntryHtml(entry) {
   const actions = canEditLaborEntry(entry)
     ? `<div class="wo-labor-actions">
-         <input type="number" class="wo-labor-hours" id="wo-labor-hours-${escapeHtml(entry.id)}" value="${escapeHtml(hoursInputValue(entry.minutes))}" min="0.01" step="0.01" aria-label="Actual labor hours">
+         <input type="number" class="wo-labor-hours" id="wo-labor-hours-${escapeHtml(entry.id)}" data-expected-minutes="${escapeHtml(String(entry.minutes))}" value="${escapeHtml(hoursInputValue(entry.minutes))}" min="0.01" step="0.01" aria-label="Actual labor hours">
          <button type="button" class="secondary-btn" data-action="edit-labor">Update</button>
          <button type="button" class="btn-danger" data-action="remove-labor">Remove</button>
        </div>`

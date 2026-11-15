@@ -263,7 +263,7 @@ describe("edit-labor and remove-labor", () => {
     card().querySelector(".wo-labor-hours").value = "2";
     click("edit-labor");
     await vi.waitFor(() => expect(requestFor("/labor/l1", "PATCH")).not.toBeNull());
-    expect(requestFor("/labor/l1", "PATCH").body).toEqual({ minutes: 120 });
+    expect(requestFor("/labor/l1", "PATCH").body).toEqual({ minutes: 120, expected_minutes: 60 });  // W3: minutes as drawn
     await refreshed(detail.id);
   });
 
@@ -423,7 +423,7 @@ describe("edit-item and remove-item", () => {
     card().querySelector(".wo-line-qty").value = "5";
     click("edit-item");
     await vi.waitFor(() => expect(requestFor("/items/wi1", "PATCH")).not.toBeNull());
-    expect(requestFor("/items/wi1", "PATCH").body).toEqual({ quantity: 5 });
+    expect(requestFor("/items/wi1", "PATCH").body).toEqual({ quantity: 5, expected_quantity: "2" });  // W3: quantity as drawn
     await refreshed(detail.id);
     await vi.waitFor(() =>
       expect(card().querySelector(".wo-materials-section").open).toBe(true));

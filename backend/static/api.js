@@ -922,16 +922,20 @@ export async function apiAddWorkOrderItem(workOrderId, { itemId, quantity, mater
   });
 }
 
-export async function apiUpdateWorkOrderItem(workOrderId, woItemId, { quantity }) {
-  return jsonRequest(`/work-orders/${workOrderId}/items/${woItemId}`, "PATCH", { quantity });
+// W3: `expectedQuantity` is the quantity the row showed; sent only when given.
+export async function apiUpdateWorkOrderItem(workOrderId, woItemId, { quantity, expectedQuantity }) {
+  const body = { quantity };
+  if (expectedQuantity !== undefined) body.expected_quantity = expectedQuantity;
+  return jsonRequest(`/work-orders/${workOrderId}/items/${woItemId}`, "PATCH", body);
 }
 
 // Set or clear a material line's billing override (Admin/Owner). `billableQuantity`
 // of null clears it (bill the full quantity); 0 bills nothing.
-export async function apiSetWorkOrderItemBilling(workOrderId, woItemId, billableQuantity) {
-  return jsonRequest(`/work-orders/${workOrderId}/items/${woItemId}/billing`, "PATCH", {
-    billable_quantity: billableQuantity,
-  });
+// W3: `opts.expected` (null allowed = billed in full) is sent only when present.
+export async function apiSetWorkOrderItemBilling(workOrderId, woItemId, billableQuantity, opts = {}) {
+  const body = { billable_quantity: billableQuantity };
+  if ("expected" in opts) body.expected_billable_quantity = opts.expected;
+  return jsonRequest(`/work-orders/${workOrderId}/items/${woItemId}/billing`, "PATCH", body);
 }
 
 export async function apiDeleteWorkOrderItem(workOrderId, woItemId) {
@@ -949,8 +953,11 @@ export async function apiAddWorkOrderLabor(workOrderId, { technicianId, minutes 
   });
 }
 
-export async function apiUpdateWorkOrderLabor(workOrderId, laborId, { minutes }) {
-  return jsonRequest(`/work-orders/${workOrderId}/labor/${laborId}`, "PATCH", { minutes });
+// W3: `expectedMinutes` is the entry's minutes as drawn; sent only when given.
+export async function apiUpdateWorkOrderLabor(workOrderId, laborId, { minutes, expectedMinutes }) {
+  const body = { minutes };
+  if (expectedMinutes !== undefined) body.expected_minutes = expectedMinutes;
+  return jsonRequest(`/work-orders/${workOrderId}/labor/${laborId}`, "PATCH", body);
 }
 
 export async function apiDeleteWorkOrderLabor(workOrderId, laborId) {

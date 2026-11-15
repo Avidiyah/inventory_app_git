@@ -34,6 +34,7 @@ import { clearDraft, saveDraft } from "../workOrderDrafts.js";
 import { openBillingEditor } from "./billingEditor.js";
 import { catalogueRequestPromptHtml } from "./catalogueRequest.js";
 import {
+  hoursInputValue,
   hoursToMinutes,
   modeLabel,
   notesLogContentsHtml,
@@ -58,6 +59,28 @@ import { handleSmrAction } from "./workOrderSmrActions.js";
 import { loadWorkOrders, refreshCard } from "./workOrderList.js";
 
 const listEl = document.getElementById("work-orders-list");
+
+// A one-value protected save (W3): `first()` sends with the value the row
+// showed; a 409 conflict offers Keep theirs (`keep`) or Save mine (`retry`,
+// which may conflict again). `done` runs after any successful send. Returns
+// whether the first send saved.
+async function protectedSave(cardEl, first, { keep, retry, done, discard = () => {} }) {
+  const attempt = async (send) => {
+    try {
+      await send();
+    } catch (err) {
+      if (!isFieldConflict(err)) throw err;
+      showConflict(cardEl, err.detail.conflicts, {
+        keep: (conflicts) => { discard(); keep(conflicts); },
+        retry: (conflicts) => attempt(() => retry(conflicts)),
+      });
+      return false;
+    }
+    await done();
+    return true;
+  };
+  return attempt(first);
+}
 
 // --- add-material search (input delegation) ------------------------------
 
@@ -423,12 +446,25 @@ listEl.addEventListener("click", async (event) => {
         setMessage(msg, "Enter actual labor hours greater than zero.", "error");
         return;
       }
-      const editLaborPayload = { minutes };
-      const laborDraft = { number: cardEl.dataset.number, action: "edit-labor", targetId: row.dataset.laborId, payload: editLaborPayload };
-      saveDraft(workOrderId, "labor", laborDraft);
-      await apiUpdateWorkOrderLabor(workOrderId, row.dataset.laborId, editLaborPayload);
-      clearDraft(workOrderId, "labor");
-      await refreshCard(cardEl, ".wo-labor-section");
+      const hours = row.querySelector(".wo-labor-hours");
+      const send = (expectedMinutes) => {
+        const payload = { minutes, expectedMinutes };
+        saveDraft(workOrderId, "labor", { number: cardEl.dataset.number, action: "edit-labor", targetId: row.dataset.laborId, payload });
+        return apiUpdateWorkOrderLabor(workOrderId, row.dataset.laborId, payload);
+      };
+      await protectedSave(cardEl, () => send(Number(hours.dataset.expectedMinutes)), {
+        keep: ([c]) => {
+          hours.defaultValue = hoursInputValue(c.current);
+          hours.value = hours.defaultValue;
+          hours.dataset.expectedMinutes = String(c.current);
+        },
+        retry: ([c]) => send(c.current),
+        done: async () => {
+          clearDraft(workOrderId, "labor");
+          await refreshCard(cardEl, ".wo-labor-section");
+        },
+        discard: () => clearDraft(workOrderId, "labor"),
+      });
     } else if (action === "remove-labor") {
       const row = btn.closest(".wo-labor-entry");
       if (!(await confirmDialog("Remove this labor entry from the work order?"))) return;
@@ -474,12 +510,24 @@ listEl.addEventListener("click", async (event) => {
         setMessage(msg, "Enter a quantity greater than zero.", "error");
         return;
       }
-      const editItemPayload = { quantity: qty };
-      const itemDraft = { number: cardEl.dataset.number, action: "edit-item", targetId: row.dataset.woItemId, payload: editItemPayload };
-      saveDraft(workOrderId, "materials", itemDraft);
-      await apiUpdateWorkOrderItem(workOrderId, row.dataset.woItemId, editItemPayload);
-      clearDraft(workOrderId, "materials");
-      await refreshCard(cardEl, ".wo-materials-section");
+      const input = row.querySelector(".wo-line-qty");
+      const send = (expectedQuantity) => {
+        const payload = { quantity: qty, expectedQuantity };
+        saveDraft(workOrderId, "materials", { number: cardEl.dataset.number, action: "edit-item", targetId: row.dataset.woItemId, payload });
+        return apiUpdateWorkOrderItem(workOrderId, row.dataset.woItemId, payload);
+      };
+      await protectedSave(cardEl, () => send(input.defaultValue), {
+        keep: ([c]) => {
+          input.defaultValue = c.current;
+          input.value = c.current;
+        },
+        retry: ([c]) => send(c.current),
+        done: async () => {
+          clearDraft(workOrderId, "materials");
+          await refreshCard(cardEl, ".wo-materials-section");
+        },
+        discard: () => clearDraft(workOrderId, "materials"),
+      });
     } else if (action === "remove-item") {
       const row = btn.closest(".wo-item");
       if (!(await confirmDialog("Remove this material from the work order?"))) return;
@@ -574,12 +622,26 @@ listEl.addEventListener("click", (event) => {
 
   const workOrderId = cardEl.dataset.id;
   const woItemId = row.dataset.woItemId;
+  // W3: the override as drawn ("" = billed in full). Read once: W2 holds the
+  // row while this editor is open, and Keep theirs moves it on.
+  let expected = cell.dataset.billableQuantity === "" ? null : cell.dataset.billableQuantity;
+  const repaint = () => refreshCard(cardEl, ".wo-materials-section");  // line charge + total
   openBillingEditor(cell, {
     quantity: Number(cell.dataset.quantity),
     billable: Number(cell.dataset.billable),
     onSave: async (value) => {
-      await apiSetWorkOrderItemBilling(workOrderId, woItemId, value);
-      await refreshCard(cardEl, ".wo-materials-section");  // repaint the card (line charge + total)
+      const saved = await protectedSave(cardEl, () => apiSetWorkOrderItemBilling(workOrderId, woItemId, value, { expected }), {
+        keep: ([c]) => {
+          expected = c.current;
+          const input = cell.querySelector(".charge-input");
+          if (input) input.value = c.current ?? "";
+          cell.querySelectorAll("button").forEach((b) => { b.disabled = false; });
+        },
+        retry: ([c]) => apiSetWorkOrderItemBilling(workOrderId, woItemId, value, { expected: c.current }),
+        done: repaint,
+      });
+      // Keeps the shared editor open; the card's message line carries the choice.
+      if (!saved) throw { handled: true };
     },
   });
 });

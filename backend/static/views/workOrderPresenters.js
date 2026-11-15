@@ -48,7 +48,7 @@ export function lineChargeHtml(it) {
       ? `<span class="charge-flag not-charged">Not charged</span>`
       : `<span class="charge-flag">Billing ${escapeHtml(String(billable))} of ${escapeHtml(String(quantity))}</span>`;
   }
-  return `<span class="wo-line-charge" data-quantity="${escapeHtml(String(quantity))}" data-billable="${escapeHtml(String(billable))}">` +
+  return `<span class="wo-line-charge" data-quantity="${escapeHtml(String(quantity))}" data-billable="${escapeHtml(String(billable))}" data-billable-quantity="${escapeHtml(it.billable_quantity ?? "")}">` +
     `<span class="charge-base">${escapeHtml(formatMoney(base))}</span>` +
     `<span class="charge-marked">+15%: ${escapeHtml(formatMoney(marked))}</span>` +
     flag +

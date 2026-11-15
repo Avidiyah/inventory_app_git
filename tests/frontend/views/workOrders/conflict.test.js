@@ -7,7 +7,7 @@ import {
   card, cardBody, clearRequests, mountWorkOrders, openCard, requestFor, requests, respond,
 } from "../../helpers/workOrders.js";
 import { restoreBrowserStubs } from "../../helpers/browserStubs.js";
-import { user, workOrderCard, workOrderDetail } from "../../helpers/factories.js";
+import { user, workOrderCard, workOrderDetail, workOrderItem, workOrderLabor } from "../../helpers/factories.js";
 import { importView } from "../../helpers/shell.js";
 
 afterEach(() => {
@@ -291,5 +291,123 @@ describe("save-details: a conflict", () => {
     mineBtn().click();
     await vi.waitFor(() => expect(msg().textContent).toContain("Kim Diaz changed Priority to P9"));
     expect(mineBtn()).not.toBeNull();
+  });
+});
+
+// --- Task 6: quantity, billing, labor ---------------------------------------
+
+const LINE = "60000000-0000-4000-8000-000000000001";
+const ENTRY = "70000000-0000-4000-8000-000000000001";
+const TECH = "20000000-0000-4000-8000-0000000000c1";
+
+async function openLines() {
+  const detail = workOrderDetail({
+    items: [workOrderItem({ id: LINE, quantity: "3", billable_quantity: null, unit_price: "2.50" })],
+    assigned_to_ids: [TECH], assigned_to_names: ["Ada L"],
+    labor: [workOrderLabor({ id: ENTRY, technician_id: TECH, technician_name: "Ada L", minutes: 95, hand_entered: true, week_open: true })],
+  });
+  await mountWorkOrders({
+    role: "admin", cards: [workOrderCard({ id: detail.id, number: detail.number })], details: [detail],
+  });
+  await openCard(0);
+  return detail;
+}
+
+const qtyInput = () => $(`#wo-line-qty-${LINE}`);
+const hoursInput = () => $(`#wo-labor-hours-${ENTRY}`);
+const lineSent = (detail) => requestFor(`/work-orders/${detail.id}/items/${LINE}`, "PATCH")?.body;
+const billingSent = (detail) => requestFor(`/work-orders/${detail.id}/items/${LINE}/billing`, "PATCH")?.body;
+const laborSent = (detail) => requestFor(`/work-orders/${detail.id}/labor/${ENTRY}`, "PATCH")?.body;
+
+describe("edit-item", () => {
+  it("sends the quantity the input was drawn with as expected", async () => {
+    const detail = await openLines();
+    respond("patch", "/work-orders/:id/items/:itemId", workOrderItem({ id: LINE }));
+    qtyInput().value = "5";
+    card().querySelector('[data-action="edit-item"]').click();
+    await vi.waitFor(() => expect(lineSent(detail)).toBeTruthy());
+    expect(lineSent(detail)).toEqual({ quantity: 5, expected_quantity: "3" });
+  });
+
+  it("Keep theirs puts their quantity in the input as value and default", async () => {
+    await openLines();
+    respond("patch", "/work-orders/:id/items/:itemId",
+      conflict409([conflict({ field: "quantity", label: "Quantity", current: "7", current_label: "7" })]), { status: 409 });
+    qtyInput().value = "5";
+    card().querySelector('[data-action="edit-item"]').click();
+    await vi.waitFor(() => expect(keepBtn()).not.toBeNull());
+    keepBtn().click();
+    await vi.waitFor(() => expect(qtyInput().value).toBe("7"));
+    expect(qtyInput().defaultValue).toBe("7");
+  });
+
+  it("Save mine resends with their quantity as expected", async () => {
+    const detail = await openLines();
+    respond("patch", "/work-orders/:id/items/:itemId",
+      conflict409([conflict({ field: "quantity", label: "Quantity", current: "7", current_label: "7" })]), { status: 409 });
+    qtyInput().value = "5";
+    card().querySelector('[data-action="edit-item"]').click();
+    await vi.waitFor(() => expect(mineBtn()).not.toBeNull());
+    respond("patch", "/work-orders/:id/items/:itemId", workOrderItem({ id: LINE }));
+    clearRequests();
+    mineBtn().click();
+    await vi.waitFor(() => expect(lineSent(detail)).toBeTruthy());
+    expect(lineSent(detail)).toEqual({ quantity: 5, expected_quantity: "7" });
+  });
+});
+
+describe("edit-labor", () => {
+  it("95 minutes: sends expected_minutes 95, not the rounded hours", async () => {
+    const detail = await openLines();
+    respond("patch", "/work-orders/:id/labor/:laborId", workOrderLabor({ id: ENTRY }));
+    hoursInput().value = "2";
+    card().querySelector('[data-action="edit-labor"]').click();
+    await vi.waitFor(() => expect(laborSent(detail)).toBeTruthy());
+    expect(laborSent(detail)).toEqual({ minutes: 120, expected_minutes: 95 });
+  });
+
+  it("Keep theirs sets the hours text and the expected minutes", async () => {
+    await openLines();
+    respond("patch", "/work-orders/:id/labor/:laborId",
+      conflict409([conflict({ field: "minutes", label: "Hours", current: 150, current_label: "2.5 h" })]), { status: 409 });
+    hoursInput().value = "2";
+    card().querySelector('[data-action="edit-labor"]').click();
+    await vi.waitFor(() => expect(keepBtn()).not.toBeNull());
+    keepBtn().click();
+    await vi.waitFor(() => expect(hoursInput().value).toBe("2.5"));
+    expect(hoursInput().defaultValue).toBe("2.5");
+    expect(hoursInput().dataset.expectedMinutes).toBe("150");
+  });
+});
+
+describe("billing", () => {
+  const openEditorOnLine = () => card().querySelector(".wo-edit-charge-btn").click();
+
+  it("a line billed in full sends expected_billable_quantity null", async () => {
+    const detail = await openLines();
+    respond("patch", "/work-orders/:id/items/:itemId/billing", workOrderItem({ id: LINE }));
+    openEditorOnLine();
+    $(".charge-input").value = "2";
+    $(".charge-save").click();
+    await vi.waitFor(() => expect(billingSent(detail)).toBeTruthy());
+    expect(billingSent(detail)).toEqual({ billable_quantity: 2, expected_billable_quantity: null });
+  });
+
+  it("a conflict keeps the editor open, its own message empty, and the card line offers the choice", async () => {
+    const detail = await openLines();
+    respond("patch", "/work-orders/:id/items/:itemId/billing",
+      conflict409([conflict({ field: "billable_quantity", label: "Billed quantity", current: "1", current_label: "1" })]), { status: 409 });
+    openEditorOnLine();
+    $(".charge-input").value = "2";
+    $(".charge-save").click();
+    await vi.waitFor(() => expect(mineBtn()).not.toBeNull());
+    expect($(".charge-input")).not.toBeNull();
+    expect($(".charge-editor-msg").textContent).toBe("");
+    expect(msg().textContent).toContain("Maria Lopez changed Billed quantity to 1");
+    respond("patch", "/work-orders/:id/items/:itemId/billing", workOrderItem({ id: LINE }));
+    clearRequests();
+    mineBtn().click();
+    await vi.waitFor(() => expect(billingSent(detail)).toBeTruthy());
+    expect(billingSent(detail)).toEqual({ billable_quantity: 2, expected_billable_quantity: "1" });
   });
 });
