@@ -60,6 +60,9 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="Session expired or invalid.")
 
     bind_user(user.id)
+    # The W3 stamp listener (app/field_stamps.py) attributes this request's
+    # writes to the caller; the routes share this session via Depends(get_db).
+    db.info["actor_id"] = user.id
     return user
 
 

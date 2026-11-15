@@ -563,6 +563,28 @@ class WorkOrderTechnician(Base):
     )
 
 
+class WorkOrderFieldStamp(Base):
+    """Who last changed one protected work-order field, and when (W3).
+
+    Feeds the save-time conflict message. Written only by the flush listener
+    in `app/field_stamps.py`, so every writer leaves one. One row per field
+    per order; `field` is a column name or `assigned_to_ids` for the crew.
+    """
+
+    __tablename__ = "work_order_field_stamps"
+
+    work_order_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("work_orders.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    field = Column(Text, primary_key=True)
+    changed_at = Column(DateTime(timezone=True), nullable=False)
+    changed_by_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
 class WorkOrderLabor(Base):
     """An actual labor-duration entry attributed to an assigned technician.
 
@@ -586,6 +608,8 @@ class WorkOrderLabor(Base):
     technician_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     minutes = Column(Integer, nullable=False)
     recorded_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    # Who last changed this row (W3 conflict message); set by app/field_stamps.py.
+    updated_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
         DateTime(timezone=True),
@@ -977,6 +1001,8 @@ class WorkOrderItem(Base):
         UUID(as_uuid=True), ForeignKey("transactions.id"), nullable=True
     )
     created_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    # Who last changed this row (W3 conflict message); set by app/field_stamps.py.
+    updated_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
         DateTime(timezone=True),
@@ -1281,3 +1307,5 @@ from app.models_smr import (  # noqa: E402,F401
     SmrVendorInvoice,
     SmrWorker,
 )
+
+from app import field_stamps  # noqa: E402,F401  registers the W3 stamp listener
