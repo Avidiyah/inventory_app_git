@@ -333,8 +333,21 @@ describe("focus and scroll", () => {
     qty.focus();
     type(qty, "12");
     qty.setSelectionRange(1, 1);
+    // iOS Safari has no moveBefore, so a move during the patch can drop focus.
+    // jsdom keeps it; this stub drops it on the first row move, as the phone may.
+    const insertBefore = Node.prototype.insertBefore;
+    let dropped = false;
+    vi.spyOn(Node.prototype, "insertBefore").mockImplementation(function (node, ref) {
+      const result = insertBefore.call(this, node, ref);
+      if (!dropped && node.classList?.contains("wo-item") && document.activeElement === qty) {
+        dropped = true;
+        qty.blur();
+      }
+      return result;
+    });
     const [a, b, c] = detail.items;
     patch({ items: [b, c, a] });
+    expect(dropped).toBe(true);
     expect(rowIds(".wo-item")).toEqual([id(2), id(3), id(1)].map((x) => `wo-line-${x}`));
     expect(document.activeElement).toBe(qty);
     expect([qty.selectionStart, qty.selectionEnd]).toEqual([1, 1]);
