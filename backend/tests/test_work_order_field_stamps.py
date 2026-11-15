@@ -213,3 +213,16 @@ def test_http_patch_records_the_signed_in_user(db):
         del app.dependency_overrides[get_db]
     assert response.status_code == 200, response.text
     assert _stamp(db, w.id, "priority").changed_by_id == admin.id
+
+
+def test_a_failed_save_leaves_no_stamp_for_a_later_flush(db):
+    admin = _user(db, roles.ROLE_ADMIN)
+    taken = _wo(db, admin)
+    w = _wo(db, admin)
+    db.info["actor_id"] = admin.id
+    try:
+        wos.update_work_order(db, w.id, user=admin, fields={"number": taken.number, "priority": "P9"})
+    except Exception:
+        pass
+    wos.update_work_order(db, w.id, user=admin, fields={"location": "Bldg 2"})
+    assert _stamp(db, w.id, "priority") is None

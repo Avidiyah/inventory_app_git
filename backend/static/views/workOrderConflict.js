@@ -155,6 +155,7 @@ export function keepDetails(bodyEl, conflicts) {
       if (match) [...el.options].forEach((o) => { o.defaultSelected = o.value === value; });
       const target = match ? value : ([...el.options].find((o) => o.defaultSelected) || el.options[0])?.value ?? "";
       setComboValue(el.closest("[data-menu]"), target);
+      el.classList.remove("wo-field-conflict");
       edit.dataset[attr] = value;
     } else if (field === CREW) {
       const ids = current || [];

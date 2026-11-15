@@ -356,6 +356,48 @@ describe("edit-item", () => {
   });
 });
 
+describe("a conflict waiting on the person's choice", () => {
+  it("is not replayed by a reconnect: no request, the buttons stay", async () => {
+    const detail = await openLines();
+    respond("patch", "/work-orders/:id/items/:itemId",
+      conflict409([conflict({ field: "quantity", label: "Quantity", current: "7", current_label: "7" })]), { status: 409 });
+    qtyInput().value = "5";
+    card().querySelector('[data-action="edit-item"]').click();
+    await vi.waitFor(() => expect(mineBtn()).not.toBeNull());
+    clearRequests();
+    const { replayPendingDrafts } = await importView("views/workOrderRetry.js");
+    await replayPendingDrafts();
+    expect(lineSent(detail)).toBeUndefined();
+    expect(mineBtn()).not.toBeNull();
+  });
+
+  it("Save mine still saves after the draft was held back", async () => {
+    const detail = await openLines();
+    respond("patch", "/work-orders/:id/items/:itemId",
+      conflict409([conflict({ field: "quantity", label: "Quantity", current: "7", current_label: "7" })]), { status: 409 });
+    qtyInput().value = "5";
+    card().querySelector('[data-action="edit-item"]').click();
+    await vi.waitFor(() => expect(mineBtn()).not.toBeNull());
+    respond("patch", "/work-orders/:id/items/:itemId", workOrderItem({ id: LINE }));
+    mineBtn().click();
+    await vi.waitFor(() => expect(localStorage.getItem(`wo-draft:${detail.id}:materials`)).toBeNull());
+  });
+
+  it("Keep theirs on Status clears the live-update outline on the select", async () => {
+    await openEditor({ status: "in_progress" });
+    respond("patch", "/work-orders/:id", conflict409([
+      conflict({ field: "status", label: "Status", current: "on_hold", current_label: "On-Hold" }),
+    ]), { status: 409 });
+    $(".wo-edit-status").value = "completed";
+    $(".wo-edit-status").classList.add("wo-field-conflict");
+    saveDetails();
+    await vi.waitFor(() => expect(keepBtn()).not.toBeNull());
+    keepBtn().click();
+    await vi.waitFor(() => expect($(".wo-edit-status").value).toBe("on_hold"));
+    expect($(".wo-edit-status").classList.contains("wo-field-conflict")).toBe(false);
+  });
+});
+
 describe("edit-labor", () => {
   it("95 minutes: sends expected_minutes 95, not the rounded hours", async () => {
     const detail = await openLines();

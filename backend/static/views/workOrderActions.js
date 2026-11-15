@@ -30,7 +30,7 @@ import {
 } from "../api.js";
 import { confirmDialog, messageDialog, setMessage } from "../dom.js";
 import { escapeHtml, filterRanked, friendlyError, netfacilitiesWorkOrderUrl } from "../format.js";
-import { clearDraft, saveDraft } from "../workOrderDrafts.js";
+import { clearDraft, markDraftError, saveDraft } from "../workOrderDrafts.js";
 import { openBillingEditor } from "./billingEditor.js";
 import { catalogueRequestPromptHtml } from "./catalogueRequest.js";
 import {
@@ -63,13 +63,15 @@ const listEl = document.getElementById("work-orders-list");
 // A one-value protected save (W3): `first()` sends with the value the row
 // showed; a 409 conflict offers Keep theirs (`keep`) or Save mine (`retry`,
 // which may conflict again). `done` runs after any successful send. Returns
-// whether the first send saved.
-async function protectedSave(cardEl, first, { keep, retry, done, discard = () => {} }) {
+// whether the first send saved. `draftSection`: the draft is held back from
+// reconnect replay while the choice is open (Save mine re-drafts it).
+async function protectedSave(cardEl, first, { keep, retry, done, discard = () => {}, draftSection = null }) {
   const attempt = async (send) => {
     try {
       await send();
     } catch (err) {
       if (!isFieldConflict(err)) throw err;
+      if (draftSection) markDraftError(cardEl.dataset.id, draftSection, err);
       showConflict(cardEl, err.detail.conflicts, {
         keep: (conflicts) => { discard(); keep(conflicts); },
         retry: (conflicts) => attempt(() => retry(conflicts)),
@@ -376,6 +378,8 @@ listEl.addEventListener("click", async (event) => {
           await apiUpdateWorkOrder(workOrderId, payload);
         } catch (err) {
           if (!isFieldConflict(err)) throw err;
+          // Held back from reconnect replay while the choice is open.
+          markDraftError(workOrderId, "details", err);
           showConflict(cardEl, err.detail.conflicts, {
             keep: (conflicts) => {
               clearDraft(workOrderId, "details");
@@ -464,6 +468,7 @@ listEl.addEventListener("click", async (event) => {
           await refreshCard(cardEl, ".wo-labor-section");
         },
         discard: () => clearDraft(workOrderId, "labor"),
+        draftSection: "labor",
       });
     } else if (action === "remove-labor") {
       const row = btn.closest(".wo-labor-entry");
@@ -527,6 +532,7 @@ listEl.addEventListener("click", async (event) => {
           await refreshCard(cardEl, ".wo-materials-section");
         },
         discard: () => clearDraft(workOrderId, "materials"),
+        draftSection: "materials",
       });
     } else if (action === "remove-item") {
       const row = btn.closest(".wo-item");

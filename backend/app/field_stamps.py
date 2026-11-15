@@ -60,6 +60,13 @@ def _note_changes(session, flush_context, instances):
             pending.add((obj.work_order_id, CREW_FIELD, actor))
 
 
+@event.listens_for(Session, "after_soft_rollback")
+def _forget_changes(session, previous_transaction):
+    # A flush that failed noted changes that never happened; a later flush on
+    # this session must not stamp them.
+    session.info.pop(_PENDING, None)
+
+
 @event.listens_for(Session, "after_flush")
 def _write_stamps(session, flush_context):
     pending = session.info.pop(_PENDING, None)
