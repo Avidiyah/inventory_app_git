@@ -6899,7 +6899,21 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 }
 .wo-group { --wo-st: var(--wo-status-text-created); }
 .wo-group-head::-webkit-details-marker { display: none; }
-.wo-group-head::after { content: "Hide"; margin-left: auto; color: var(--text-panel-mute); letter-spacing: 0; text-transform: none; }
+/* Show/Hide reads as a button: lifted brand hue + tint + border, bold, larger. */
+.wo-group-head::after {
+    content: "Hide";
+    margin-left: auto;
+    padding: 6px 16px;
+    border: 1.5px solid var(--color-brand-light);
+    border-radius: 999px;
+    background: var(--color-brand-tint);
+    color: var(--color-brand-light);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-bold);
+    letter-spacing: 0;
+    text-transform: none;
+}
+.wo-group-head:hover::after { background: var(--color-brand-light); color: #1a1a1a; }
 .wo-group:not([open]) > .wo-group-head::after { content: "Show"; }
 .wo-group-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--wo-st); }
 .wo-group-count { color: var(--text-panel-mute); }
