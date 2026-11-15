@@ -333,7 +333,7 @@ def test_only_the_solo_card_suppresses_its_own_click():
     and the hub's own cards stopped responding to clicks entirely."""
     code = work_orders_source()
 
-    assert "function buildCard(card, { onOpen, solo = false } = {})" in code
+    assert 'function buildCard(card, { solo = false, idPrefix = "wo" } = {})' in code
     # Only the solo card suppresses its summary click; a list card toggles
     # its in-place preview.
     assert 'summary.addEventListener("click", (event) => event.preventDefault());' in code
