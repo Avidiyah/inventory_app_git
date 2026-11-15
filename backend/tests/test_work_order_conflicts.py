@@ -242,3 +242,139 @@ def test_unknown_expected_key_is_422(db):
     with _clients(db, a, b) as (_, cb):
         response = _patch(cb, w, {"priority": "P3", "expected": {"notes": "x"}})
     assert response.status_code == 422
+
+
+# --- Task 3: material quantity, billing, labor hours ------------------------
+
+
+def _line(db, w, user, qty="3"):
+    item = Item(
+        barcode=f"BC-{uuid.uuid4().hex[:10]}",
+        name="Wire Nut",
+        quantity=Decimal("50"),
+        location="Bay 2",
+        price=Decimal("1.00"),
+    )
+    db.add(item)
+    db.flush()
+    return wos.add_work_order_item(db, w.id, user=user, item_id=item.id, quantity=Decimal(qty))
+
+
+def test_stale_quantity_is_refused(db):
+    a, b, w = _pair(db)
+    line = _line(db, w, a)
+    with _clients(db, a, b) as (ca, cb):
+        ca.patch(f"/work-orders/{w.id}/items/{line.id}", json={"quantity": "5"})
+        response = cb.patch(f"/work-orders/{w.id}/items/{line.id}",
+                            json={"quantity": "4", "expected_quantity": "3"})
+    conflict = _only_conflict(response)
+    assert conflict["field"] == "quantity"
+    assert conflict["label"] == "Quantity"
+    assert conflict["current"] == "5"
+    assert conflict["current_label"] == "5"
+    assert conflict["changed_by"] == a.full_name
+    db.refresh(line)
+    assert line.quantity == Decimal("5")
+
+
+def test_quantity_trailing_zeros_compare_equal(db):
+    a, b, w = _pair(db)
+    line = _line(db, w, a, qty="2.5")
+    with _clients(db, a, b) as (_, cb):
+        response = cb.patch(f"/work-orders/{w.id}/items/{line.id}",
+                            json={"quantity": "4", "expected_quantity": "2.50"})
+    assert response.status_code == 200, response.text
+
+
+def test_quantity_without_expected_is_not_checked(db):
+    a, b, w = _pair(db)
+    line = _line(db, w, a)
+    with _clients(db, a, b) as (ca, cb):
+        ca.patch(f"/work-orders/{w.id}/items/{line.id}", json={"quantity": "5"})
+        response = cb.patch(f"/work-orders/{w.id}/items/{line.id}", json={"quantity": "4"})
+    assert response.status_code == 200
+
+
+def test_stale_billing_is_refused(db):
+    a, b, w = _pair(db)
+    line = _line(db, w, a)
+    url = f"/work-orders/{w.id}/items/{line.id}/billing"
+    with _clients(db, a, b) as (ca, cb):
+        ca.patch(url, json={"billable_quantity": "1"})
+        response = cb.patch(url, json={"billable_quantity": "2", "expected_billable_quantity": None})
+    conflict = _only_conflict(response)
+    assert conflict["field"] == "billable_quantity"
+    assert conflict["label"] == "Billed quantity"
+    assert conflict["current_label"] == "1"
+
+
+def test_billing_null_expected_means_billed_in_full(db):
+    a, b, w = _pair(db)
+    line = _line(db, w, a)
+    url = f"/work-orders/{w.id}/items/{line.id}/billing"
+    with _clients(db, a, b) as (ca, cb):
+        ok = cb.patch(url, json={"billable_quantity": "2", "expected_billable_quantity": None})
+        assert ok.status_code == 200, ok.text
+        ca.patch(url, json={"billable_quantity": None})
+        response = cb.patch(url, json={"billable_quantity": "1", "expected_billable_quantity": "2"})
+    conflict = _only_conflict(response)
+    assert conflict["current"] is None
+    assert conflict["current_label"] == "all 3"
+
+
+def test_billing_without_expected_key_is_not_checked(db):
+    a, b, w = _pair(db)
+    line = _line(db, w, a)
+    url = f"/work-orders/{w.id}/items/{line.id}/billing"
+    with _clients(db, a, b) as (ca, cb):
+        ca.patch(url, json={"billable_quantity": "1"})
+        response = cb.patch(url, json={"billable_quantity": "2"})
+    assert response.status_code == 200
+
+
+def _labor(db, w, admin, minutes=95):
+    tech = _user(db, roles.ROLE_TECHNICIAN, "Tia", "Ng")
+    wos.update_work_order(db, w.id, user=admin, fields={"assigned_to_ids": [tech.id]})
+    return wos.add_work_order_labor(db, w.id, user=admin, technician_id=tech.id, minutes=minutes)
+
+
+def test_stale_minutes_are_refused(db):
+    a, b, w = _pair(db)
+    entry = _labor(db, w, a)
+    url = f"/work-orders/{w.id}/labor/{entry.id}"
+    with _clients(db, a, b) as (ca, cb):
+        ca.patch(url, json={"minutes": 120})
+        response = cb.patch(url, json={"minutes": 60, "expected_minutes": 95})
+    conflict = _only_conflict(response)
+    assert conflict["field"] == "minutes"
+    assert conflict["label"] == "Hours"
+    assert conflict["current"] == 120
+    assert conflict["current_label"] == "2 h"
+    assert conflict["changed_by"] == a.full_name
+
+
+def test_hours_labels():
+    from app.services.work_order_conflicts import hours_label
+    assert hours_label(95) == "1.58 h"
+    assert hours_label(90) == "1.5 h"
+    assert hours_label(60) == "1 h"
+
+
+def test_matching_minutes_save(db):
+    a, b, w = _pair(db)
+    entry = _labor(db, w, a)
+    with _clients(db, a, b) as (_, cb):
+        response = cb.patch(f"/work-orders/{w.id}/labor/{entry.id}",
+                            json={"minutes": 60, "expected_minutes": 95})
+    assert response.status_code == 200, response.text
+
+
+def test_row_conflict_names_the_last_editor(db):
+    a, b, w = _pair(db)
+    c = _user(db, roles.ROLE_ADMIN, "Kim", "Diaz")
+    line = _line(db, w, a)
+    with _clients(db, a, b, c) as (ca, cb, cc):
+        cc.patch(f"/work-orders/{w.id}/items/{line.id}", json={"quantity": "7"})
+        response = cb.patch(f"/work-orders/{w.id}/items/{line.id}",
+                            json={"quantity": "4", "expected_quantity": "3"})
+    assert _only_conflict(response)["changed_by"] == c.full_name

@@ -578,6 +578,7 @@ def test_each_material_and_labor_write_emits_the_work_order(
     payload = SimpleNamespace(
         item_id=uuid.uuid4(), quantity=1, material_request_id=None,
         billable_quantity=None, technician_id=uuid.uuid4(), minutes=30,
+        model_fields_set=set(),
     )
     values = {"payload": payload, "background": BackgroundTasks(), "line": uuid.uuid4()}
 

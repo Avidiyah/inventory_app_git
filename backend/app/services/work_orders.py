@@ -2191,6 +2191,9 @@ def _get_labor_entry(
             WorkOrderLabor.id == labor_id,
             WorkOrderLabor.work_order_id == work_order.id,
         )
+        # `of=`: Postgres refuses FOR UPDATE on the nullable side of the
+        # technician outer join.
+        .with_for_update(of=WorkOrderLabor)
         .first()
     )
     if entry is None:
@@ -2303,6 +2306,7 @@ def update_work_order_labor(
     *,
     user: Optional[User],
     minutes: int,
+    expected_minutes: object = _UNSET,
 ) -> WorkOrderLabor:
     """Replace one labor entry's actual duration without re-rounding it --
     Team Lead and above, or the worker on their own open-week hand-keyed row."""
@@ -2310,6 +2314,11 @@ def update_work_order_labor(
     entry = _get_labor_entry(db, work_order, labor_id)
     wo.validate_labor_minutes(minutes)
     _require_labor_editor(user, technician_id=entry.technician_id, entry=entry)
+    if expected_minutes is not _UNSET:
+        work_order_conflicts.check_row(
+            db, entry, field="minutes", label="Hours", expected=expected_minutes,
+            current=entry.minutes, current_label=work_order_conflicts.hours_label(entry.minutes),
+        )
     entry.minutes = minutes
     if user is not None:
         # B2: the latest editor decides the Self/Admin mark.
@@ -3066,6 +3075,7 @@ def _get_line(
             WorkOrderItem.id == wo_item_id,
             WorkOrderItem.work_order_id == work_order.id,
         )
+        .with_for_update()
         .first()
     )
     if line is None:
@@ -3164,6 +3174,7 @@ def update_work_order_item(
     *,
     user: Optional[User],
     quantity: Decimal,
+    expected_quantity: object = _UNSET,
 ) -> WorkOrderItem:
     """Edit a logged material's total to `quantity` (Supervisor+).
 
@@ -3179,6 +3190,12 @@ def update_work_order_item(
         "Only a Team Lead, Admin, or Owner can edit logged materials.",
     )
     line = _get_line(db, work_order, wo_item_id)
+    if expected_quantity is not _UNSET:
+        label = work_order_conflicts.number_label(line.quantity)
+        work_order_conflicts.check_row(
+            db, line, field="quantity", label="Quantity", expected=expected_quantity,
+            current=line.quantity, current_label=label, wire=label,
+        )
     item = _locked_live_item(db, line.item_id)
 
     # Signed delta applied to stock: dispensing more (new > old) lowers on-hand,
@@ -3223,6 +3240,7 @@ def set_work_order_item_billable(
     *,
     user: Optional[User],
     billable_quantity: Optional[Decimal],
+    expected_billable_quantity: object = _UNSET,
 ) -> WorkOrderItem:
     """Set (or clear) a material line's billing override -- the per-line analogue
     of `services.transactions.set_billable_quantity`.
@@ -3235,6 +3253,16 @@ def set_work_order_item_billable(
     if negative or above the recorded quantity."""
     work_order = _get_visible(db, work_order_id, user)
     line = _get_line(db, work_order, wo_item_id)
+    if expected_billable_quantity is not _UNSET:
+        current = line.billable_quantity
+        shown = work_order_conflicts.number_label(current)
+        work_order_conflicts.check_row(
+            db, line, field="billable_quantity", label="Billed quantity",
+            expected=expected_billable_quantity, current=current,
+            current_label=shown if current is not None
+            else "all " + work_order_conflicts.number_label(line.quantity),
+            wire=shown,
+        )
     line.billable_quantity = validate_billable_value(line.quantity, billable_quantity)
     db.commit()
     db.refresh(line)

@@ -1409,8 +1409,11 @@ def update_work_order_item(
 ):
     """Edit a logged material's quantity (Supervisor+; stock auto-corrects)."""
     try:
+        extra = {}
+        if "expected_quantity" in payload.model_fields_set:
+            extra["expected_quantity"] = payload.expected_quantity
         line = wo_service.update_work_order_item(
-            db, work_order_id, wo_item_id, user=user, quantity=payload.quantity
+            db, work_order_id, wo_item_id, user=user, quantity=payload.quantity, **extra
         )
         flush_stock_events(db, background)
         _emit_status_changed(work_order_id)
@@ -1446,8 +1449,12 @@ def set_work_order_item_billing(
     combination; pinned by
     `test_billing_gate_answers_before_the_body_is_validated`."""
     try:
+        extra = {}
+        if "expected_billable_quantity" in payload.model_fields_set:
+            extra["expected_billable_quantity"] = payload.expected_billable_quantity
         line = wo_service.set_work_order_item_billable(
-            db, work_order_id, wo_item_id, user=user, billable_quantity=payload.billable_quantity
+            db, work_order_id, wo_item_id, user=user,
+            billable_quantity=payload.billable_quantity, **extra
         )
         _emit_status_changed(work_order_id)
         return _line_detail(line, include_price=True)
@@ -1525,6 +1532,8 @@ def update_work_order_labor(
             labor_id,
             user=user,
             minutes=payload.minutes,
+            **({"expected_minutes": payload.expected_minutes}
+               if "expected_minutes" in payload.model_fields_set else {}),
         )
         _emit_status_changed(work_order_id)
         return _labor_detail(entry)

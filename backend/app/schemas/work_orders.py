@@ -163,6 +163,8 @@ class WorkOrderItemUpdate(BaseModel):
     """Payload for `PATCH /work-orders/{id}/items/{wo_item_id}`."""
 
     quantity: Decimal
+    # W3: the quantity the person saw; absent = no check.
+    expected_quantity: Optional[Decimal] = None
 
     @field_validator("quantity")
     @classmethod
@@ -179,6 +181,9 @@ class WorkOrderItemBilling(BaseModel):
     count. Bounds against the line quantity are enforced server-side."""
 
     billable_quantity: Optional[Decimal] = None
+    # W3: the override the person saw. Presence matters: `null` means
+    # "billed in full", absent means no check.
+    expected_billable_quantity: Optional[Decimal] = None
 
     @field_validator("billable_quantity")
     @classmethod
@@ -209,6 +214,8 @@ class WorkOrderLaborUpdate(BaseModel):
     """Payload for `PATCH /work-orders/{id}/labor/{labor_id}`."""
 
     minutes: int
+    # W3: the minutes the person saw; absent = no check.
+    expected_minutes: Optional[int] = None
 
     @field_validator("minutes")
     @classmethod

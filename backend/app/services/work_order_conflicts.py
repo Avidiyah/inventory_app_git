@@ -110,3 +110,28 @@ def check_details(db: Session, work_order: WorkOrder, expected: dict) -> None:
         ))
     if found:
         raise WorkOrderFieldConflictError(found)
+
+
+def number_label(value) -> Optional[str]:
+    return None if value is None else format(value.normalize(), "f")
+
+
+def hours_label(minutes: int) -> str:
+    return f"{minutes / 60:.2f}".rstrip("0").rstrip(".") + " h"
+
+
+def check_row(db: Session, row, *, field: str, label: str, expected, current, current_label, wire=None) -> None:
+    """Refuse the save if one material line or labor entry value has moved on.
+
+    Who and when come from the row itself (`updated_by_id`, `updated_at`)."""
+    if expected == current:
+        return
+    raise WorkOrderFieldConflictError([conflict(
+        db,
+        field=field,
+        label=label,
+        current=current if wire is None else wire,
+        current_label=current_label,
+        changed_by_id=row.updated_by_id,
+        changed_at=row.updated_at,
+    )])
