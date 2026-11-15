@@ -37,6 +37,7 @@ import {
   requestTypeLabel,
   siblingsHtml,
 } from "./userRequestCards.js";
+import { editPayload, fulfillPayload } from "./userRequestsForms.js";
 
 const statusEl = document.getElementById("user-requests-status");
 const tabsEl = document.getElementById("user-requests-tabs");
@@ -189,40 +190,6 @@ async function openFulfillPanel(card) {
   }
 }
 
-function fulfillPayload(panel) {
-  const mode = panel.querySelector(".user-request-mode:checked").value;
-  const siblingIds = Array.from(
-    panel.querySelectorAll(".user-request-sibling-check:checked")
-  ).map((box) => box.value);
-
-  if (mode === "link") {
-    const itemId = panel.dataset.pickedItemId || null;
-    if (!itemId) return { error: "Search and pick an item first." };
-    return { itemId, siblingIds };
-  }
-
-  const barcode = panel.querySelector(".user-request-new-barcode").value.trim();
-  const name = panel.querySelector(".user-request-new-name").value.trim();
-  const location = panel.querySelector(".user-request-new-location").value.trim();
-  if (!barcode) return { error: "Enter a barcode for the new item." };
-  if (!name) return { error: "Enter a name for the new item." };
-  if (!location) return { error: "Enter a location for the new item." };
-
-  const rawPrice = panel.querySelector(".user-request-new-price").value.trim();
-  const rawLink = panel.querySelector(".user-request-new-link").value.trim();
-  return {
-    newItem: {
-      barcode,
-      name,
-      location,
-      quantity: Number(panel.querySelector(".user-request-new-qty").value || 0),
-      price: rawPrice ? Number(rawPrice) : null,
-      product_link: rawLink || null,
-    },
-    siblingIds,
-  };
-}
-
 // --- delegation ----------------------------------------------------------
 
 if (listEl) {
@@ -328,39 +295,15 @@ if (listEl) {
     const editSave = event.target.closest(".user-request-edit-save");
     if (editSave) {
       const panel = panelOf(card);
-      const message = panel.querySelector(".user-request-edit-message").value.trim();
-      if (!message) {
-        setMessage(messageEl, "The message cannot be blank.", "error");
+      const payload = editPayload(card, panel);
+      if (payload.error) {
+        setMessage(messageEl, payload.error, "error");
         return;
-      }
-      let details = null;
-      if (card.dataset.requestType === "material_request") {
-        const link = panel.querySelector(".user-request-edit-link");
-        if (link.value.trim() && !link.checkValidity()) {
-          setMessage(messageEl, "Enter a valid product link.", "error");
-          return;
-        }
-        details = {
-          quantity: panel.querySelector(".user-request-edit-qty").value.trim() || "1",
-          product_link: link.value.trim() || null,
-          note: panel.querySelector(".user-request-edit-note").value.trim() || null,
-        };
-      } else if (card.dataset.requestType === "catalogue_request") {
-        const text = panel.querySelector(".user-request-edit-text").value.trim();
-        if (!text) {
-          setMessage(messageEl, "Describe the item that was searched for.", "error");
-          return;
-        }
-        details = {
-          searched_text: text,
-          quantity: panel.querySelector(".user-request-edit-qty").value.trim() || "1",
-          note: panel.querySelector(".user-request-edit-note").value.trim() || null,
-        };
       }
 
       editSave.disabled = true;
       try {
-        await apiUpdateUserRequest(card.dataset.id, { message, details });
+        await apiUpdateUserRequest(card.dataset.id, { message: payload.message, details: payload.details });
         await loadUserRequests();
       } catch (err) {
         editSave.disabled = false;

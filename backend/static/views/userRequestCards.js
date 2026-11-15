@@ -195,6 +195,10 @@ function recountActions(request) {
   );
 }
 
+// Prefill by attribute, so the server value is the field's default and only a
+// real edit counts as typed (a live patch keeps typed fields).
+const valueAttr = (value) => (value === null || value === undefined || value === "" ? "" : ` value="${escapeHtml(String(value))}"`);
+
 function missingPriceActions(request) {
   // The resolution block's note says whether pricing or a manual remove closed it.
   if (request.status !== "open") {
@@ -202,10 +206,10 @@ function missingPriceActions(request) {
   }
   return (
     `<label class="user-request-price-label">Price
-       <input type="number" class="user-request-price-input" min="0.01" step="0.01" placeholder="0.00" inputmode="decimal">
+       <input type="number" class="user-request-price-input" min="0.01" step="0.01" placeholder="0.00" inputmode="decimal"${valueAttr(request.item_price)}>
      </label>` +
     `<label class="user-request-link-label">Product link
-       <input type="url" class="user-request-link-input" placeholder="https://..." inputmode="url">
+       <input type="url" class="user-request-link-input" placeholder="https://..." inputmode="url"${valueAttr(request.item_product_link)}>
      </label>` +
     `<button type="button" class="user-request-price-save">Save price &amp; link</button>` +
     `<button type="button" class="user-request-action secondary-btn" data-status="resolved" data-verb="remove">Remove</button>` +
@@ -371,6 +375,7 @@ export function buildRequestCard(request) {
   const details = request.details || {};
   const card = document.createElement("article");
   card.className = `user-request-card user-request-${request.status} user-request-type-${request.request_type}`;
+  card.id = `ureq-card-${request.id}`;
   card.dataset.id = request.id;
   card.dataset.itemId = request.item_id || "";
   card.dataset.requestType = request.request_type;
@@ -421,14 +426,6 @@ export function buildRequestCard(request) {
     `<div class="user-request-actions">${actions}</div>` +
     `<div class="user-request-panel"></div>`;
 
-  if (request.request_type === "missing_item_price" && request.status === "open") {
-    const priceInput = card.querySelector(".user-request-price-input");
-    const linkInput = card.querySelector(".user-request-link-input");
-    if (request.item_price !== null && request.item_price !== undefined) {
-      priceInput.value = request.item_price;
-    }
-    if (request.item_product_link) linkInput.value = request.item_product_link;
-  }
   return card;
 }
 
