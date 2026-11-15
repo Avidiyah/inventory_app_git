@@ -271,7 +271,7 @@ one when you meant a push.
 | Event | Raised by | Trigger sites | Received by |
 | --- | --- | --- | --- |
 | `work_order.review_queue.changed` | any caller authorized for the write | work-order import, legacy archive, `PATCH`, archive, restore | connected clients at **TechFM OA** and above |
-| `work_order.status.changed` | any caller authorized for the write | work-order import, bulk legacy archive, `PATCH`, `start`, `complete`, `hold`, `resume`, archive, restore, tracking `start`/`stop` | connected clients at **Technician** and above |
+| `work_order.status.changed` | any caller authorized for the write | work-order import, bulk legacy archive, `PATCH`, `start`, `complete`, `hold`, `resume`, archive, restore, tracking `start`/`stop`, signature save/clear, material line add/edit/billing/delete, labor add/edit/delete, SMR `ready`, `paper-reviewed`, line add/edit/delete, `block`, block `pasted` | connected clients at **Technician** and above |
 | `labor.session.changed` | any caller authorized for the write | tracking `start`, tracking `stop` | connected clients at **Team Lead** and above |
 | `attendance.changed` | any caller authorized for the write | `punch-in`, `punch-out`, and the three `/hub/attendance/punches` writes | connected clients at **Admin** and above |
 | `item.low_stock.changed` | any caller authorized for the write | an item entered or left the low-stock set; a threshold edit; item create or archive | connected clients at **TechFM OA** and above |

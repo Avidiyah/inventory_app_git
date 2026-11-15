@@ -443,6 +443,8 @@ def test_the_status_emitter_set_includes_the_two_membership_commands():
         # S12: the witness sign-off changes the card another copy may be showing.
         "save_work_order_signature",
         "clear_work_order_signature",
+        # Live card body: material and labor lines change the open card.
+        *(route for route, *_ in LINE_ROUTES),
     }
 
 
@@ -544,6 +546,159 @@ def test_stopping_a_clock_emits_a_labor_session_changed_envelope(monkeypatch):
         realtime_policy.EVENT_LABOR_SESSION_CHANGED,
     ]
     assert envelopes[1]["id"] is None
+
+
+# --- card-body lines (live card body, stage 2 Task 5) ---------------------
+
+LINE_ROUTES = [
+    # (route, service, call args after work_order_id)
+    ("add_work_order_item", "add_work_order_item", ("payload", "background")),
+    ("update_work_order_item", "update_work_order_item", ("line", "payload", "background")),
+    ("set_work_order_item_billing", "set_work_order_item_billable", ("line", "payload")),
+    ("delete_work_order_item", "delete_work_order_item", ("line", "background")),
+    ("add_work_order_labor", "add_work_order_labor", ("payload",)),
+    ("update_work_order_labor", "update_work_order_labor", ("line", "payload")),
+    ("delete_work_order_labor", "delete_work_order_labor", ("line",)),
+]
+
+
+@pytest.mark.parametrize("route_name,service_name,args", LINE_ROUTES)
+def test_each_material_and_labor_write_emits_the_work_order(
+    monkeypatch, route_name, service_name, args
+):
+    """A material or labor change alters the open card's body, so another
+    copy of the card must hear about it (risk register #28)."""
+    work_order_id = uuid.uuid4()
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_OWNER)
+    envelopes = _capture_emits(monkeypatch)
+    monkeypatch.setattr(work_orders_router.wo_service, service_name, lambda *a, **k: object())
+    monkeypatch.setattr(work_orders_router, "flush_stock_events", lambda db, background: None)
+    monkeypatch.setattr(work_orders_router, "_line_detail", lambda line, *, include_price: line)
+    monkeypatch.setattr(work_orders_router, "_labor_detail", lambda entry: entry)
+    payload = SimpleNamespace(
+        item_id=uuid.uuid4(), quantity=1, material_request_id=None,
+        billable_quantity=None, technician_id=uuid.uuid4(), minutes=30,
+    )
+    values = {"payload": payload, "background": BackgroundTasks(), "line": uuid.uuid4()}
+
+    getattr(work_orders_router, route_name)(
+        work_order_id, *(values[a] for a in args), user=user, db=None
+    )
+
+    assert envelopes == [
+        {
+            "type": realtime_policy.EVENT_WORK_ORDER_STATUS_CHANGED,
+            "id": str(work_order_id),
+            "req": REQUEST_ID,
+        }
+    ]
+
+
+def test_a_refused_material_write_emits_nothing(monkeypatch):
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_TECHNICIAN)
+    envelopes = _capture_emits(monkeypatch)
+
+    def refuse(*args, **kwargs):
+        raise WorkOrderStateError("not allowed")
+
+    monkeypatch.setattr(work_orders_router.wo_service, "delete_work_order_item", refuse)
+
+    with pytest.raises(HTTPException):
+        work_orders_router.delete_work_order_item(
+            uuid.uuid4(), uuid.uuid4(), BackgroundTasks(), user=user, db=None
+        )
+    assert envelopes == []
+
+
+def test_a_material_add_that_fails_validation_emits_nothing(monkeypatch, db):
+    """Over real HTTP: a body the schema refuses never reaches the emit."""
+    from fastapi.testclient import TestClient
+
+    from app.database import get_db
+    from app.main import app
+    from app.models import User
+    from app.services import auth as auth_service
+
+    envelopes = _capture_emits(monkeypatch)
+    owner = User(username=f"u-{uuid.uuid4().hex[:10]}",
+                 password_hash=auth_service.hash_password("hunter2"), role=roles.ROLE_OWNER)
+    db.add(owner); db.commit()
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        with TestClient(app) as client:
+            client.cookies.set("session", auth_service.create_session(db, owner))
+            response = client.post(f"/work-orders/{uuid.uuid4()}/items", json={"quantity": "lots"})
+    finally:
+        del app.dependency_overrides[get_db]
+    assert response.status_code == 422
+    assert envelopes == []
+
+
+SMR_ROUTES = [
+    # (route, service module, service, first arg is the order or a line/block, extra args)
+    ("set_ready", "smr_service", "set_ready", "order", (SimpleNamespace(ready=True),)),
+    ("set_paper_reviewed", "smr_service", "set_paper_reviewed", "order", (SimpleNamespace(reviewed=True),)),
+    ("generate_block", "lines_service", "generate_block", "order", (None,)),
+    ("add_line", "lines_service", "add_line", "order", (SimpleNamespace(),)),
+    ("edit_line", "lines_service", "edit_line", "line", (SimpleNamespace(),)),
+    ("delete_line", "lines_service", "delete_line", "line", ()),
+    ("mark_pasted", "lines_service", "mark_pasted", "line", ()),
+]
+
+
+@pytest.mark.parametrize("route_name,module_attr,service_name,first,extra", SMR_ROUTES)
+def test_each_smr_card_write_emits_the_work_order(
+    monkeypatch, route_name, module_attr, service_name, first, extra
+):
+    """Line routes carry no work order in the path: the id comes back from
+    the service (the saved line or block, or the deleted line's order)."""
+    from app.routers import work_orders_smr as smr_router
+
+    work_order_id = uuid.uuid4()
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_OWNER)
+    envelopes = _capture_emits(monkeypatch)
+    result = work_order_id if route_name == "delete_line" else SimpleNamespace(work_order_id=work_order_id)
+    monkeypatch.setattr(getattr(smr_router, module_attr), service_name, lambda *a, **k: result)
+    first_arg = work_order_id if first == "order" else uuid.uuid4()
+
+    getattr(smr_router, route_name)(first_arg, *extra, user=user, db=None)
+
+    assert envelopes == [
+        {
+            "type": realtime_policy.EVENT_WORK_ORDER_STATUS_CHANGED,
+            "id": str(work_order_id),
+            "req": REQUEST_ID,
+        }
+    ]
+
+
+def test_a_refused_smr_line_edit_emits_nothing(monkeypatch):
+    from app.routers import work_orders_smr as smr_router
+
+    user = SimpleNamespace(id=uuid.uuid4(), role=roles.ROLE_ADMIN)
+    envelopes = _capture_emits(monkeypatch)
+
+    def refuse(*args, **kwargs):
+        raise WorkOrderStateError("Nothing to change.")
+
+    monkeypatch.setattr(smr_router.lines_service, "edit_line", refuse)
+
+    with pytest.raises(HTTPException):
+        smr_router.edit_line(uuid.uuid4(), SimpleNamespace(), user=user, db=None)
+    assert envelopes == []
+
+
+def test_the_smr_status_emitter_set_is_exactly_the_card_writes():
+    """Tripwire like the work-order set: an SMR route joins only by decision."""
+    from app.routers import work_orders_smr as smr_router
+
+    emitters = {
+        route.endpoint.__name__
+        for route in smr_router.router.routes
+        if "_emit_status_changed(" in inspect.getsource(route.endpoint)
+    }
+
+    assert emitters == {route for route, *_ in SMR_ROUTES}
 
 
 # --- attendance ---------------------------------------------------------

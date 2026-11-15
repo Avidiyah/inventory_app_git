@@ -240,15 +240,18 @@ def edit_line(db: Session, *, line_id: uuid.UUID, payload: SmrLineEditIn, user: 
     return SmrLineOut.from_row(line)
 
 
-def delete_line(db: Session, *, line_id: uuid.UUID) -> None:
+def delete_line(db: Session, *, line_id: uuid.UUID) -> uuid.UUID:
     """The row is deleted outright (user 2026-11-12): no soft remove, no
-    history. The order's block reads as changed until it is generated again."""
+    history. The order's block reads as changed until it is generated again.
+    Returns the line's work order id, for the live card event."""
     line = db.get(SmrLaborLine, line_id)
     if line is None:
         raise WorkOrderNotFoundError("Line not found.")
     _require_smr(line.work_order)
+    work_order_id = line.work_order_id
     db.delete(line)
     db.commit()
+    return work_order_id
 
 
 # --- workers -------------------------------------------------------------

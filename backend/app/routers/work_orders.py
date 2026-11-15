@@ -1389,6 +1389,7 @@ def add_work_order_item(
         flush_stock_events(db, background)
         if payload.material_request_id is not None:
             emit_user_request_changed(payload.material_request_id)
+        _emit_status_changed(work_order_id)
         return _line_detail(line, include_price=_can_see_price(user))
     except DomainError as exc:
         raise to_http(exc)
@@ -1409,6 +1410,7 @@ def update_work_order_item(
             db, work_order_id, wo_item_id, user=user, quantity=payload.quantity
         )
         flush_stock_events(db, background)
+        _emit_status_changed(work_order_id)
         return _line_detail(line, include_price=_can_see_price(user))
     except DomainError as exc:
         raise to_http(exc)
@@ -1444,6 +1446,7 @@ def set_work_order_item_billing(
         line = wo_service.set_work_order_item_billable(
             db, work_order_id, wo_item_id, user=user, billable_quantity=payload.billable_quantity
         )
+        _emit_status_changed(work_order_id)
         return _line_detail(line, include_price=True)
     except DomainError as exc:
         raise to_http(exc)
@@ -1461,6 +1464,7 @@ def delete_work_order_item(
     try:
         wo_service.delete_work_order_item(db, work_order_id, wo_item_id, user=user)
         flush_stock_events(db, background)
+        _emit_status_changed(work_order_id)
     except DomainError as exc:
         raise to_http(exc)
 
@@ -1486,15 +1490,15 @@ def add_work_order_labor(
     upward to the next 30 minutes.
     """
     try:
-        return _labor_detail(
-            wo_service.add_work_order_labor(
-                db,
-                work_order_id,
-                user=user,
-                technician_id=payload.technician_id,
-                minutes=payload.minutes,
-            )
+        entry = wo_service.add_work_order_labor(
+            db,
+            work_order_id,
+            user=user,
+            technician_id=payload.technician_id,
+            minutes=payload.minutes,
         )
+        _emit_status_changed(work_order_id)
+        return _labor_detail(entry)
     except DomainError as exc:
         raise to_http(exc)
 
@@ -1512,15 +1516,15 @@ def update_work_order_labor(
 ):
     """Replace a labor entry's actual duration (Team Lead and above, or the worker on their own)."""
     try:
-        return _labor_detail(
-            wo_service.update_work_order_labor(
-                db,
-                work_order_id,
-                labor_id,
-                user=user,
-                minutes=payload.minutes,
-            )
+        entry = wo_service.update_work_order_labor(
+            db,
+            work_order_id,
+            labor_id,
+            user=user,
+            minutes=payload.minutes,
         )
+        _emit_status_changed(work_order_id)
+        return _labor_detail(entry)
     except DomainError as exc:
         raise to_http(exc)
 
@@ -1537,5 +1541,6 @@ def delete_work_order_labor(
         wo_service.delete_work_order_labor(
             db, work_order_id, labor_id, user=user
         )
+        _emit_status_changed(work_order_id)
     except DomainError as exc:
         raise to_http(exc)

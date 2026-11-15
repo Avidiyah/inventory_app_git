@@ -21,6 +21,7 @@ from app.domain.errors import DomainError
 from app.models import User
 from app.routers._errors import to_http
 from app.routers._uploads import MAX_CSV_UPLOAD_BYTES, read_capped
+from app.routers.work_orders import _emit_status_changed
 from app.schemas.work_orders_smr import (
     SmrImportResult,
     SmrPaperCheckIn,
@@ -176,9 +177,11 @@ def set_ready(
     """Stamp or clear Ready for invoice (Admin+). 409 "Date a line first."
     when the order has no dated line. Returns the tile."""
     try:
-        return smr_service.set_ready(db, work_order_id=work_order_id, ready=body.ready, user=user)
+        tile = smr_service.set_ready(db, work_order_id=work_order_id, ready=body.ready, user=user)
     except DomainError as exc:
         raise to_http(exc)
+    _emit_status_changed(work_order_id)
+    return tile
 
 
 @router.put("/{work_order_id}/paper-reviewed", response_model=SmrTile, responses=_forbidden(roles.ROLE_ADMIN))
@@ -191,9 +194,11 @@ def set_paper_reviewed(
     """Move an order from Needs paper review to Needs review, or back (Admin+).
     400 unless the order is in Needs paper review. Returns the tile."""
     try:
-        return smr_service.set_paper_reviewed(db, work_order_id=work_order_id, reviewed=body.reviewed, user=user)
+        tile = smr_service.set_paper_reviewed(db, work_order_id=work_order_id, reviewed=body.reviewed, user=user)
     except DomainError as exc:
         raise to_http(exc)
+    _emit_status_changed(work_order_id)
+    return tile
 
 
 @router.get("/export.xlsx", responses=_forbidden(roles.ROLE_OWNER))
@@ -266,9 +271,11 @@ def add_line(
     """One labor line (Admin+). Charged needs a date or the Week 1 placement
     basis; excluded needs a ground."""
     try:
-        return lines_service.add_line(db, work_order_id=work_order_id, payload=body, user=user)
+        line = lines_service.add_line(db, work_order_id=work_order_id, payload=body, user=user)
     except DomainError as exc:
         raise to_http(exc)
+    _emit_status_changed(work_order_id)
+    return line
 
 
 @router.patch("/readings/{reading_id}", response_model=SmrReadingOut, responses=_forbidden(roles.ROLE_ADMIN))
@@ -296,9 +303,11 @@ def edit_line(
     """Any subset of a line's fields (Admin+); a date on an `undated` line
     charges it. No history is kept."""
     try:
-        return lines_service.edit_line(db, line_id=line_id, payload=body, user=user)
+        line = lines_service.edit_line(db, line_id=line_id, payload=body, user=user)
     except DomainError as exc:
         raise to_http(exc)
+    _emit_status_changed(line.work_order_id)
+    return line
 
 
 @router.delete("/lines/{line_id}", status_code=204, responses=_forbidden(roles.ROLE_ADMIN))
@@ -310,9 +319,10 @@ def delete_line(
     """Delete one labor line for good (Admin+, user 2026-11-12): the row
     goes, nothing keeps a copy; an unknown line 404."""
     try:
-        lines_service.delete_line(db, line_id=line_id)
+        work_order_id = lines_service.delete_line(db, line_id=line_id)
     except DomainError as exc:
         raise to_http(exc)
+    _emit_status_changed(work_order_id)
 
 
 @router.get("/workers", response_model=list[SmrWorkerOut], responses=_forbidden(roles.ROLE_ADMIN))
@@ -364,11 +374,13 @@ def generate_block(
     lines (Admin+), 41 characters wide, kept with its lines digest. A body
     `description` saves the work description first and prints it."""
     try:
-        return lines_service.generate_block(
+        block = lines_service.generate_block(
             db, work_order_id=work_order_id, user=user, description=body.description if body else None,
         )
     except DomainError as exc:
         raise to_http(exc)
+    _emit_status_changed(work_order_id)
+    return block
 
 
 @router.post("/blocks/regenerate", response_model=SmrRegenerateOut, responses=_forbidden(roles.ROLE_ADMIN))
@@ -401,9 +413,11 @@ def mark_pasted(
 ) -> SmrBlockOut:
     """Stamp the block as pasted into NetFacilities (Admin+); a second stamp keeps the first."""
     try:
-        return lines_service.mark_pasted(db, block_id=block_id, user=user)
+        block = lines_service.mark_pasted(db, block_id=block_id, user=user)
     except DomainError as exc:
         raise to_http(exc)
+    _emit_status_changed(block.work_order_id)
+    return block
 
 
 @router.get("/hours", response_model=SmrHoursOut, responses=_forbidden(roles.ROLE_ADMIN))
