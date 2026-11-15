@@ -8,7 +8,9 @@
   - Last runs: Vitest W2 suite 1,443/1,443; 0.8.0 rerun 106/106; `test_realtime_emit.py` 40/40; `test_work_orders_router.py` 15/15.
   - Gaps that only a phone can close: refocus after a move (risk 24), iOS reading position (25), touch press/release.
 
-## Open bug report (start here)
+## Bug report: RESOLVED — owner confirmed they tested production by mistake. Not a defect.
+
+(Kept for the local-test recipe below.)
 
 The owner tested two devices: the list updated live, but an open card did not. A status change appeared only after tapping a tab; added materials and notes never appeared without reloading.
 
