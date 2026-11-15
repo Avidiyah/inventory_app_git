@@ -46,19 +46,6 @@ def emit_low_stock_changed(item_id: Optional[uuid.UUID]) -> None:
     )
 
 
-def emit_user_request_changed(request_id: Optional[uuid.UUID]) -> None:
-    """Tell every connected client one User Request moved. Subscribers -- the
-    Hub dashboard, the User Requests page, an open work-order card -- refetch
-    through REST, which re-applies visibility. Best-effort by contract."""
-    realtime_service.emit(
-        realtime_policy.build_envelope(
-            event_type=realtime_policy.EVENT_USER_REQUEST_CHANGED,
-            entity_id=request_id,
-            request_id=current_request_id(),
-        )
-    )
-
-
 def flush_stock_events(db: Session, background: BackgroundTasks) -> None:
     """Drain this request's crossings and stocked facts, push what should be
     pushed, and invalidate what changed.
@@ -81,7 +68,5 @@ def flush_stock_events(db: Session, background: BackgroundTasks) -> None:
         facts = material_requests_service.drain()
         if facts:
             notifications_service.notify_material_request_stocked(db, background, facts=facts)
-            for fact in facts:
-                emit_user_request_changed(fact.request_id)
     except Exception:  # noqa: BLE001 - best-effort by contract
         logger.exception("material-request stocked notification failed")

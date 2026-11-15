@@ -87,12 +87,8 @@ def test_one_flush_drains_both_buffers(db, configured, monkeypatch):
 
     titles = sorted(task.args[1] for task in background.tasks)
     assert titles == ["Low stock", "Material in stock"]
-    types = sorted(e["type"] for e in envelopes)
-    assert types == [
-        realtime_policy.EVENT_ITEM_LOW_STOCK_CHANGED,
-        realtime_policy.EVENT_USER_REQUEST_CHANGED,
-    ]
-    assert any(e["id"] == str(fact.request_id) for e in envelopes)
+    # The stocked request's own event comes from app/request_events.py on commit.
+    assert [e["type"] for e in envelopes] == [realtime_policy.EVENT_ITEM_LOW_STOCK_CHANGED]
     assert low_stock_service.drain() == []
     assert material_service.drain() == []
 

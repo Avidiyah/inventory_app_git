@@ -1309,3 +1309,4 @@ from app.models_smr import (  # noqa: E402,F401
 )
 
 from app import field_stamps  # noqa: E402,F401  registers the W3 stamp listener
+from app import request_events  # noqa: E402,F401  registers the W5 user_request.changed emitter

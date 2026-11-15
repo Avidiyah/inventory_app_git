@@ -19,7 +19,7 @@ from app.domain import roles
 from app.domain.errors import DomainError, WorkOrderNotFoundError
 from app.models import User, UserRequest, WorkOrder
 from app.routers._errors import to_http
-from app.routers._stock_events import emit_user_request_changed, flush_stock_events
+from app.routers._stock_events import flush_stock_events
 from app.schemas.user_requests import (
     CatalogueRequestCreate,
     CatalogueRequestFulfill,
@@ -162,7 +162,6 @@ def create_material_request(
             notifications_service.notify_material_request_filed(
                 db, background, item_name=item.name, work_order_number=work_order.number
             )
-        emit_user_request_changed(request.id)
         return build_response(request, item_quantity=on_hand, updated=not created)
     except DomainError as exc:
         raise to_http(exc)
@@ -270,7 +269,6 @@ def fulfill_catalogue_request(
             sibling_ids=payload.sibling_ids,
             resolved_by_id=user.id,
         )
-        emit_user_request_changed(request_id)
         return _response(request, skipped=skipped)
     except DomainError as exc:
         raise to_http(exc)
@@ -310,7 +308,6 @@ def cancel_material_request(
     try:
         material_service.cancel(db, request_id, actor_id=user.id)
         db.commit()
-        emit_user_request_changed(request_id)
         return build_response(request_service.get_user_request(db, request_id))
     except DomainError as exc:
         raise to_http(exc)
@@ -346,7 +343,6 @@ def update_user_request(
                 resolution_note=payload.resolution_note,
                 resolved_by_id=user.id,
             )
-        emit_user_request_changed(request_id)
         return _response(request)
     except DomainError as exc:
         raise to_http(exc)

@@ -56,7 +56,7 @@ from app.domain.list_limits import MAX_LIST_ROWS
 from app.logging_config import current_request_id
 from app.models import User, WorkOrder, WorkOrderItem, WorkOrderLabor
 from app.routers._errors import to_http
-from app.routers._stock_events import emit_user_request_changed, flush_stock_events
+from app.routers._stock_events import flush_stock_events
 from app.routers._uploads import MAX_CSV_UPLOAD_BYTES, read_capped
 from app.schemas.work_orders_smr_lines import SmrLineOut, SmrReadingOut
 from app.schemas.work_orders import (
@@ -1390,8 +1390,6 @@ def add_work_order_item(
             material_request_id=payload.material_request_id,
         )
         flush_stock_events(db, background)
-        if payload.material_request_id is not None:
-            emit_user_request_changed(payload.material_request_id)
         _emit_status_changed(work_order_id)
         return _line_detail(line, include_price=_can_see_price(user))
     except DomainError as exc:
