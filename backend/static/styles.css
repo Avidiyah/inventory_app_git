@@ -5597,6 +5597,8 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     color: var(--text-panel);
 }
 .wo-message { margin-top: var(--space-2); font-size: var(--fs-sm); }
+/* A typed field whose saved value someone else changed (workOrderLiveBody.js). */
+.wo-field-conflict { outline: 2px solid var(--color-brand); outline-offset: 1px; }
 
 @media (max-width: 640px) {
     /* Phone: buy back horizontal room so fewer rows wrap, without touching the
