@@ -6833,16 +6833,17 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-list .wo-card {
     --wo-st: var(--wo-status-text-created);
     background: var(--panel-nested);
-    border: 1px solid transparent;
+    /* Status-coloured outline: --card-accent is set per .wo-card-status-* /
+       .wo-card-smr-* above; no status class falls back to the panel border. */
+    border: 2px solid var(--card-accent, var(--panel-border));
     border-radius: 14px;
     box-shadow: none;
     margin: 0 0 var(--space-2);
     transform: none;
 }
 .wo-list .wo-card:hover,
-.wo-list .wo-card:active { border-color: var(--panel-border); box-shadow: none; transform: none; }
-.wo-list .wo-card:has(.wo-tag-overdue) { border-color: rgba(248, 113, 113, .35); }
-.wo-list .wo-card[open]:not(.wo-solo) { border-color: var(--panel-border); background: var(--panel-hover); }
+.wo-list .wo-card:active { box-shadow: none; transform: none; }
+.wo-list .wo-card[open]:not(.wo-solo) { background: var(--panel-hover); }
 .wo-list :is(.wo-card-status-assigned, .wo-group-assigned) { --wo-st: var(--wo-status-text-assigned); }
 .wo-list :is(.wo-card-status-in_progress, .wo-group-in_progress) { --wo-st: var(--wo-status-text-in-progress); }
 .wo-list :is(.wo-card-status-on_hold, .wo-group-on_hold) { --wo-st: var(--wo-status-text-on-hold); }
