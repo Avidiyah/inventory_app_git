@@ -176,7 +176,8 @@ def test_deleting_a_line_removes_the_row_and_its_history_and_stales_the_block(db
     svc.history(db, line=db.get(SmrLaborLine, line.id), actor=admin, field="created", old=None, new="x", reason="run", now=svc._now())
     svc.generate_block(db, work_order_id=order.id, user=admin)
 
-    svc.delete_line(db, line_id=line.id)
+    # The order id comes back for the live card event (the route has no order in its path).
+    assert svc.delete_line(db, line_id=line.id) == order.id
 
     db.expire_all()
     assert db.get(SmrLaborLine, line.id) is None and _edits(db, line.id) == []
