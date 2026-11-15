@@ -26,6 +26,7 @@ import {
 } from "../api.js";
 import { confirmDialog, setMessage } from "../dom.js";
 import { escapeHtml, friendlyError } from "../format.js";
+import { isDirty, keepPlace, morphInto } from "../morph.js";
 import { subscribe } from "../realtime.js";
 import {
   buildRequestCard,
@@ -60,6 +61,17 @@ let pendingFocus = null;
 // The last loaded set (already narrowed to `activeType` by the server), kept
 // so a card can be re-rendered from its source data on Cancel.
 let loaded = [];
+
+// Newest load wins; a tab or status change makes the next draw a first draw
+// (a new list, so nothing glows and no panel carries over).
+let loadSeq = 0;
+let resetPending = false;
+// The count line as last written, so a live update rewrites only a count and
+// never an action's message.
+let countText = "";
+
+const FIELDS = "input, select, textarea";
+const DROPPED = "A request you were working on was closed or moved by someone else.";
 
 function rebuildStatusOptions() {
   const options = STATUS_OPTIONS[activeType] || STATUS_OPTIONS.default;
@@ -105,20 +117,48 @@ export function focusMissingPriceRequest({ itemId, itemName = "" }) {
   if (!statusEl || !tabsEl) return;
   selectTab("missing_item_price");
   statusEl.value = "open";
+  resetPending = true;
   pendingFocus = { itemId: String(itemId), itemName };
 }
 
-function render() {
+// A card's own text, its panel left out: opening a panel must not glow it.
+const cardText = (card) => [...card.children]
+  .filter((child) => !child.matches(".user-request-panel")).map((child) => child.textContent).join("\n");
+
+// An open panel and a focused or typed field are the user's: a patch leaves
+// them. A card the server removed goes regardless (rule 7, never silently).
+function skip(el) {
+  if (el.matches(".user-request-panel")) return el.children.length > 0;
+  return el.matches(FIELDS) && (el === document.activeElement || isDirty(el));
+}
+
+function render({ live }) {
   const requests = visibleRequests();
-  listEl.replaceChildren();
-  for (const request of requests) listEl.appendChild(buildRequestCard(request));
+  if (resetPending) listEl.replaceChildren();
+  resetPending = false;
+  const tree = document.createElement("div");
+  for (const request of requests) tree.appendChild(buildRequestCard(request));
+  // A card being saved by this page is expected to change or leave.
+  const held = [
+    ...[...listEl.querySelectorAll(".user-request-panel")].filter((panel) => panel.children.length),
+    ...[...listEl.querySelectorAll(FIELDS)].filter((f) => !f.closest(".user-request-panel") && isDirty(f)),
+  ].filter((el) => !el.closest("[data-saving]"));
+  const restore = keepPlace(listEl);
+  morphInto(listEl, tree.childNodes, { skip, flashSelector: ".user-request-card", flashKey: cardText });
+  restore();
+
   const focus = pendingFocus;
   pendingFocus = null;
+  if (held.some((el) => !el.isConnected)) {
+    setMessage(messageEl, DROPPED, "error");
+    return;
+  }
   if (focus && !highlightItemCard(listEl, focus.itemId)) {
     const name = focus.itemName || "that item";
     setMessage(messageEl, `No open missing-price request for ${name} — edit its price on the Items page.`, "error");
     return;
   }
+  if (live && messageEl.textContent && messageEl.textContent !== countText) return;
 
   const status = statusEl.value;
   const label = requestTypeLabel(activeType).toLowerCase();
@@ -131,17 +171,27 @@ function render() {
       ""
     );
   }
+  countText = messageEl.textContent;
 }
 
-export async function loadUserRequests() {
+// `live`: a socket signal, not a user action -- no "Loading" line, and an
+// action's message stays.
+export async function loadUserRequests({ live = false } = {}) {
   if (!listEl) return;
+  const seq = ++loadSeq;
   const status = statusEl.value || "open";
-  setMessage(messageEl, `Loading ${status} requests...`, "");
+  if (!live) {
+    setMessage(messageEl, `Loading ${status} requests...`, "");
+    countText = messageEl.textContent;
+  }
   try {
-    loaded = await apiListUserRequests(status, activeType);
-    render();
+    const fresh = await apiListUserRequests(status, activeType);
+    if (seq !== loadSeq) return;
+    loaded = fresh;
+    render({ live });
     void refreshCounts();
   } catch (err) {
+    if (seq !== loadSeq) return;
     loaded = [];
     pendingFocus = null;
     listEl.replaceChildren();
@@ -149,14 +199,20 @@ export async function loadUserRequests() {
   }
 }
 
-if (statusEl) statusEl.addEventListener("change", loadUserRequests);
-if (refreshBtn) refreshBtn.addEventListener("click", loadUserRequests);
+const reload = () => loadUserRequests();
+const reloadNewList = () => {
+  resetPending = true;
+  return loadUserRequests();
+};
+
+if (statusEl) statusEl.addEventListener("change", reloadNewList);
+if (refreshBtn) refreshBtn.addEventListener("click", reload);
 if (tabsEl && statusEl) {
   tabsEl.addEventListener("click", (e) => {
     const btn = e.target.closest(".hub-tab[data-request-type]");
     if (!btn) return;
     selectTab(btn.dataset.requestType);
-    void loadUserRequests();
+    void reloadNewList();
   });
   // Status options must match the default tab before the first load.
   selectTab(activeType);
@@ -170,6 +226,24 @@ function panelOf(card) {
 
 function closePanel(card) {
   panelOf(card).innerHTML = "";
+}
+
+// One own save: mark the card (its leaving is this page's doing, not someone
+// else's), close its panel on success, reload through the one render path.
+async function save(card, button, call, failText) {
+  button.disabled = true;
+  card.dataset.saving = "";
+  try {
+    const result = await call();
+    closePanel(card);
+    await loadUserRequests();
+    return result || {};
+  } catch (err) {
+    button.disabled = false;
+    delete card.dataset.saving;
+    setMessage(messageEl, friendlyError(err, failText), "error");
+    return null;
+  }
 }
 
 // --- fulfilment ----------------------------------------------------------
@@ -280,14 +354,7 @@ if (listEl) {
         reasonInput.focus();
         return;
       }
-      closeSave.disabled = true;
-      try {
-        await apiUpdateUserRequest(card.dataset.id, { status: "resolved", resolutionNote: reason });
-        await loadUserRequests();
-      } catch (err) {
-        closeSave.disabled = false;
-        setMessage(messageEl, friendlyError(err, "Could not close that request."), "error");
-      }
+      await save(card, closeSave, () => apiUpdateUserRequest(card.dataset.id, { status: "resolved", resolutionNote: reason }), "Could not close that request.");
       return;
     }
 
@@ -301,14 +368,7 @@ if (listEl) {
         return;
       }
 
-      editSave.disabled = true;
-      try {
-        await apiUpdateUserRequest(card.dataset.id, { message: payload.message, details: payload.details });
-        await loadUserRequests();
-      } catch (err) {
-        editSave.disabled = false;
-        setMessage(messageEl, friendlyError(err, "Could not save those changes."), "error");
-      }
+      await save(card, editSave, () => apiUpdateUserRequest(card.dataset.id, { message: payload.message, details: payload.details }), "Could not save those changes.");
       return;
     }
 
@@ -328,17 +388,9 @@ if (listEl) {
         : "";
       if (!(await confirmDialog(`Fulfil this catalogue request?${extra}`))) return;
 
-      fulfillSave.disabled = true;
-      try {
-        const result = await apiFulfillCatalogueRequest(card.dataset.id, payload);
-        await loadUserRequests();
-        if (result && result.skipped && result.skipped.length) {
-          setMessage(messageEl, result.skipped.join(" "), "error");
-        }
-      } catch (err) {
-        fulfillSave.disabled = false;
-        setMessage(messageEl, friendlyError(err, "Could not fulfil that request."), "error");
-      }
+      const result = await save(card, fulfillSave,
+        () => apiFulfillCatalogueRequest(card.dataset.id, payload), "Could not fulfil that request.");
+      if (result?.skipped?.length) setMessage(messageEl, result.skipped.join(" "), "error");
       return;
     }
 
@@ -361,20 +413,9 @@ if (listEl) {
         return;
       }
 
-      countSave.disabled = true;
-      try {
-        // The correction resolves the recount request server-side, in the same
-        // commit as the stock write.
-        await apiCreateCorrection({
-          itemId: card.dataset.itemId,
-          newQuantity: quantity,
-          reason,
-        });
-        await loadUserRequests();
-      } catch (err) {
-        countSave.disabled = false;
-        setMessage(messageEl, friendlyError(err, "Could not save that count."), "error");
-      }
+      // The correction resolves the recount request server-side, in the same
+      // commit as the stock write.
+      await save(card, countSave, () => apiCreateCorrection({ itemId: card.dataset.itemId, newQuantity: quantity, reason }), "Could not save that count.");
       return;
     }
 
@@ -397,14 +438,7 @@ if (listEl) {
         return;
       }
 
-      priceButton.disabled = true;
-      try {
-        await apiUpdateItem(card.dataset.itemId, { price, product_link: productLink });
-        await loadUserRequests();
-      } catch (err) {
-        priceButton.disabled = false;
-        setMessage(messageEl, friendlyError(err, "Could not save that item price."), "error");
-      }
+      await save(card, priceButton, () => apiUpdateItem(card.dataset.itemId, { price, product_link: productLink }), "Could not save that item price.");
       return;
     }
 
@@ -412,14 +446,7 @@ if (listEl) {
     const stockBtn = event.target.closest(".user-request-stock");
     if (stockBtn) {
       if (!(await confirmDialog("Mark this item as stocked and notify the crew?"))) return;
-      stockBtn.disabled = true;
-      try {
-        await apiMarkRequestStocked(card.dataset.id);
-        await loadUserRequests();
-      } catch (err) {
-        stockBtn.disabled = false;
-        setMessage(messageEl, friendlyError(err, "Could not mark that request stocked."), "error");
-      }
+      await save(card, stockBtn, () => apiMarkRequestStocked(card.dataset.id), "Could not mark that request stocked.");
       return;
     }
 
@@ -430,15 +457,8 @@ if (listEl) {
     const verb = button.dataset.verb || (targetStatus === "resolved" ? "resolve" : "reopen");
     if (!(await confirmDialog(`${verb[0].toUpperCase()}${verb.slice(1)} this user request?`))) return;
 
-    button.disabled = true;
-    try {
-      const resolutionNote = verb === "remove" ? "Removed from the queue." : undefined;
-      await apiUpdateUserRequest(card.dataset.id, { status: targetStatus, resolutionNote });
-      await loadUserRequests();
-    } catch (err) {
-      button.disabled = false;
-      setMessage(messageEl, friendlyError(err, `Could not ${verb} that request.`), "error");
-    }
+    const resolutionNote = verb === "remove" ? "Removed from the queue." : undefined;
+    await save(card, button, () => apiUpdateUserRequest(card.dataset.id, { status: targetStatus, resolutionNote }), `Could not ${verb} that request.`);
   });
 }
 
@@ -446,5 +466,5 @@ if (listEl) {
 // a socket signal, not a user action.
 subscribe(USER_REQUEST_CHANGED_EVENT, ({ activePage }) => {
   if (activePage !== USER_REQUESTS_PAGE) return;
-  void loadUserRequests();
+  void loadUserRequests({ live: true });
 });
