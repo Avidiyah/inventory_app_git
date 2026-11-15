@@ -159,6 +159,14 @@ describe("the add-labor row", () => {
     expect(techOptions()).not.toContain(T1);
   });
 
+  it("an add-labor row held only by focus is deferred, so focus leaving catches it up", async () => {
+    const { patch } = await open();
+    $(".wo-new-labor-hours").focus();
+    const { deferred } = patch({ assigned_to_ids: [T3], assigned_to_names: ["Kim"] });
+    expect(techOptions()).toContain(T1);
+    expect(deferred).toBe(true);
+  });
+
   it("an add-labor row with a non-default technician picked is left alone", async () => {
     const { patch } = await open();
     $(".wo-labor-technician").value = T2;

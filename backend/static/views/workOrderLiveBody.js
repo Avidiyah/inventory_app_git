@@ -97,7 +97,11 @@ export function patchBodyLive(detail, bodyEl, cardEl) {
       deferred = true;
       return true;
     }
-    if (el.matches(LIVE_FORMS) && isTouched(el, active)) return true;
+    if (el.matches(LIVE_FORMS) && isTouched(el, active)) {
+      // Held only because focus is in it: catch it up when focus leaves.
+      if (!isTouched(el, null)) deferred = true;
+      return true;
+    }
     if (el.matches(".wo-item") && el.querySelector(".charge-cancel")) return true;
     if (!el.matches(FIELDS)) return false;
     if (el === active) {
