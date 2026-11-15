@@ -118,12 +118,12 @@ export function paperCheckHtml(detail) {
   if (!detail?.smr) return "";
   const check = detail.smr_paper_check;
   if (!check) {
-    return `<div class="wo-paper-check"><button type="button" class="secondary-btn" data-action="smr-paper-check" data-checked="true">Mark paper checked</button></div>`;
+    return `<div class="wo-paper-check"><button type="button" class="secondary-btn" id="wo-act-smr-paper-check" data-action="smr-paper-check" data-checked="true">Mark paper checked</button></div>`;
   }
   const when = new Date(check.checked_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   const who = check.checked_by_name ? ` by ${check.checked_by_name}` : "";
   return `<div class="wo-paper-check wo-paper-check--done"><span>${escapeHtml(`Paper checked${who} · ${when}`)}</span> ` +
-    `<button type="button" class="secondary-btn" data-action="smr-paper-check" data-checked="false">Clear paper check</button></div>`;
+    `<button type="button" class="secondary-btn" id="wo-act-smr-paper-check" data-action="smr-paper-check" data-checked="false">Clear paper check</button></div>`;
 }
 
 export function notesLogContentsHtml(notes) {
@@ -210,7 +210,7 @@ export function crewLockHtml(detail) {
   const text = BEGIN_CHARGING_STATUSES.includes(detail.status)
     ? "Begin Charging to add notes or materials."
     : "You are not on this work order's crew, so it is read-only for you.";
-  return `<p class="hint wo-crew-lock">${escapeHtml(text)}</p>`;
+  return `<p class="hint wo-crew-lock" id="wo-sec-lock">${escapeHtml(text)}</p>`;
 }
 
 // Someone else has already worked this order and the caller has not: the card
@@ -231,7 +231,7 @@ export function priorWorkBannerHtml(detail) {
   const action = hasUnreadPriorWork(detail)
     ? "Check the notes before charging."
     : "There are no notes to read.";
-  return `<div class="wo-prior-work" role="status"><strong>Someone has been here.</strong> ` +
+  return `<div class="wo-prior-work" id="wo-sec-prior" role="status"><strong>Someone has been here.</strong> ` +
     `${escapeHtml(action)} <span class="hint">${escapeHtml(prior.by.join(", "))}.${escapeHtml(stamp)}</span></div>`;
 }
 

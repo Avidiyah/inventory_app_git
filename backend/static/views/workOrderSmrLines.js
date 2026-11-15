@@ -45,13 +45,13 @@ function lineRowHtml(line, editable) {
   const crew = line.headcount > 1;
   const side = editable
     ? `<div class="wo-labor-actions">
-         <input type="number" class="wo-smr-l-hours" value="${escapeHtml(line.hours_each)}" min="0.5" step="0.5" aria-label="${crew ? "Hours each" : "Hours"}">
+         <input type="number" class="wo-smr-l-hours" id="wo-smrline-hours-${escapeHtml(line.id)}" value="${escapeHtml(line.hours_each)}" min="0.5" step="0.5" aria-label="${crew ? "Hours each" : "Hours"}">
          <button type="button" class="secondary-btn" data-action="smr-update-line">Update</button>
          <button type="button" class="secondary-btn" data-action="smr-edit-line">Edit</button>
          <button type="button" class="btn-danger" data-action="smr-delete-line">Remove</button>
        </div>`
     : `<span class="wo-smr-line-hours">${escapeHtml(crew ? `${line.headcount} × ${hours(line.hours_each)}` : hours(line.hours_each))}</span>`;
-  return `<div class="wo-labor-entry wo-smr-line" data-line-id="${escapeHtml(line.id)}" data-line="${escapeHtml(JSON.stringify(line))}">
+  return `<div class="wo-labor-entry wo-smr-line" id="wo-smrline-${escapeHtml(line.id)}" data-line-id="${escapeHtml(line.id)}" data-line="${escapeHtml(JSON.stringify(line))}">
             <div>
               <span class="wo-smr-line-head"><strong>${escapeHtml(workerLabel(line))}</strong>${kind}</span>
               <span class="hint">${escapeHtml(when)} · ${escapeHtml(line.vendor)}${crew && editable ? " · hours each" : ""}</span>
@@ -65,7 +65,7 @@ function lineRowHtml(line, editable) {
 // a headcount for a crew, hours each, the date, then the vendor flow.
 function entryRowHtml(detail) {
   const last = (detail.smr_lines || []).at(-1);
-  return `<div class="wo-add-labor wo-smr-add">
+  return `<div class="wo-add-labor wo-smr-add" id="wo-add-smr">
     <label><span>Name on paper</span><input type="text" class="wo-smr-a-name" placeholder="blank = Skilled Technician"></label>
     <label><span>Headcount${tipHtml("smr.crew")}</span><input type="number" class="wo-smr-a-headcount" min="1" step="1" value="1"></label>
     <label><span>Hours each</span><input type="number" class="wo-smr-a-hours" min="0.5" step="0.5" placeholder="e.g. 2"></label>
@@ -126,7 +126,7 @@ export function smrLaborSectionHtml(detail) {
   const hint = editable
     ? `<p class="hint">One line per person or crew, from the vendor's paper. Update saves the hours; Remove deletes the line for good.${tipHtml("smr.remove")}</p>`
     : "";
-  return `<details class="wo-section-card wo-labor-section wo-smr-section" open>
+  return `<details class="wo-section-card wo-labor-section wo-smr-section" id="wo-sec-labor" open>
             <summary class="wo-section-summary">Labor</summary>
             <div class="wo-section-content">
               ${hint}
@@ -154,13 +154,13 @@ function blockHtml(detail, editable) {
   // Work description (user 2026-11-10): typed by a person, saved and printed
   // in the block by Generate.
   const description = editable
-    ? `<label class="wo-smr-description"><span>Work description (prints in the block)</span><textarea class="wo-smr-description-text" rows="4" maxlength="4000" placeholder="Tasks done, including any not on the request, and why the hours are what they are.">${escapeHtml(detail.smr_description || "")}</textarea></label>`
+    ? `<label class="wo-smr-description"><span>Work description (prints in the block)</span><textarea class="wo-smr-description-text" id="wo-smr-description" rows="4" maxlength="4000" placeholder="Tasks done, including any not on the request, and why the hours are what they are.">${escapeHtml(detail.smr_description || "")}</textarea></label>`
     : "";
-  const print = editable && block?.text ? `<button type="button" class="secondary-btn" data-action="smr-print-block">Print receipt</button>` : "";
+  const print = editable && block?.text ? `<button type="button" class="secondary-btn" id="wo-act-smr-print-block" data-action="smr-print-block">Print receipt</button>` : "";
   const buttons = editable
-    ? `<button type="button" data-action="smr-generate-block">Generate correction block</button>` +
+    ? `<button type="button" id="wo-act-smr-generate-block" data-action="smr-generate-block">Generate correction block</button>` +
       (block && !block.pasted_at
-        ? `<button type="button" class="secondary-btn" data-action="smr-mark-pasted" data-block-id="${escapeHtml(block.id)}">Mark pasted to NetFacilities</button>`
+        ? `<button type="button" class="secondary-btn" id="wo-act-smr-mark-pasted" data-action="smr-mark-pasted" data-block-id="${escapeHtml(block.id)}">Mark pasted to NetFacilities</button>`
         : "")
     : "";
   return `<div class="wo-smr-block">${description}<p class="hint wo-smr-block-status">${escapeHtml(blockStatusText(block))}</p>${text}<div class="wo-smr-form-actions">${buttons}${print}</div></div>`;
@@ -171,7 +171,7 @@ function blockHtml(detail, editable) {
 export function smrInvoiceSectionHtml(detail) {
   if (!detail?.smr) return "";
   const editable = canEditSmrLines();
-  return `<details class="wo-section-card wo-smr-invoice"${editable ? " open" : ""}>
+  return `<details class="wo-section-card wo-smr-invoice" id="wo-sec-invoice"${editable ? " open" : ""}>
             <summary class="wo-section-summary">Invoice</summary>
             <div class="wo-section-content">${blockHtml(detail, editable)}</div>
           </details>`;
@@ -187,22 +187,22 @@ export function readyRowHtml(detail, editable) {
   const stamp_ = detail.smr_ready;
   const pr = detail.smr_paper_reviewed;
   if (detail.smr_stage === "paper_review" && editable && !stamp_) {
-    return `<p class="wo-smr-ready"><button type="button" class="secondary-btn" data-action="smr-paper-reviewed">Mark paper reviewed</button></p>`;
+    return `<p class="wo-smr-ready"><button type="button" class="secondary-btn" id="wo-act-smr-paper-reviewed" data-action="smr-paper-reviewed">Mark paper reviewed</button></p>`;
   }
   if (pr && detail.smr_stage === "needs_review" && !(detail.smr_lines || []).some(inInvoicePeriod)) {
     const who = pr.by_name ? ` by ${pr.by_name}` : "";
-    const btn = editable ? ` <button type="button" class="secondary-btn" data-action="smr-not-paper-reviewed">Back to paper review</button>` : "";
+    const btn = editable ? ` <button type="button" class="secondary-btn" id="wo-act-smr-not-paper-reviewed" data-action="smr-not-paper-reviewed">Back to paper review</button>` : "";
     return `<p class="wo-smr-ready wo-smr-ready--ready">${escapeHtml(`Paper reviewed · ${stamp(pr.at)}${who}`)}${btn}</p>`;
   }
   if (detail.smr_stage === "ready") {
     const who = stamp_?.by_name ? ` by ${stamp_.by_name}` : "";
     const text = `Ready to invoice · ${stamp(stamp_?.at)}${who}`;
-    const btn = editable ? ` <button type="button" class="secondary-btn" data-action="smr-not-ready">Not ready</button>` : "";
+    const btn = editable ? ` <button type="button" class="secondary-btn" id="wo-act-smr-not-ready" data-action="smr-not-ready">Not ready</button>` : "";
     return `<p class="wo-smr-ready wo-smr-ready--ready">${escapeHtml(text)}${btn}</p>`;
   }
   if ((detail.smr_lines || []).some(inInvoicePeriod)) {
     return editable
-      ? `<p class="wo-smr-ready"><button type="button" class="secondary-btn" data-action="smr-ready">Ready to invoice</button></p>`
+      ? `<p class="wo-smr-ready"><button type="button" class="secondary-btn" id="wo-act-smr-ready" data-action="smr-ready">Ready to invoice</button></p>`
       : `<p class="wo-smr-ready hint">Not yet ready to invoice</p>`;
   }
   const text = stamp_ ? "Ready stamp held until a line is in Weeks 1–7" : "Date a line in Weeks 1–7 to mark ready";

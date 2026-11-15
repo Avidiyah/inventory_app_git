@@ -21,18 +21,20 @@ import {
 
 // Written out literally, one per tier used: the action-coverage audit greps
 // `data-action="..."` out of the source, so the names must appear verbatim.
+// The `wo-act-` id pairs a button only with the same action across a live
+// patch, so a status change replaces a button instead of relabelling it.
 const BTN = {
-  begin: '<button type="button" data-action="start-tracking-wo">W.O. Received, Begin Charging</button>',
-  completePrimary: '<button type="button" data-action="complete-wo">Mark Completed</button>',
-  completeSecondary: '<button type="button" class="secondary-btn" data-action="complete-wo">Mark Completed</button>',
-  notify: '<button type="button" data-action="notify-supervisor-wo">Notify Team Lead</button>',
-  stop: '<button type="button" class="secondary-btn" data-action="stop-tracking-wo">Stop Charging</button>',
-  hold: '<button type="button" class="secondary-btn" data-action="hold-assigned-wo">Place On-Hold</button>',
-  resume: '<button type="button" class="secondary-btn" data-action="resume-assigned-wo">Resume In-Progress</button>',
-  approve: '<button type="button" data-action="complete-wo">Approve — Mark Completed</button>',
-  sendBack: '<button type="button" class="secondary-btn" data-action="send-back-wo">Send Back</button>',
-  review: '<button type="button" data-action="review-wo">Send to Review</button>',
-  reopen: '<button type="button" class="secondary-btn" data-action="reopen-wo">Reopen</button>',
+  begin: '<button type="button" id="wo-act-start-tracking-wo" data-action="start-tracking-wo">W.O. Received, Begin Charging</button>',
+  completePrimary: '<button type="button" id="wo-act-complete-wo" data-action="complete-wo">Mark Completed</button>',
+  completeSecondary: '<button type="button" class="secondary-btn" id="wo-act-complete-wo" data-action="complete-wo">Mark Completed</button>',
+  notify: '<button type="button" id="wo-act-notify-supervisor-wo" data-action="notify-supervisor-wo">Notify Team Lead</button>',
+  stop: '<button type="button" class="secondary-btn" id="wo-act-stop-tracking-wo" data-action="stop-tracking-wo">Stop Charging</button>',
+  hold: '<button type="button" class="secondary-btn" id="wo-act-hold-assigned-wo" data-action="hold-assigned-wo">Place On-Hold</button>',
+  resume: '<button type="button" class="secondary-btn" id="wo-act-resume-assigned-wo" data-action="resume-assigned-wo">Resume In-Progress</button>',
+  approve: '<button type="button" id="wo-act-complete-wo" data-action="complete-wo">Approve — Mark Completed</button>',
+  sendBack: '<button type="button" class="secondary-btn" id="wo-act-send-back-wo" data-action="send-back-wo">Send Back</button>',
+  review: '<button type="button" id="wo-act-review-wo" data-action="review-wo">Send to Review</button>',
+  reopen: '<button type="button" class="secondary-btn" id="wo-act-reopen-wo" data-action="reopen-wo">Reopen</button>',
 };
 
 // Returns `{ primary, secondary, tools }` HTML strings, any of which may be
@@ -104,7 +106,7 @@ export function statusActionsHtml(detail) {
       // the reason. The server refuses the transition either way
       // (services/work_orders._require_review_handoff_permission), and a
       // disabled button fires no click.
-      primary = `<button type="button" data-action="review-wo" disabled title="An Admin or the Owner must send this to Review.">Send to Review</button>`;
+      primary = `<button type="button" id="wo-act-review-wo" data-action="review-wo" disabled title="An Admin or the Owner must send this to Review.">Send to Review</button>`;
     }
     if (sup) secondary += BTN.reopen;
   } else if (sup && detail.status === "review") {
@@ -113,8 +115,8 @@ export function statusActionsHtml(detail) {
   }
 
   const tools = isAdminPlus()
-    ? `<button type="button" class="secondary-btn wo-netfacilities-btn" data-action="open-netfacilities-wo" data-number="${escapeHtml(detail.number)}">Open Netfacilities</button>` +
-      `<button type="button" class="btn-danger" data-action="archive-wo">Archive</button>`
+    ? `<button type="button" class="secondary-btn wo-netfacilities-btn" id="wo-act-open-netfacilities-wo" data-action="open-netfacilities-wo" data-number="${escapeHtml(detail.number)}">Open Netfacilities</button>` +
+      `<button type="button" class="btn-danger" id="wo-act-archive-wo" data-action="archive-wo">Archive</button>`
     : "";
   return { primary, secondary, tools };
 }
@@ -128,5 +130,5 @@ export function chargingStripHtml(detail) {
   const time = Number.isNaN(started.getTime())
     ? ""
     : ` since ${started.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
-  return `<div class="wo-charging-strip" role="status">${DOT_GLYPH}<span>Charging${escapeHtml(time)}</span></div>`;
+  return `<div class="wo-charging-strip" id="wo-sec-charging" role="status">${DOT_GLYPH}<span>Charging${escapeHtml(time)}</span></div>`;
 }

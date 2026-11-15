@@ -54,7 +54,7 @@ import { comboHtml } from "../menus.js";
 function renderLaborEntryHtml(entry) {
   const actions = canEditLaborEntry(entry)
     ? `<div class="wo-labor-actions">
-         <input type="number" class="wo-labor-hours" value="${escapeHtml(hoursInputValue(entry.minutes))}" min="0.01" step="0.01" aria-label="Actual labor hours">
+         <input type="number" class="wo-labor-hours" id="wo-labor-hours-${escapeHtml(entry.id)}" value="${escapeHtml(hoursInputValue(entry.minutes))}" min="0.01" step="0.01" aria-label="Actual labor hours">
          <button type="button" class="secondary-btn" data-action="edit-labor">Update</button>
          <button type="button" class="btn-danger" data-action="remove-labor">Remove</button>
        </div>`
@@ -74,7 +74,7 @@ function renderLaborEntryHtml(entry) {
   const keyedBy = entry.hand_entered
     ? ` <span class="day-tl-tag day-tl-tag-${entry.recorded_by_self ? "self" : "admin"}">${entry.recorded_by_self ? "Self" : "Admin"}-entered</span>`
     : "";
-  return `<div class="wo-labor-entry" data-labor-id="${escapeHtml(entry.id)}" data-technician-id="${escapeHtml(entry.technician_id)}">
+  return `<div class="wo-labor-entry" id="wo-labor-${escapeHtml(entry.id)}" data-labor-id="${escapeHtml(entry.id)}" data-technician-id="${escapeHtml(entry.technician_id)}">
             <div><strong>${escapeHtml(entry.technician_name)}</strong><span class="hint">${escapeHtml(formatMinutes(entry.minutes))} actual</span>${window}${autoStopped}${keyedBy}</div>
             ${actions}
           </div>`;
@@ -125,7 +125,7 @@ function laborSectionHtml(detail) {
   const trackedHint = canKeyLabor()
     ? "Entries come from charged sessions. Add one by hand only to correct a missed clock-in."
     : "Hours come from Begin Charging and Stop Charging. You can add or fix your own by hand this week.";
-  return `<details class="wo-section-card wo-labor-section">
+  return `<details class="wo-section-card wo-labor-section" id="wo-sec-labor">
             <summary class="wo-section-summary">Labor</summary>
             <div class="wo-section-content">
               <p class="hint">${escapeHtml(rateText)}</p>
@@ -133,10 +133,10 @@ function laborSectionHtml(detail) {
               <div class="wo-labor-list">${entries}</div>
               ${laborSummaryHtml(detail)}
               ${targetLaborHtml(detail)}
-              ${canKeySkilledLabor(detail) ? `<div class="wo-add-labor wo-add-skilled-labor">
+              ${canKeySkilledLabor(detail) ? `<div class="wo-add-labor wo-add-skilled-labor" id="wo-add-skilled">
                 <label><span>Skilled Technician hours</span><input type="number" class="wo-new-skilled-hours" min="0.01" step="0.01" placeholder="e.g. 0.5"></label><button type="button" data-action="add-skilled-labor">Add Skilled Technician</button>
               </div>` : ""}
-              ${canAdd ? `<div class="wo-add-labor">
+              ${canAdd ? `<div class="wo-add-labor" id="wo-add-labor">
                 ${technicianControl}
                 <label><span>Actual hours</span><input type="number" class="wo-new-labor-hours" min="0.01" step="0.01" placeholder="e.g. 1.25"></label><button type="button" data-action="add-labor">Add labor</button>
               </div>` : ""}
@@ -430,7 +430,7 @@ function detailsEditorHtml(detail) {
   const hint = isAdminPlus()
     ? `Edit imported metadata and operations for WO ${escapeHtml(detail.number)}.`
     : `Edit assignment and status for WO ${escapeHtml(detail.number)}.`;
-  return `<details class="wo-edit-card">
+  return `<details class="wo-edit-card" id="wo-edit-card">
             <summary class="wo-edit-summary">Edit details</summary>
             <div class="wo-edit" data-original-supervisor-id="${escapeHtml(detail.supervisor_id || "")}">
               <p class="hint">${hint}</p>
@@ -530,7 +530,7 @@ export function renderBody(detail, bodyEl) {
   const modeControl = sup
     ? `<div class="wo-mode-row">
        <label>New entries:${tipHtml("wo.entry-mode")}</label>
-       <select class="wo-mode-select"${detail.smr ? " disabled" : ""}>
+       <select class="wo-mode-select" id="wo-mode-select"${detail.smr ? " disabled" : ""}>
          <option value="dispense"${detail.entry_mode === "dispense" ? " selected" : ""}>Dispense (moves stock)</option>
          <option value="retroactive"${detail.entry_mode === "retroactive" ? " selected" : ""}>Retroactive (paper sheet, no stock)</option>
        </select>
@@ -548,7 +548,7 @@ export function renderBody(detail, bodyEl) {
     ...(showLabor ? [["labor", laborMinutes ? `Labor · ${hoursInputValue(laborMinutes)} h` : "Labor"]] : []),
     ...(invoice ? [["invoice", "Invoice"]] : []),
   ];
-  const tabBar = `<div class="wo-tabs" role="tablist" aria-label="Work order sections">${tabs
+  const tabBar = `<div class="wo-tabs" id="wo-sec-tabs" role="tablist" aria-label="Work order sections">${tabs
     .map(([key, label]) => `<button type="button" class="wo-tab" role="tab" data-wo-tab="${key}" aria-selected="false">${escapeHtml(label)}</button>`)
     .join("")}</div>`;
 
@@ -566,24 +566,24 @@ export function renderBody(detail, bodyEl) {
     crewLockHtml(detail) +
     priorWorkBannerHtml(detail) +
     tabBar +
-    `<div class="wo-tab-details">` +
+    `<div class="wo-tab-details" id="wo-sec-details">` +
     (detail.smr ? readyRowHtml(detail, canEditSmrLines()) : "") +
     `<div class="wo-details">${detailsViewHtml(detail)}</div>` +
     (sup ? detailsEditorHtml(detail) : "") +
     `</div>` +
-    `<details class="wo-section-card wo-notes-section"${gated ? " open" : ""}>
+    `<details class="wo-section-card wo-notes-section" id="wo-sec-notes"${gated ? " open" : ""}>
        <summary class="wo-section-summary">Notes</summary>
        <div class="wo-section-content">
          <div class="wo-notes-log" aria-label="Work order note log">${notesLogContentsHtml(detail.notes)}</div>
-         ${gated ? `<button type="button" class="secondary-btn" data-action="ack-notes-wo">I have read the notes</button>` : ""}
-         ${locked ? "" : `<textarea class="wo-notes-input" rows="4" aria-label="Add a work order note" placeholder="Add a note…"></textarea>
+         ${gated ? `<button type="button" class="secondary-btn" id="wo-act-ack-notes-wo" data-action="ack-notes-wo">I have read the notes</button>` : ""}
+         ${locked ? "" : `<textarea class="wo-notes-input" id="wo-notes-input" rows="4" aria-label="Add a work order note" placeholder="Add a note…"></textarea>
          <div class="wo-notes-actions">
-           <button type="button" data-action="save-notes">Save note</button>
+           <button type="button" id="wo-act-save-notes" data-action="save-notes">Save note</button>
          </div>
-         <p class="wo-notes-message" aria-live="polite"></p>`}
+         <p class="wo-notes-message" id="wo-notes-msg" data-live-keep aria-live="polite"></p>`}
        </div>
      </details>` +
-    `<details class="wo-section-card wo-materials-section">
+    `<details class="wo-section-card wo-materials-section" id="wo-sec-materials">
        <summary class="wo-section-summary">Materials</summary>
        <div class="wo-section-content">
          ${modeControl}
@@ -591,7 +591,7 @@ export function renderBody(detail, bodyEl) {
          ${materialsTotalHtml(detail)}
          ${targetMaterialsHtml(detail)}
          ${paperCheckHtml(detail)}
-         ${locked ? "" : `<div class="wo-add-item">
+         ${locked ? "" : `<div class="wo-add-item" id="wo-add-item">
            <div class="wo-add-item-row">
              <input type="text" class="ms-item-search" placeholder="Search item by name or barcode">
              <input type="number" class="wo-item-qty" placeholder="Qty" min="0" step="any">
@@ -604,10 +604,11 @@ export function renderBody(detail, bodyEl) {
     // An SMR order shows Labor to everyone, then its Invoice section.
     (showLabor ? laborSectionHtml(detail) : "") +
     invoice +
-    (statusActions ? `<div class="wo-actionbar">${statusActions}</div>` : "") +
+    (statusActions ? `<div class="wo-actionbar" id="wo-sec-actions">${statusActions}</div>` : "") +
     // Stays the body's last child: setMessage replaces its class, and the
-    // action handler finds it by position after that.
-    `<p class="wo-message"></p>`;
+    // action handler finds it by position after that. `data-live-keep`: a live
+    // patch leaves its text alone; the role is there before any text arrives.
+    `<p class="wo-message" id="wo-sec-msg" role="status" data-live-keep></p>`;
   syncWorkOrderTabs(bodyEl, { settle: true });
 }
 
@@ -656,7 +657,7 @@ function renderLineHtml(it, locked = false) {
     : `<button type="button" class="btn-danger" data-action="remove-item">Remove</button>`;
   const actions = isSupervisorPlus()
     ? `<div class="wo-item-actions">
-         <input type="number" class="wo-line-qty" value="${escapeHtml(it.quantity)}" min="0" step="any" aria-label="Quantity">
+         <input type="number" class="wo-line-qty" id="wo-line-qty-${escapeHtml(it.id)}" value="${escapeHtml(it.quantity)}" min="0" step="any" aria-label="Quantity">
          <button type="button" class="secondary-btn" data-action="edit-item">Update</button>
          ${removeBtn}
        </div>`
@@ -664,7 +665,7 @@ function renderLineHtml(it, locked = false) {
          <span class="hint">Quantity: ${escapeHtml(it.quantity)}</span>
          ${removeBtn}
        </div>`;
-  return `<div class="wo-item" data-wo-item-id="${escapeHtml(it.id)}">
+  return `<div class="wo-item" id="wo-line-${escapeHtml(it.id)}" data-wo-item-id="${escapeHtml(it.id)}">
             <div class="wo-item-head">
               <span class="ms-item-name">${escapeHtml(it.item_name)}</span>
               <span class="ms-item-barcode">${escapeHtml(it.item_barcode)}</span>
