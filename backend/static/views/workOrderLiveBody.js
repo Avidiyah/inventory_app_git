@@ -9,7 +9,7 @@
 // the saved field comes back empty.
 
 import { setMessage } from "../dom.js";
-import { morphInto } from "../morph.js";
+import { defaultOf, isDirty, keepPlace, morphInto } from "../morph.js";
 import { renderBody, showWorkOrderTab, syncWorkOrderTabs } from "./workOrderCardHtml.js";
 
 // Entry rows whose fields act together: kept or updated as one unit.
@@ -26,21 +26,8 @@ const DROPPED = "This work order changed while you were typing. Something you en
 const CONFLICT = "Someone else changed a value you are editing. Saving yours will replace theirs.";
 const settledAt = new WeakMap();
 
-// The value a field had when it was drawn. A select with no `selected`
-// option shows its first, so that one is its default (not a typed value).
-function defaultOf(field) {
-  if (field.localName === "select") {
-    const options = [...field.options];
-    return (options.find((o) => o.defaultSelected) || options[0])?.value ?? "";
-  }
-  if (field.type === "checkbox" || field.type === "radio") return String(field.defaultChecked);
-  return field.defaultValue;
-}
-
-export function isDirty(field) {
-  if (field.type === "checkbox" || field.type === "radio") return field.checked !== field.defaultChecked;
-  return field.value !== defaultOf(field);
-}
+// W3's conflict check imports it from here.
+export { isDirty };
 
 // An entry form the user has started: focused, typed in, or holding a pick
 // (an item, a material request, or the SMR line being edited).
@@ -58,14 +45,6 @@ export function actionsSettling(cardEl) {
 const actionText = (bodyEl) => [...bodyEl.querySelectorAll(ACTION_TEXT)].map((el) => el.textContent).join("\n");
 const notesText = (bodyEl) => bodyEl.querySelector(".wo-notes-log")?.textContent ?? "";
 
-function selectionOf(el) {
-  try {
-    return el.selectionStart === null || el.selectionStart === undefined ? null : [el.selectionStart, el.selectionEnd];
-  } catch {
-    return null;
-  }
-}
-
 // Patch `bodyEl` to `detail` around whatever the user is in the middle of.
 // `deferred` is true when something was left stale only because the user is
 // on it (an open Edit details, a focused field): the caller catches it up later.
@@ -74,16 +53,7 @@ export function patchBodyLive(detail, bodyEl, cardEl) {
   const tab = bodyEl.dataset.woTab;
   const notesBefore = notesText(bodyEl);
   const actionsBefore = actionText(bodyEl);
-  const caret = bodyEl.contains(active) ? selectionOf(active) : null;
-  let anchor = bodyEl.contains(active) && active !== bodyEl ? active : null;
-  let anchorTop = anchor?.getBoundingClientRect().top;
-  for (const el of anchor ? [] : bodyEl.children) {
-    const rect = el.getBoundingClientRect();
-    if (rect.bottom > 0) {
-      [anchor, anchorTop] = [el, rect.top];
-      break;
-    }
-  }
+  const restore = keepPlace(bodyEl);
   const held = [
     ...[...bodyEl.querySelectorAll(LIVE_FORMS)].filter((form) => isTouched(form, active)),
     ...[...bodyEl.querySelectorAll(FIELDS)].filter(isDirty),
@@ -143,19 +113,7 @@ export function patchBodyLive(detail, bodyEl, cardEl) {
     conflicts.forEach((el) => el.classList.add("wo-field-conflict"));
   }
 
-  // iOS Safari has no moveBefore: a moved element loses focus there.
-  if (active?.isConnected && bodyEl.contains(active) && document.activeElement !== active) {
-    active.focus({ preventScroll: true });
-    if (caret) {
-      try { active.setSelectionRange(...caret); } catch { /* not a text field */ }
-    }
-  }
-
-  // Chrome and Firefox anchor scrolling themselves; a second correction jumps.
-  if (!globalThis.CSS?.supports?.("overflow-anchor", "auto") && anchor?.isConnected) {
-    const moved = anchor.getBoundingClientRect().top - anchorTop;
-    if (moved) window.scrollBy(0, moved);
-  }
+  restore();
 
   if (actionText(bodyEl) !== actionsBefore) settledAt.set(cardEl, Date.now());
   return { deferred };

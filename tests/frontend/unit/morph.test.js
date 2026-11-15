@@ -1,8 +1,8 @@
 // morphInto: patch a container in place, leave `open` to the user, flag what
 // changed. Plain <details id> fixtures; no app modules.
 
-import { beforeEach, expect, test } from "vitest";
-import { morphInto } from "../../../backend/static/morph.js";
+import { beforeEach, expect, test, vi } from "vitest";
+import { isDirty, keepPlace, morphInto } from "../../../backend/static/morph.js";
 
 let box;
 beforeEach(() => {
@@ -168,4 +168,53 @@ test("with no skip, behaviour is unchanged", () => {
   expect(k.className).toBe("new");
   expect(k.hasAttribute("data-keep")).toBe(false);
   expect(k.textContent).toBe("new");
+});
+
+test("isDirty: an untouched select with no selected option and an unticked box are clean", () => {
+  box.innerHTML = `<select><option>a</option><option>b</option></select><input type="checkbox"><input value="12.5">`;
+  const [select, check, price] = box.querySelectorAll("select, input");
+  expect([isDirty(select), isDirty(check), isDirty(price)]).toEqual([false, false, false]);
+  select.value = "b";
+  check.checked = true;
+  price.value = "14";
+  expect([isDirty(select), isDirty(check), isDirty(price)]).toEqual([true, true, true]);
+});
+
+test("keepPlace puts back focus and caret on a field the patch moved", () => {
+  morphInto(box, nodes("g1:a,b"));
+  const input = el("b").querySelector("input");
+  input.value = "hello";
+  input.focus();
+  input.setSelectionRange(2, 3);
+  const restore = keepPlace(box);
+  el("g1").prepend(el("b")); // a move drops focus, as on iOS Safari
+  input.blur();
+  restore();
+  expect(document.activeElement).toBe(input);
+  expect([input.selectionStart, input.selectionEnd]).toEqual([2, 3]);
+});
+
+test("keepPlace restores the first on-screen child's position only without overflow-anchor", () => {
+  morphInto(box, nodes("g1:a g2:b"));
+  let top = 10;
+  el("g1").getBoundingClientRect = () => ({ top, bottom: top + 20 });
+  const scrollBy = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
+  const supports = vi.fn(() => false);
+  vi.stubGlobal("CSS", { supports });
+  try {
+    let restore = keepPlace(box);
+    top = 60;
+    restore();
+    expect(scrollBy).toHaveBeenCalledWith(0, 50);
+
+    scrollBy.mockClear();
+    supports.mockReturnValue(true);
+    restore = keepPlace(box);
+    top = 90;
+    restore();
+    expect(scrollBy).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+    scrollBy.mockRestore();
+  }
 });
