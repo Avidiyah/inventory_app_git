@@ -5,7 +5,7 @@
 // two rules: `open` on a <details> belongs to the user, and elements that are
 // new or changed can be flagged with `just-changed` for a one-shot highlight.
 
-import { Idiomorph } from "./vendor/idiomorph-0.7.4.esm.js";
+import { Idiomorph } from "./vendor/idiomorph-0.8.0.esm.js";
 
 const FLASH = "just-changed";
 const cleaned = new WeakSet();
