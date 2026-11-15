@@ -81,3 +81,91 @@ test("with no flashSelector, adds no class", () => {
   morphInto(box, nodes("g1:a=x,b"));
   expect(flagged()).toEqual([]);
 });
+
+// skip: plain HTML fixtures. An element marked data-keep is skipped.
+const html = (s) => {
+  const wrap = document.createElement("div");
+  wrap.innerHTML = s;
+  return wrap.childNodes;
+};
+const keep = (oldEl) => oldEl.hasAttribute("data-keep");
+
+test("a skipped element keeps its attributes, children and field values", () => {
+  morphInto(box, html(`<div id="k" class="old" data-keep><span>old</span><input value="x"></div>`));
+  const k = el("k");
+  const input = k.querySelector("input");
+  input.value = "typed";
+  morphInto(box, html(`<div id="k" class="new"><b>new</b><input value="y"></div>`), { skip: keep });
+  expect(el("k")).toBe(k);
+  expect(k.className).toBe("old");
+  expect(k.hasAttribute("data-keep")).toBe(true);
+  expect(k.querySelector("span").textContent).toBe("old");
+  expect(k.querySelector("b")).toBeNull();
+  expect(k.querySelector("input")).toBe(input);
+  expect(input.value).toBe("typed");
+  expect(input.getAttribute("value")).toBe("x");
+});
+
+test("siblings of a skipped element still update", () => {
+  morphInto(box, html(`<p id="s1">a</p><div id="k" data-keep>old</div><p id="s2">b</p>`));
+  morphInto(box, html(`<p id="s1">A</p><div id="k">new</div><p id="s2">B</p><p id="s3">C</p>`), { skip: keep });
+  expect([...box.children].map((n) => n.textContent)).toEqual(["A", "old", "B", "C"]);
+});
+
+test("a skipped element absent from the new tree is still removed", () => {
+  morphInto(box, html(`<div id="k" data-keep>old</div><p id="s1">a</p>`));
+  morphInto(box, html(`<p id="s1">a</p>`), { skip: keep });
+  expect(el("k")).toBeNull();
+  expect(box.children).toHaveLength(1);
+});
+
+test("a skipped element with an id is never paired with a different id", () => {
+  morphInto(box, html(`<div id="a" data-keep>A</div><div id="b">B</div><div id="c">C</div>`));
+  const a = el("a");
+  const seen = [];
+  morphInto(box, html(`<div id="c">C2</div><div id="x">X</div><div id="a">A2</div>`), {
+    skip: (oldEl, newEl) => {
+      if (oldEl.hasAttribute("data-keep")) seen.push([oldEl.id, newEl.id]);
+      return keep(oldEl);
+    },
+  });
+  expect(el("a")).toBe(a);
+  expect(a.textContent).toBe("A");
+  expect(box.querySelectorAll("#a")).toHaveLength(1);
+  expect(seen.every(([o, n]) => o === n)).toBe(true);
+  expect([...box.children].map((n) => n.id)).toEqual(["c", "x", "a"]);
+  expect(el("b")).toBeNull();
+});
+
+test("skip is not called for text nodes", () => {
+  morphInto(box, html(`text<p id="s1">a</p>more`));
+  const skip = (oldEl) => {
+    if (oldEl.nodeType !== 1) throw new Error("skip called for a non-element");
+    return false;
+  };
+  expect(() => morphInto(box, html(`TEXT<p id="s1">b</p>MORE`), { skip })).not.toThrow();
+  expect(box.textContent).toBe("TEXTbMORE");
+});
+
+test("skip receives the new element it was paired with", () => {
+  morphInto(box, html(`<div id="k" data-keep>old</div>`));
+  let paired = null;
+  morphInto(box, html(`<div id="k" class="fresh">new</div>`), {
+    skip: (oldEl, newEl) => {
+      if (oldEl.id === "k") paired = newEl;
+      return true;
+    },
+  });
+  expect(paired?.className).toBe("fresh");
+  expect(paired?.textContent).toBe("new");
+});
+
+test("with no skip, behaviour is unchanged", () => {
+  morphInto(box, html(`<div id="k" class="old" data-keep>old</div>`));
+  const k = el("k");
+  morphInto(box, html(`<div id="k" class="new">new</div>`));
+  expect(el("k")).toBe(k);
+  expect(k.className).toBe("new");
+  expect(k.hasAttribute("data-keep")).toBe(false);
+  expect(k.textContent).toBe("new");
+});

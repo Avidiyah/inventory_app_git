@@ -13,10 +13,13 @@ const cleaned = new WeakSet();
 // `newNodes` is consumed (moved out of its parent). Elements matched by
 // `flashSelector` must carry an id. A container that held no match before the
 // call flags nothing: a first draw must not light every card.
+// `skip(oldEl, newEl)` returning true leaves that element and its subtree as
+// they are (called for elements only); an element absent from the new tree is
+// still removed.
 export function morphInto(
   container,
   newNodes,
-  { flashSelector = null, flashKey = (el) => el.textContent } = {},
+  { flashSelector = null, flashKey = (el) => el.textContent, skip = null } = {},
 ) {
   const before = new Map();
   if (flashSelector) {
@@ -30,6 +33,7 @@ export function morphInto(
     ignoreActiveValue: true,
     callbacks: {
       beforeAttributeUpdated: (name, node) => !(name === "open" && node.localName === "details"),
+      beforeNodeMorphed: (oldNode, newNode) => !(skip && oldNode.nodeType === 1 && skip(oldNode, newNode)),
     },
   });
 
