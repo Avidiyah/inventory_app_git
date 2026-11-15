@@ -869,7 +869,7 @@ deliberately:
 | `labor.session.changed` | Team Lead+ | exactly the two tracking routes; always `id: null` | `userHub.js` (crew board) |
 | `attendance.changed` | Team Lead+ | the punch writes — `punch-in`, `punch-out`, `switch`, the three `/hub/attendance/punches` writes and `clock-out`; always `id: null` | `hubTimesheetsTab.js` |
 | `item.low_stock.changed` | TechFM OA+ | any stock write that crosses an item's threshold, and a threshold edit; `id` is the item | `lowStock.js` |
-| `user_request.changed` | Technician+ | filing, mark-stocked, cancel, PATCH, fulfil, every stock write that crosses zero for a requested item, add-from-line; `id` is the request | `userRequests.js`, `userHub.js`, `workOrderRequests.js` |
+| `user_request.changed` | Technician+ | any commit that inserts or changes a `UserRequest` (listener in `app/request_events.py`); `id` is the request | `userRequests.js`, `userHub.js`, `workOrderRequests.js` |
 
 Materials, billing, and manual-labor CRUD emit nothing for the card body;
 stock writes emit only the two item/request events above when an edge is crossed.
