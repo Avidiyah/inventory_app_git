@@ -221,12 +221,6 @@ describe("C6 applied-filter chips and result count", () => {
     expect(count().textContent).toBe("Showing 3 work orders");
   });
 
-  it("says 'the N most recent' when the browse is capped", async () => {
-    const cards = Array.from({ length: 10 }, () => workOrderCard());
-    await mountWorkOrders({ role: "admin", cards, mine: false });
-    expect(count().textContent).toBe("Showing the 10 most recent");
-  });
-
   it("renders a chip per filter, with the status glyph swatch and an aria-label", async () => {
     await mountWorkOrders({ role: "admin", cards: [workOrderCard()], mine: false });
     change(el("work-orders-status-filter"), "on_hold");

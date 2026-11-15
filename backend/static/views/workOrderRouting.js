@@ -20,7 +20,6 @@ import { peekProfileOrigin, takeProfileOrigin } from "./profileOrigin.js";
 
 const listEl = document.getElementById("work-orders-list");
 const listMessage = document.getElementById("work-orders-list-message");
-const moreEl = document.getElementById("work-orders-more");
 // The filters/search block. Hidden in solo mode ("card page"), where the list
 // holds one work order and there is nothing to filter.
 const controlsSection = document.getElementById("work-orders-controls-section");
@@ -143,10 +142,6 @@ export function soloNumberFromPath(pathname = window.location.pathname) {
 // isn't the active page.
 function setSoloChrome(on) {
   if (controlsSection) controlsSection.hidden = on;
-  if (moreEl) {
-    if (on) moreEl.innerHTML = "";
-    moreEl.hidden = true;
-  }
 }
 
 // Leave card-page mode and put the address bar back. Called from the top of

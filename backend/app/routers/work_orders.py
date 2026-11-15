@@ -653,7 +653,7 @@ def list_work_orders(
     never match a work order that was routed to a Supervisor rather than
     handed to them as a worker. `limit`
     caps that scheduled-date ordering (the
-    page browses the first 10 by default and omits `limit` for Show all / search).
+    Work Orders page omits it and loads everything).
     Blank or malformed schedule values sort last. Any authenticated user sees
     every live work order; `mine` and `assigned_to_id` only narrow it. Scan /
     Stock and the Hub's Technician tab send them to list assignments only."""

@@ -2,7 +2,7 @@
 //
 // Layer: owns everything the controls block holds -- the filter reads, the
 // filter-option lists fetched from the server, the scheduled-date sort
-// direction and its localStorage memory, and the RECENT_LIMIT browse cap.
+// direction and its localStorage memory.
 // The controls are wired in workOrderList.js; the state they read and write
 // lives here.
 
@@ -22,13 +22,6 @@ const searchInput = document.getElementById("work-orders-search");
 const sortSeg = document.getElementById("work-orders-sort");
 
 let filterOptionsLoaded = false;
-
-// The default browse shows only the RECENT_LIMIT highest scheduled dates to keep
-// the page fast as the archive grows; `showAll` drops the cap. Any active filter
-// queries the full set -- and My Work Orders is on by default, so the cap only
-// applies once that is cleared. See loadWorkOrders / renderMoreControl.
-export const RECENT_LIMIT = 10;
-let showAll = false;
 
 // Matches `domain.work_orders.PRIORITY_FILTER_NONE`: the work orders whose
 // priority never came back from NetFacilities, which the detail card shows as
@@ -98,10 +91,9 @@ export async function loadFilterOptions() {
   return dropped;
 }
 
-// Scheduled-date sort direction. Server-side (`sort` query param) because the
-// default browse fetches only the newest RECENT_LIMIT rows -- reversing those
-// in the browser would show the wrong ten. Remembered per browser; Clear
-// filters leaves it alone since it is a view preference, not a filter.
+// Scheduled-date sort direction. Server-side (`sort` query param). Remembered
+// per browser; Clear filters leaves it alone since it is a view preference,
+// not a filter.
 export const SORT_STORAGE_KEY = "workOrders.sort";
 export const SORT_VALUES = new Set(["scheduled_desc", "scheduled_asc"]);
 let sortDir = "scheduled_desc";
@@ -157,12 +149,8 @@ export function filterKeys() {
   return Object.keys(FILTER_CONTROLS);
 }
 
-export function hasActiveFilters() {
-  return Object.values(currentFilters()).some(Boolean);
-}
-
 // The list request: every filter plus the sort direction, which is not a
-// filter (it never affects the RECENT_LIMIT cap or Clear filters).
+// filter (it never affects Clear filters).
 export function listParams() {
   return { ...currentFilters(), sort: sortDir };
 }
@@ -187,8 +175,6 @@ export function resetFilterControls() {
   if (searchInput) searchInput.value = "";
 }
 
-export function getShowAll() { return showAll; }
-export function setShowAll(value) { showAll = value; }
 export function getSortDir() { return sortDir; }
 export function setSortDir(value) { sortDir = value; }
 export function invalidateFilterOptions() { filterOptionsLoaded = false; }

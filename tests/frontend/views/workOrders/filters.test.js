@@ -1,5 +1,5 @@
 // Characterization: the list-loading surface -- filters, keyword searches,
-// sort, the RECENT_LIMIT cap, reference data, the archived-number restore
+// sort, reference data, the archived-number restore
 // prompt, and the second renderer the User Hub mounts.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -52,7 +52,6 @@ describe("the seven filter selects", () => {
     await flush();
     expect(listUrls()).toHaveLength(1);
     expect(listUrls()[0]).toContain(param);
-    // A filtered list is a search: the RECENT_LIMIT cap is dropped.
     expect(listUrls()[0]).not.toContain("limit=");
   });
 
@@ -97,20 +96,6 @@ describe("the seven filter selects", () => {
     change(el("work-orders-status-filter"), "completed");
     await flush();
     expect(listUrls()[0]).toContain("sort=scheduled_desc");
-  });
-
-  it("resets Show all", async () => {
-    const cards = Array.from({ length: 11 }, (_, i) => workOrderCard({ number: `${i}` }));
-    await mountWorkOrders({ role: "admin", cards, mine: false });
-    el("wo-show-all").click();
-    await flush();
-    expect(listUrls().at(-1)).not.toContain("limit=");
-    change(el("work-orders-status-filter"), "completed");
-    await flush();
-    // Back to a capped browse the moment the filter is cleared again.
-    change(el("work-orders-status-filter"), "");
-    await flush();
-    expect(listUrls().at(-1)).toContain("limit=10");
   });
 });
 
@@ -203,7 +188,7 @@ describe("My Work Orders", () => {
     chip.click();
     await flush();
     expect(el("work-orders-mine-filter").checked).toBe(false);
-    expect(listUrls().at(-1)).toBe("/work-orders/?limit=10&sort=scheduled_desc");
+    expect(listUrls().at(-1)).toBe("/work-orders/?sort=scheduled_desc");
   });
 
   it("Filters opens a hidden panel and its button counts the active filters", async () => {
@@ -308,33 +293,13 @@ describe("the sort control", () => {
   });
 });
 
-describe("RECENT_LIMIT", () => {
-  const many = (n) => Array.from({ length: n }, (_, i) => workOrderCard({ number: `${i}` }));
-
-  it("caps an unfiltered browse at ten and offers Show all", async () => {
-    await mountWorkOrders({ role: "admin", cards: many(10), mine: false });
-    expect(cardEls()).toHaveLength(10);
-    expect(el("work-orders-more").hidden).toBe(false);
-    expect(el("wo-show-all").textContent).toBe("Show all work orders");
-  });
-
-  it("offers nothing when the capped page did not fill", async () => {
-    await mountWorkOrders({ role: "admin", cards: many(3), mine: false });
-    expect(el("work-orders-more").hidden).toBe(true);
-    expect(el("work-orders-more").innerHTML).toBe("");
-  });
-
-  it("Show all drops the cap and offers the way back", async () => {
-    await mountWorkOrders({ role: "admin", cards: many(10), mine: false });
-    seedList(many(11));
-    el("wo-show-all").click();
-    await vi.waitFor(() => expect(cardEls()).toHaveLength(11));
-    expect(listUrls()[0]).not.toContain("limit=");
-    expect(el("wo-show-recent").textContent).toBe("Show recent only");
-    seedList(many(10));
-    el("wo-show-recent").click();
-    await vi.waitFor(() => expect(cardEls()).toHaveLength(10));
-    expect(listUrls().at(-1)).toContain("limit=10");
+describe("the unfiltered browse", () => {
+  it("loads every work order in one request, with no cap or Show all control", async () => {
+    const cards = Array.from({ length: 11 }, (_, i) => workOrderCard({ number: `${i}` }));
+    await mountWorkOrders({ role: "admin", cards, mine: false });
+    expect(cardEls()).toHaveLength(11);
+    expect(document.getElementById("wo-show-all")).toBeNull();
+    expect(document.getElementById("work-orders-more")).toBeNull();
   });
 });
 
@@ -524,7 +489,6 @@ describe("the list error path", () => {
     await mod.loadWorkOrders();
     expect(listEl().innerHTML).toBe("");
     expect(el("work-orders-list-message").textContent).toBe("Server down");
-    expect(el("work-orders-more").hidden).toBe(true);
   });
 
   it("leaves the list untouched on a background failure", async () => {

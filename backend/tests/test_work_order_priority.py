@@ -167,7 +167,6 @@ def test_work_orders_ui_wires_a_priority_filter():
 
     assert 'id="work-orders-priority-filter"' in page
     assert "work-orders-priority-filter" in view
-    # It has to join currentFilters(), or hasActiveFilters() stays false and a
-    # priority browse silently keeps the RECENT_LIMIT cap -- showing the first
-    # ten scheduled dates as if they were every match.
+    # It has to join currentFilters(), or the priority filter never reaches the
+    # list request and the browse ignores it.
     assert "priority: priorityFilter" in view

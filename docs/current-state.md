@@ -209,7 +209,7 @@ backend/static/views/smrHours.js SMR Hours tab: worker × week and vendor × wee
 backend/static/views/smrFilters.js SMR search/filter controls (Work Orders row minus service type and NetFacilities status), sort memory `smr.sort`, filters + the three chips `stage` / `pile` / `flags` in `smr.filters` (sessionStorage: survive a reload, not a new tab; a chip its row no longer offers falls back to the row default)
 backend/static/views/workOrderRouting.js card-page mode, /workorder_card/ URL, list scroll restore
 backend/static/views/workOrderPresenters.js status/priority/money/place formatting + role predicates
-backend/static/views/workOrderFilters.js filter reads, filter options, sort direction, RECENT_LIMIT
+backend/static/views/workOrderFilters.js filter reads, filter options, sort direction
 backend/static/views/workOrderReferenceData.js allItems/allTechs/allSupers behind ensureReferenceData
 backend/static/views/workOrderSignature.js Signature section builders, the guided sign-off flow + its stroke pad (leaf after presenters)
 backend/static/views/tools.js    Tools page (list/search/scan) + Add Tool form binding
@@ -683,7 +683,7 @@ Work orders:
   click clears the origin.
 - Work Orders list filters are server-side and joinable: My Work Orders (`mine`:
   routed to me as Team Lead or assigned to me as technician; **on by default for
-  every role**, so the RECENT_LIMIT cap applies only once it is cleared), status,
+  every role**), status,
   exact normalized service type, routed Team Lead, derived community, exact
   scheduled date, and the page's one search box (`text_q`: number OR location OR
   task, never notes) all combine with AND before the caller's normal visibility
@@ -1803,9 +1803,8 @@ remain, unmounted, and stay tested so the coverage gate holds
 directly). TechFM OA+ get import (with summary counts), filtered/
 client CSV export, Archive on any live card, and the exact-archived-number
 restore prompt; the Owner additionally the hidden legacy re-archive button
-(preview count → confirm → actual count). The list shows the newest 10 by
-default ("Show all" lifts it); any active filter queries the complete
-matching set.
+(preview count → confirm → actual count). The list loads every matching work
+order in one request (no cap, no "Show all").
 
 Low Stock: TechFM OA+ reorder queue. Every live item at or below its own
 `low_stock_threshold`, ordered by headroom (deepest below first), one

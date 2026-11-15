@@ -52,13 +52,10 @@ import {
   summaryHtml,
 } from "./workOrderCardHtml.js";
 import {
-  RECENT_LIMIT,
   SORT_STORAGE_KEY,
   SORT_VALUES,
   currentFilters,
-  getShowAll,
   getSortDir,
-  hasActiveFilters,
   invalidateFilterOptions,
   isFilterOptionsLoaded,
   listParams,
@@ -66,7 +63,6 @@ import {
   renderSortControl,
   resetFilterControls,
   selectFilterValue,
-  setShowAll,
   setSortDir,
 } from "./workOrderFilters.js";
 import {
@@ -105,7 +101,6 @@ const filtersCountEl = document.getElementById("work-orders-filters-count");
 const filtersBtn = document.getElementById("work-orders-filters-btn");
 const filtersPanel = document.getElementById("work-orders-advanced");
 const sortSeg = document.getElementById("work-orders-sort");
-const moreEl = document.getElementById("work-orders-more");
 // The filters/search block. Hidden in solo mode ("card page"), where the list
 // holds one work order and there is nothing to filter.
 const controlsSection = document.getElementById("work-orders-controls-section");
@@ -248,25 +243,19 @@ export async function loadWorkOrders({
   if (technicianFilterField) technicianFilterField.hidden = !isSupervisorPlus();
 
   const filters = currentFilters();
-  // The cap applies only to a completely unfiltered browse. Any advanced filter
-  // is a search and must return the complete matching set.
-  const capped = !hasActiveFilters() && !getShowAll() && !pendingFocusId;
-  const limit = capped ? RECENT_LIMIT : null;
   try {
-    let cards = await apiListWorkOrders({ ...listParams(), limit });
+    let cards = await apiListWorkOrders(listParams());
     // Latest request wins: a newer load owns the screen.
     if (archivedLookupToken !== archivedSearchToken) return;
     if (pendingFocusId && !cards.some((c) => c.id === pendingFocusId)) {
       resetFilterControls();
-      setShowAll(false);
       cards = await apiListWorkOrders({ limit: null, sort: getSortDir() });
       if (archivedLookupToken !== archivedSearchToken) return;
     }
     renderCards(cards, { flash: background });
-    renderMoreControl(capped, cards.length);
     renderFilterChips();
     renderScope();
-    renderResultCount({ count: cards.length, capped });
+    renderResultCount({ count: cards.length });
     setMessage(listMessage, "", "");
     // The list is on screen and final: the only point at which a remembered
     // offset means anything. Below the focus branch's `openWorkOrderPage`
@@ -303,10 +292,6 @@ export async function loadWorkOrders({
     renderFilterChips();
     renderScope();
     hideResultCount();
-    if (moreEl) {
-      moreEl.hidden = true;
-      moreEl.innerHTML = "";
-    }
     setMessage(listMessage, friendlyError(err, "Could not load work orders."), "error");
   }
 }
@@ -380,40 +365,6 @@ function appendGroupedCards(container, cards, build, idPrefix = "wo") {
     groups.get(key).forEach((card) => list.appendChild(build(card)));
     container.appendChild(group);
   }
-}
-
-// The "Show all" / "Show recent only" control beneath the list. Only meaningful on
-// a plain (not search-driven) browse:
-//  - a capped browse that filled the page (>= RECENT_LIMIT rows) may have more
-//    beyond the cap, so offer "Show all". (An exact-RECENT_LIMIT total just reloads
-//    the same rows on click -- harmless.)
-//  - when showing all, offer "Show recent only" to return to the fast view.
-//  - during a search, or a short capped page, show nothing.
-function renderMoreControl(capped, shownCount) {
-  if (!moreEl) return;
-  if (getShowAll() && !hasActiveFilters()) {
-    moreEl.innerHTML =
-      `<button type="button" class="secondary-btn" id="wo-show-recent">Show recent only</button>`;
-    moreEl.hidden = false;
-  } else if (capped && shownCount >= RECENT_LIMIT) {
-    moreEl.innerHTML = `<button type="button" id="wo-show-all">Show all work orders</button>`;
-    moreEl.hidden = false;
-  } else {
-    moreEl.innerHTML = "";
-    moreEl.hidden = true;
-  }
-}
-
-if (moreEl) {
-  moreEl.addEventListener("click", (event) => {
-    if (event.target.id === "wo-show-all") {
-      setShowAll(true);
-      loadWorkOrders();
-    } else if (event.target.id === "wo-show-recent") {
-      setShowAll(false);
-      loadWorkOrders();
-    }
-  });
 }
 
 // One work order changed. A list card rewrites its summary, status class and
@@ -619,7 +570,6 @@ async function openDetail(workOrderId, bodyEl, cardEl) {
 export function openWorkOrdersByNumberSearch(number) {
   resetFilterControls();
   if (searchInput) searchInput.value = number;
-  setShowAll(false);
   pendingArchivedCheck = true;
 }
 
@@ -632,7 +582,6 @@ export function openWorkOrdersByNumberSearch(number) {
 export function openWorkOrdersFilteredByStatus(status) {
   resetFilterControls();
   if (statusFilter) statusFilter.value = status;
-  setShowAll(false);
 }
 
 // Called from the User Hub's Graphs tab (hubGraphs.js via userHub.js) by a
@@ -659,7 +608,6 @@ export function openWorkOrdersFilteredByDistribution({
   selectFilterValue(serviceTypeFilter, serviceType);
   selectFilterValue(priorityFilter, priority);
   if (status && statusFilter) statusFilter.value = status;
-  setShowAll(false);
 }
 
 // A second, independent card-list renderer for a container other than
@@ -762,7 +710,6 @@ if (searchInput) {
 [mineFilter, statusFilter, serviceTypeFilter, priorityFilter, supervisorFilter, technicianFilter, communityFilter, scheduledDateFilter].forEach((control) => {
   if (!control) return;
   control.addEventListener("change", () => {
-    setShowAll(false);
     loadWorkOrders();
   });
 });
@@ -800,7 +747,6 @@ function clearFilters(keepScope = false) {
   cancelSearchDebounces();
   resetFilterControls();
   if (keepScope && mineFilter) mineFilter.checked = mine;
-  setShowAll(false);
   loadWorkOrders();
 }
 
@@ -845,7 +791,6 @@ renderScope();
 installFilterChips({
   onRemove: () => {
     cancelSearchDebounces();
-    setShowAll(false);
     loadWorkOrders();
   },
   onClearAll: () => clearFilters(),

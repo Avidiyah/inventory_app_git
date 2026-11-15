@@ -92,7 +92,6 @@ describe("opening a card page", () => {
     expect(window.location.pathname).toBe("/workorder_card/4242");
     expect(window.history.state).toEqual({ solo: "4242" });
     expect(controls().hidden).toBe(true);
-    expect(document.getElementById("work-orders-more").hidden).toBe(true);
     expect(cardEls()).toHaveLength(1);
     expect(card().open).toBe(true);
     // The card page's presentation modifier survives every repaint.

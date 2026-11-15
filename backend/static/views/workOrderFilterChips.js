@@ -9,7 +9,7 @@
 // reload path, so no filter logic lives here.
 
 import { escapeHtml } from "../format.js";
-import { RECENT_LIMIT, currentFilters, filterControl, filterKeys } from "./workOrderFilters.js";
+import { currentFilters, filterControl, filterKeys } from "./workOrderFilters.js";
 import { statusGlyph } from "./workOrderGlyphs.js";
 
 const chipsEl = document.getElementById("work-orders-filter-chips");
@@ -78,14 +78,12 @@ export function renderFilterChips() {
   chipsEl.hidden = chips.length === 0;
 }
 
-// `capped` is the unfiltered RECENT_LIMIT browse; `count` is the rows loaded.
-export function renderResultCount({ count, capped }) {
+// `count` is the rows loaded.
+export function renderResultCount({ count }) {
   if (!countEl) return;
   let text;
   if (!count && activeFilterChips().length) {
     text = "No work orders match these filters — clear a filter to widen the list";
-  } else if (capped && count >= RECENT_LIMIT) {
-    text = `Showing the ${RECENT_LIMIT} most recent`;
   } else {
     text = `Showing ${count} work order${count === 1 ? "" : "s"}`;
   }
