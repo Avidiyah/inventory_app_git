@@ -1,6 +1,6 @@
 # Work Orders save-time conflict check (W3): design
 
-Date: 2026-11-15. Status: draft, awaiting owner review. Scope: three save paths on the Work Orders card. Builds on W2 (`2026-11-14-work-order-live-rendering-design.md`, Stage 2).
+Date: 2026-11-15. Status: approved by the owner 2026-11-15 (all author's calls accepted); plan: `docs/superpowers/plans/2026-11-15-work-order-save-conflict-check.md`. Scope: three save paths on the Work Orders card. Builds on W2 (`2026-11-14-work-order-live-rendering-design.md`, Stage 2).
 
 ## Intent
 
