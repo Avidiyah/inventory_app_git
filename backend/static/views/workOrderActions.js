@@ -47,6 +47,7 @@ import {
   syncWorkOrderTabs,
   technicianSelectionHtml,
 } from "./workOrderCardHtml.js";
+import { actionsSettling } from "./workOrderLiveBody.js";
 import { getAllItems, itemsLoading } from "./workOrderReferenceData.js";
 import { exitSolo } from "./workOrderRouting.js";
 import { peekProfileOrigin, takeProfileOrigin } from "./profileOrigin.js";
@@ -112,6 +113,9 @@ listEl.addEventListener("input", (event) => {
 listEl.addEventListener("click", async (event) => {
   const btn = event.target.closest("[data-action]");
   if (!btn) return;
+  // A tap that lands just after a live patch changed the action bar was aimed
+  // at the old buttons. Keyboard activation (detail 0) is never a misaim.
+  if (event.detail > 0 && btn.closest("#wo-sec-actions, .wo-smr-ready") && actionsSettling(btn.closest(".wo-card"))) return;
   const action = btn.dataset.action;
 
   if (action === "pick-item") {

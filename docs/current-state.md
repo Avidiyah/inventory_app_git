@@ -197,6 +197,7 @@ backend/static/views/*.js        page/view modules
 backend/static/views/workOrders.js Work Orders public surface (barrel over the siblings below)
 backend/static/views/workOrderList.js list load, card build, realtime, the openWorkOrders* entry points
 backend/static/views/workOrderCardHtml.js every card HTML builder + the picker/combo open-close helpers
+backend/static/views/workOrderLiveBody.js `patchBodyLive`: a live update patches the open card body via `morphInto` + `skip`, leaving alone touched entry forms, typed/focused fields, an open Edit details or charge editor, and both message lines; warns on dropped input or a conflicting change; `actionsSettling` makes the action bar ignore taps (not keyboard) for 500 ms after its buttons change
 backend/static/views/workOrderStatusActions.js controls-row tiers (primary/secondary/tools) + charging strip
 backend/static/views/workOrderGlyphs.js status/priority/overdue/clock inline-SVG glyphs (group leaf)
 backend/static/views/workOrderFilterChips.js applied-filter chips + result count line
@@ -223,7 +224,7 @@ backend/static/shell-*.html      shell fragments
 backend/static/styles.css        global styles
 backend/static/scan/*.js         live scanner wrapper/debouncer
 backend/static/vendor/*          vendored ZXing browser library; idiomorph 0.7.4 (ESM, 0BSD)
-backend/static/morph.js          `morphInto(container, newNodes, { flashSelector, flashKey })`: patches a container in place via idiomorph; never changes `open` on a `<details>`; flags new/changed matches with `.just-changed` (one-shot highlight, off under reduced motion). Only caller: the Work Orders page list (`renderCards`), which wipes instead of patching when the list holds anything but a previous list draw; list cards/groups carry `wo-`/`hubwo-` ids and one tap handler per list
+backend/static/morph.js          `morphInto(container, newNodes, { flashSelector, flashKey })`: patches a container in place via idiomorph; never changes `open` on a `<details>`; flags new/changed matches with `.just-changed` (one-shot highlight, off under reduced motion). Callers: `workOrderLiveBody.js` and the Work Orders page list (`renderCards`), which wipes instead of patching when the list holds anything but a previous list draw; list cards/groups carry `wo-`/`hubwo-` ids and one tap handler per list
 ```
 
 Work-order module rule: the nine other views import `workOrders.js` and only
@@ -423,10 +424,14 @@ Real-time invalidation (`domain/realtime.py`, `services/realtime*.py`,
   no actor suppression, no status UI, no client→server messages.
 - Work Orders: an entity event for an on-screen card refetches that one work
   order and repaints in place; a 404 removes the row; an off-screen id is
-  ignored; a null id or a reconnect refetches the full list. A card with any
-  editor section open is **held** — no refresh touches it, it is flagged
-  `data-missed-update` and catches up when its last editor closes, and a
-  full-list refetch is deferred while any card is held. A filtered list is a
+  ignored; a null id or a reconnect refetches the full list. On the card page
+  the event (or a null id/reconnect) takes a **live refresh** instead: one
+  fetch per card at a time (a rerun queued behind it), a response overtaken by
+  the user's own repaint is refetched, one for a card no longer on screen is
+  ignored, 401 and network failures change nothing (`quiet401`), and the body
+  is patched by `patchBodyLive`. What it left stale for an open Edit details
+  or a focused field is flagged `data-missed-update` and catches up on the
+  next section close or focusout. A filtered list is a
   snapshot refined by live badges: a row whose new status no longer matches
   the filter keeps its updated badge and stays until the next full load.
 - Admin Review: socket-driven refreshes are silent and never replace the open
@@ -646,11 +651,11 @@ Work orders:
   (task, schedule, crew; no fetch). Its "Open work order" navigates to
   `/workorder_card/<number>`: the filter and import sections hide and a Back
   control appears above the card. The card page is tabbed (Details · Notes ·
-  Materials · Labor · Invoice): each tab opens one section `<details>`, so the
-  held-editor rule is unchanged; the entry-mode select sits in Materials; a
+  Materials · Labor · Invoice): each tab opens one section `<details>`; an
+  open one marks the card **held** (`heldWorkOrderCards`, for the re-login
+  resume only); the entry-mode select sits in Materials; a
   sticky bottom bar holds the status actions and a ⋯ menu (Netfacilities,
-  Archive, Edit details). Only the card page can be held, so a list refetch is
-  always safe. The card remains a `details.wo-card` inside
+  Archive, Edit details). The card remains a `details.wo-card` inside
   `#work-orders-list` — moving it into another container would silently break
   the delegated action layer (~20 click branches, the technician picker, the
   billing editor) and the realtime subscriber's card lookup, with no error.

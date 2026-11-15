@@ -30,7 +30,7 @@ import {
 } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
 import { morphInto } from "../morph.js";
-
+import { patchBodyLive } from "./workOrderLiveBody.js";
 
 import { subscribe } from "../realtime.js";
 import { skeletonCard } from "../skeleton.js";
@@ -416,27 +416,22 @@ if (moreEl) {
   });
 }
 
-// One work order changed. Rewrite that card's summary and status class, and,
-// if the card is expanded and not held, its body too, so the badge and the
-// body's status actions never disagree. A held card's editor is never
-// touched -- the caller filters those out before calling this.
+// One work order changed. A list card rewrites its summary, status class and
+// preview; the card page's card takes a live refresh instead.
 //
 // A 404 means the work order left this user's view: archived (every recognised
 // role sees every live work order). The row goes. Only 404 removes a card; a network blip
 // rejects without a `status` field and must leave the list alone.
 async function refreshCardSummary(cardEl) {
+  if (isSoloActive()) {
+    requestLiveRefresh(cardEl);
+    return;
+  }
   let detail;
   try {
     detail = await apiGetWorkOrder(cardEl.dataset.id);
   } catch (err) {
     if (err?.status !== 404) return;
-    if (isSoloActive()) {
-      // The card page's only card just left this user's view -- archived.
-      // Wiping to the list's "No work orders match."
-      // would leave a page with no card and no way back.
-      renderSoloError("This work order is no longer available.");
-      return;
-    }
     cardEl.remove();
     if (!listEl.querySelector("details.wo-card")) {
       listEl.innerHTML = `<p class="hint">No work orders match.</p>`;
@@ -447,48 +442,82 @@ async function refreshCardSummary(cardEl) {
   const before = summary?.textContent;
   if (summary) summary.innerHTML = summaryHtml(detail);
   setCardClass(cardEl, detail);
-
-  if (!isSoloActive()) {
-    cardEl.classList.toggle("just-changed", before !== summary?.textContent);
-    // A list card: a status change moves it to another group, which only a
-    // reload places correctly (the server owns the order within a group).
-    const group = cardEl.closest(".wo-group");
-    if (group && group.dataset.status !== groupKey(detail)) {
-      runOrDeferListRefresh();
-      return;
-    }
-    const peek = cardEl.querySelector(".wo-body");
-    if (peek) peek.innerHTML = peekHtml(detail);
+  cardEl.classList.toggle("just-changed", before !== summary?.textContent);
+  // A status change moves the card to another group, which only a reload
+  // places correctly (the server owns the order within a group).
+  const group = cardEl.closest(".wo-group");
+  if (group && group.dataset.status !== groupKey(detail)) {
+    runOrDeferListRefresh();
     return;
   }
+  const peek = cardEl.querySelector(".wo-body");
+  if (peek) peek.innerHTML = peekHtml(detail);
+}
 
-  // A badge alone is not enough: an expanded, non-held card still shows its
-  // body, and the body's status actions (renderBody picks them off
-  // detail.status) must not fall out of sync with the badge just repainted
-  // above -- that is exactly the "Completed" badge over a live "Mark
-  // Completed" button spec section 5 exists to prevent.
-  //
-  // `paintDetail` reuses the detail already fetched above rather than going
-  // back to the server, so this stays one request and inherits no second
-  // failure path. Held cards are never reached here -- both callers guard for
-  // it -- and the re-check below closes the window where an editor opened
-  // while the fetch was in flight.
-  const bodyEl =
-    cardEl.open && !isHeld(cardEl) ? cardEl.querySelector(".wo-body") : null;
-  if (bodyEl) {
-    paintDetail(detail, bodyEl, cardEl);
-  } else {
-    // Collapsed, held, or bodyless: drop the loaded flag so the next expansion
-    // re-fetches instead of showing a body that is now stale.
-    delete cardEl.dataset.loaded;
+// --- live refresh (the card page) --------------------------------------------
+//
+// One fetch per card at a time: a request while one runs sets `rerun`, and the
+// running one goes once more when it finishes, so responses apply in order.
+// A response a newer paint overtook (the user's own save) is dropped and
+// refetched; one for a card no longer on screen is ignored.
+const paintCounts = new WeakMap();
+const liveRuns = new WeakMap();
+
+function requestLiveRefresh(cardEl) {
+  const run = liveRuns.get(cardEl);
+  if (run) {
+    run.rerun = true;
+    return;
+  }
+  const state = { rerun: false };
+  liveRuns.set(cardEl, state);
+  void (async () => {
+    try {
+      do {
+        state.rerun = false;
+        await liveRefreshPass(cardEl);
+      } while (state.rerun && cardEl.isConnected);
+    } finally {
+      liveRuns.delete(cardEl);
+    }
+  })();
+}
+
+async function liveRefreshPass(cardEl) {
+  for (;;) {
+    const painted = paintCounts.get(cardEl) ?? 0;
+    let detail;
+    try {
+      // Quiet: a background refresh never signs the user out mid-typing.
+      detail = await apiGetWorkOrder(cardEl.dataset.id, { quiet401: true });
+    } catch (err) {
+      // Archived. Wiping to the list's "No work orders match." would leave a
+      // page with no card and no way back. 401 and network failures: nothing.
+      if (err?.status === 404 && cardEl.isConnected) renderSoloError("This work order is no longer available.");
+      return;
+    }
+    if (!cardEl.isConnected) return;
+    if ((paintCounts.get(cardEl) ?? 0) !== painted) continue;
+    const summary = cardEl.querySelector(":scope > summary.wo-summary");
+    if (summary) summary.innerHTML = summaryHtml(detail);
+    setCardClass(cardEl, detail);
+    const bodyEl = cardEl.open ? cardEl.querySelector(":scope > .wo-body") : null;
+    if (!bodyEl) {
+      delete cardEl.dataset.loaded;
+      return;
+    }
+    const { deferred } = patchBodyLive(detail, bodyEl, cardEl);
+    cardEl.dataset.loaded = "1";
+    if (deferred) cardEl.dataset.missedUpdate = "1";
+    else delete cardEl.dataset.missedUpdate;
+    return;
   }
 }
 
 // The editor sections inside a card body. A card holding any of them open is
-// "held": nothing refreshes it, because rewriting it would discard an unsaved
-// note, a material quantity, labor hours, a technician selection, or a
-// half-drawn signature in progress. The technician combobox needs no entry --
-// it renders inside `.wo-edit-card`.
+// "held": workOrderRetry.js offers to reopen it after a re-login. A live
+// update no longer waits for these (workOrderLiveBody.js patches around what
+// the user touched). The technician combobox renders inside `.wo-edit-card`.
 const EDITOR_SECTIONS =
   ".wo-edit-card, .wo-notes-section, .wo-materials-section, .wo-labor-section";
 
@@ -503,21 +532,13 @@ export function heldWorkOrderCards() {
   return Array.from(listEl.querySelectorAll("details.wo-card")).filter(isHeld);
 }
 
-// Editors exist only on the card page (list cards open a read-only preview),
-// so only the card page can be held; a list refetch is always safe.
 function runOrDeferListRefresh() {
   if (isSoloActive()) {
     // A list refetch would replace the card page with the list -- silently,
     // with the card's URL still in the address bar. On a card page the only
-    // row that can matter is the one on screen, so refresh that instead, or
-    // defer it while an editor is open.
+    // row that can matter is the one on screen, so refresh that instead.
     const cardEl = listEl.querySelector("details.wo-card");
-    if (!cardEl) return;
-    if (isHeld(cardEl)) {
-      cardEl.dataset.missedUpdate = "1";
-      return;
-    }
-    void refreshCardSummary(cardEl);
+    if (cardEl) requestLiveRefresh(cardEl);
     return;
   }
   void loadWorkOrders({ background: true });
@@ -690,16 +711,17 @@ function paintDetail(detail, bodyEl, cardEl) {
   renderBody(detail, bodyEl);
   if (!cardEl) return;
 
+  // A live response fetched before this paint is older than it.
+  paintCounts.set(cardEl, (paintCounts.get(cardEl) ?? 0) + 1);
   cardEl.dataset.loaded = "1";
   setCardClass(cardEl, detail);
   // The header follows every save: status, priority, schedule (Overdue),
   // location, crew and item count are all edited on this card.
   const summary = cardEl.querySelector(":scope > summary.wo-summary");
   if (summary) summary.innerHTML = summaryHtml(detail);
-  // This repaint already reflects the latest data, so any missed socket
-  // update while the card was held is now satisfied -- every repaint path
-  // (Cancel, Save details, materials/labor actions, initial expansion)
-  // routes through here.
+  // This repaint already reflects the latest data, so an update a live patch
+  // left stale is now satisfied -- every repaint path (Cancel, Save details,
+  // materials/labor actions, initial expansion) routes through here.
   delete cardEl.dataset.missedUpdate;
 }
 
@@ -852,29 +874,21 @@ subscribe(STATUS_CHANGED_EVENT, ({ activePage, envelope, reason }) => {
 
   const cardEl = listEl.querySelector(`details.wo-card[data-id="${envelope.id}"]`);
   if (!cardEl) return;
-  if (isHeld(cardEl)) {
-    // Catch up when the editor closes rather than yanking input away mid-edit.
-    cardEl.dataset.missedUpdate = "1";
-    return;
-  }
   return refreshCardSummary(cardEl);
 });
 
-// `toggle` does not bubble, so this listens in the capture phase -- a delegated
-// bubble-phase listener here would silently never fire.
+// Catch-up: a live patch left something stale because the user was on it (an
+// open Edit details, a focused field). Closing a section or leaving a field
+// asks again. `toggle` does not bubble, so it listens in the capture phase.
+// Only a close counts: opening leaves nothing to catch up on.
+function catchUp(event) {
+  if (event.type === "toggle" && event.target.open) return;
+  const cardEl = event.target.closest?.("details.wo-card");
+  if (cardEl?.dataset.missedUpdate === "1") requestLiveRefresh(cardEl);
+}
 if (listEl) {
-  listEl.addEventListener(
-    "toggle",
-    () => {
-      const cards = Array.from(listEl.querySelectorAll("details.wo-card"));
-      for (const cardEl of cards) {
-        if (cardEl.dataset.missedUpdate !== "1" || isHeld(cardEl)) continue;
-        delete cardEl.dataset.missedUpdate;
-        void refreshCardSummary(cardEl);
-      }
-    },
-    true
-  );
+  listEl.addEventListener("toggle", catchUp, true);
+  listEl.addEventListener("focusout", catchUp);
 }
 
 // Routing's three list dependencies, handed over once. Placed last so every

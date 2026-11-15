@@ -66,7 +66,9 @@ async function rawFetch(url, init = {}) {
   }
 }
 
-async function parseResponse(response) {
+// `quiet401`: a background read that must not sign the user out mid-typing;
+// the 401 still rejects, and the user's next save meets it with a draft kept.
+async function parseResponse(response, { quiet401 = false } = {}) {
   // 204 No Content has an empty body by definition -- short-circuit
   // so callers can branch on `null` without parsing an empty string.
   if (response.status === 204) return null;
@@ -81,7 +83,7 @@ async function parseResponse(response) {
     const detail = (body && typeof body === "object" && body.detail !== undefined)
       ? body.detail
       : (typeof body === "string" ? body : response.statusText);
-    if (response.status === 401 && unauthorizedHandler) {
+    if (response.status === 401 && unauthorizedHandler && !quiet401) {
       unauthorizedHandler();
     }
     throw { status: response.status, detail };
@@ -580,8 +582,8 @@ export async function apiGetWorkOrderFilterOptions() {
   return liveGet("/work-orders/filter-options");
 }
 
-export async function apiGetWorkOrder(workOrderId) {
-  return parseResponse(await rawFetch(`/work-orders/${workOrderId}`, { credentials: "include" }));
+export async function apiGetWorkOrder(workOrderId, { quiet401 = false } = {}) {
+  return parseResponse(await rawFetch(`/work-orders/${workOrderId}`, { credentials: "include" }), { quiet401 });
 }
 
 export async function apiListWorkOrderRequests(workOrderId) {
