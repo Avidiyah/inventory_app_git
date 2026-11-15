@@ -195,6 +195,16 @@ describe("card body identity census", () => {
     });
   });
 
+  it("every Edit details field has a W3 snapshot source", async () => {
+    const { DETAIL_FIELD_SELECTORS } = await importView("views/workOrderConflict.js");
+    await eachFixture((body, name) => {
+      const unsourced = [...body.querySelectorAll(`#wo-edit-card :is(${FIELDS})`)].filter(
+        (f) => !f.disabled && !f.matches(".wo-tech-search") && !DETAIL_FIELD_SELECTORS.some((s) => f.matches(s)),
+      );
+      expect(unsourced.map((f) => `${f.localName}.${[...f.classList].join(".")}`), name).toEqual([]);
+    });
+  });
+
   it("every field is accounted for", async () => {
     await eachFixture((body, name, ctx) => {
       const strays = [...body.querySelectorAll(FIELDS)].filter(

@@ -67,7 +67,9 @@ describe("cancel-edit", () => {
 });
 
 describe("save-details", () => {
-  it("sends every rendered field, trimmed, with the original supervisor id", async () => {
+  // W3: only edited fields are sent, each with the value it showed; the
+  // send-everything save (and its silent status rollback) is retired.
+  it("sends the edited fields, trimmed, each with the value it showed", async () => {
     const supervisorUser = user({ role: "supervisor", full_name: "Sue S" });
     const detail = workOrderDetail({ supervisor_id: supervisorUser.id });
     await mountWorkOrders({
@@ -82,66 +84,52 @@ describe("save-details", () => {
     body.querySelector(".wo-edit-location").value = "  Hallway B  ";
     body.querySelector(".wo-edit-service-type").value = "Plumbing";
     body.querySelector(".wo-edit-priority").value = "Urgent";
-    body.querySelector(".wo-edit-description").value = "";
     click("save-details");
     await vi.waitFor(() =>
       expect(requestFor(`/work-orders/${detail.id}`, "PATCH")).not.toBeNull());
     const sent = requestFor(`/work-orders/${detail.id}`, "PATCH").body;
     expect(sent).toEqual({
-      // Observed: the row is `assigned` but carries no technicians, so the
-      // editor offers `created` as its pre-work choice and `assigned` is not
-      // among the options -- the select falls back to the first one, and a
-      // save that touched nothing else silently rolls the status back.
-      // Filed in docs/open-work.md.
-      status: "created",
       location: "Hallway B",
       service_type: "Plumbing",
-      schedule_date: "2026-09-10",
-      output_to: null,
-      vendor_assignee: null,
-      description: null,
       priority: "Urgent",
-      supervisor_id: String(supervisorUser.id),
-      expected_supervisor_id: String(supervisorUser.id),
-      assigned_to_ids: [],
+      expected: { location: detail.location ?? null, service_type: detail.service_type ?? null, priority: detail.priority ?? null },
     });
     await refreshed(detail.id);
   });
 
-  it("omits the fields the editor never rendered", async () => {
-    // A Supervisor's editor has no imported-metadata inputs, and no work
-    // order has the legacy community/building/unit ones. `undefined` fields
-    // are deleted rather than sent as null, which would wipe them.
+  it("an untouched editor sends nothing and closes", async () => {
     const detail = await open({ role: "supervisor" });
-    respond("patch", "/work-orders/:id", detail);
+    card().querySelector(".wo-edit-card").open = true;
     click("save-details");
-    await vi.waitFor(() =>
-      expect(requestFor(`/work-orders/${detail.id}`, "PATCH")).not.toBeNull());
-    expect(Object.keys(requestFor(`/work-orders/${detail.id}`, "PATCH").body).sort())
-      .toEqual(["assigned_to_ids", "expected_supervisor_id", "status", "supervisor_id"]);
+    await refreshed(detail.id);
+    expect(requestFor(`/work-orders/${detail.id}`, "PATCH")).toBeNull();
   });
 
-  it("collects assigned_to_ids from the technician selection rows", async () => {
+  it("a crew change sends assigned_to_ids from the selection rows", async () => {
     const detail = await open({
       assigned_to_ids: ["t1", "t2"], assigned_to_names: ["Ada L", "Grace H"],
     });
     respond("patch", "/work-orders/:id", detail);
+    card().querySelector('[data-technician-id="t2"] [data-action="remove-technician"]').click();
     click("save-details");
     await vi.waitFor(() =>
       expect(requestFor(`/work-orders/${detail.id}`, "PATCH")).not.toBeNull());
-    expect(requestFor(`/work-orders/${detail.id}`, "PATCH").body.assigned_to_ids)
-      .toEqual(["t1", "t2"]);
+    expect(requestFor(`/work-orders/${detail.id}`, "PATCH").body).toEqual({
+      assigned_to_ids: ["t1"], expected: { assigned_to_ids: ["t1", "t2"] },
+    });
   });
 
-  it("sends a null supervisor when the combo is left Unassigned", async () => {
-    const detail = await open({ supervisor_id: null });
+  it("picking Unassigned sends a null supervisor with the old one as expected", async () => {
+    const supervisorUser = user({ role: "supervisor", full_name: "Sue S" });
+    const detail = await open({ supervisor_id: supervisorUser.id, users: [supervisorUser] });
     respond("patch", "/work-orders/:id", detail);
+    card().querySelector(".wo-edit-supervisor").value = "";
     click("save-details");
     await vi.waitFor(() =>
       expect(requestFor(`/work-orders/${detail.id}`, "PATCH")).not.toBeNull());
-    const sent = requestFor(`/work-orders/${detail.id}`, "PATCH").body;
-    expect(sent.supervisor_id).toBeNull();
-    expect(sent.expected_supervisor_id).toBeNull();
+    expect(requestFor(`/work-orders/${detail.id}`, "PATCH").body).toEqual({
+      supervisor_id: null, expected: { supervisor_id: String(supervisorUser.id) },
+    });
   });
 });
 

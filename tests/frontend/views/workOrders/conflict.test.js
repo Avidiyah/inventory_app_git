@@ -4,10 +4,10 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  card, cardBody, clearRequests, mountWorkOrders, openCard, requests,
+  card, cardBody, clearRequests, mountWorkOrders, openCard, requestFor, requests, respond,
 } from "../../helpers/workOrders.js";
 import { restoreBrowserStubs } from "../../helpers/browserStubs.js";
-import { workOrderCard, workOrderDetail } from "../../helpers/factories.js";
+import { user, workOrderCard, workOrderDetail } from "../../helpers/factories.js";
 import { importView } from "../../helpers/shell.js";
 
 afterEach(() => {
@@ -126,5 +126,170 @@ describe("the message line", () => {
     mod.showConflict(card(), [conflict()]);
     expect(msg().textContent).toBe("Maria Lopez changed Priority to P2 12 seconds ago.");
     expect(keepBtn()).toBeNull();
+  });
+});
+
+// --- Task 5: Edit details sends only what changed --------------------------
+
+const TECH_A = "20000000-0000-4000-8000-00000000000a";
+const TECH_B = "20000000-0000-4000-8000-00000000000b";
+
+async function openEditor({ users = [], ...over } = {}) {
+  const detail = workOrderDetail({ location: "Bldg 4", priority: "P1", ...over });
+  await mountWorkOrders({
+    role: "admin", cards: [workOrderCard({ id: detail.id, number: detail.number })], details: [detail], users,
+  });
+  await openCard(0);
+  card().querySelector(".wo-edit-card").open = true;
+  return detail;
+}
+
+const $ = (sel) => cardBody().querySelector(sel);
+const saveDetails = () => card().querySelector('[data-action="save-details"]').click();
+const patchSent = (detail) => requestFor(`/work-orders/${detail.id}`, "PATCH")?.body;
+const priorityConflict = { ...conflict(), current: "P2", current_label: "P2" };
+const conflict409 = (conflicts) => ({ detail: { code: "field_conflict", message: "x", conflicts } });
+
+describe("save-details: only what changed", () => {
+  it("sends only the edited field, with the value it showed as expected", async () => {
+    const detail = await openEditor();
+    respond("patch", "/work-orders/:id", detail);
+    $(".wo-edit-location").value = "  Hallway B ";
+    saveDetails();
+    await vi.waitFor(() => expect(patchSent(detail)).toBeTruthy());
+    expect(patchSent(detail)).toEqual({ location: "Hallway B", expected: { location: "Bldg 4" } });
+  });
+
+  it("nothing edited: no request, the editor closes", async () => {
+    const detail = await openEditor();
+    saveDetails();
+    await vi.waitFor(() => expect(card().querySelector(".wo-edit-card").open).toBe(false));
+    expect(patchSent(detail)).toBeUndefined();
+  });
+
+  it("Ready to Complete: a status change carries the real status as expected", async () => {
+    const detail = await openEditor({ status: "ready_to_complete" });
+    respond("patch", "/work-orders/:id", detail);
+    $(".wo-edit-status").value = "in_progress";
+    saveDetails();
+    await vi.waitFor(() => expect(patchSent(detail)).toBeTruthy());
+    expect(patchSent(detail)).toEqual({ status: "in_progress", expected: { status: "ready_to_complete" } });
+  });
+
+  it("an untouched status select whose rendered default differs from the row is not sent", async () => {
+    // "assigned" with no technicians renders "created" first: the old full-form
+    // save silently rolled such a row back.
+    const detail = await openEditor({ status: "assigned" });
+    respond("patch", "/work-orders/:id", detail);
+    $(".wo-edit-location").value = "Hallway B";
+    saveDetails();
+    await vi.waitFor(() => expect(patchSent(detail)).toBeTruthy());
+    expect(Object.keys(patchSent(detail))).toEqual(["location", "expected"]);
+  });
+
+  it("reordering the crew is not a change", async () => {
+    const detail = await openEditor({ assigned_to_ids: [TECH_A, TECH_B], assigned_to_names: ["Ada", "Bo"] });
+    const list = $(".wo-tech-selected-list");
+    list.prepend(list.lastElementChild);
+    saveDetails();
+    await vi.waitFor(() => expect(card().querySelector(".wo-edit-card").open).toBe(false));
+    expect(patchSent(detail)).toBeUndefined();
+  });
+
+  it("removing a crew member sends the new crew with the old one as expected", async () => {
+    const detail = await openEditor({ assigned_to_ids: [TECH_A, TECH_B], assigned_to_names: ["Ada", "Bo"] });
+    respond("patch", "/work-orders/:id", detail);
+    card().querySelector(`[data-technician-id="${TECH_B}"] [data-action="remove-technician"]`).click();
+    saveDetails();
+    await vi.waitFor(() => expect(patchSent(detail)).toBeTruthy());
+    expect(patchSent(detail)).toEqual({
+      assigned_to_ids: [TECH_A], expected: { assigned_to_ids: [TECH_A, TECH_B] },
+    });
+  });
+
+  it("the expected value survives a live patch while the editor is open", async () => {
+    const detail = await openEditor();
+    const live = await importView("views/workOrderLiveBody.js");
+    live.patchBodyLive({ ...detail, location: "Bldg 7", priority: "P2" }, cardBody(), card());
+    respond("patch", "/work-orders/:id", detail);
+    $(".wo-edit-location").value = "Hallway B";
+    saveDetails();
+    await vi.waitFor(() => expect(patchSent(detail)).toBeTruthy());
+    expect(patchSent(detail).expected).toEqual({ location: "Bldg 4" });
+  });
+});
+
+describe("save-details: a conflict", () => {
+  it("shows the sentence and both buttons", async () => {
+    const detail = await openEditor();
+    respond("patch", "/work-orders/:id", conflict409([priorityConflict]), { status: 409 });
+    $(".wo-edit-priority").value = "P3";
+    saveDetails();
+    await vi.waitFor(() => expect(mineBtn()).not.toBeNull());
+    expect(msg().textContent).toContain("Maria Lopez changed Priority to P2 12 seconds ago.");
+    expect(patchSent(detail)).toEqual({ priority: "P3", expected: { priority: "P1" } });
+  });
+
+  it("Keep theirs takes their value and keeps other typing", async () => {
+    await openEditor();
+    respond("patch", "/work-orders/:id", conflict409([priorityConflict]), { status: 409 });
+    $(".wo-edit-priority").value = "P3";
+    $(".wo-edit-location").value = "Hallway B";
+    $(".wo-edit-priority").classList.add("wo-field-conflict");
+    saveDetails();
+    await vi.waitFor(() => expect(keepBtn()).not.toBeNull());
+    keepBtn().click();
+    await vi.waitFor(() => expect($(".wo-edit-priority").value).toBe("P2"));
+    expect($(".wo-edit-priority").defaultValue).toBe("P2");
+    expect($(".wo-edit-priority").classList.contains("wo-field-conflict")).toBe(false);
+    expect($(".wo-edit-location").value).toBe("Hallway B");
+    expect($(".wo-edit-location").defaultValue).toBe("Bldg 4");
+    expect(card().querySelector(".wo-edit-card").open).toBe(true);
+  });
+
+  it("Keep theirs on status and crew updates the combo and the originals", async () => {
+    const tech = user({ role: "technician", full_name: "Cy Tech" });
+    await openEditor({ status: "in_progress", users: [tech] });
+    respond("patch", "/work-orders/:id", conflict409([
+      conflict({ field: "status", label: "Status", current: "on_hold", current_label: "On-Hold" }),
+      conflict({ field: "assigned_to_ids", label: "Assigned technicians", current: [tech.id], current_label: "Cy Tech" }),
+    ]), { status: 409 });
+    $(".wo-edit-status").value = "completed";
+    saveDetails();
+    await vi.waitFor(() => expect(keepBtn()).not.toBeNull());
+    keepBtn().click();
+    await vi.waitFor(() => expect($(".wo-edit-status").value).toBe("on_hold"));
+    expect($(".wo-status-combo .menu-trigger-label").textContent).toBe("On-Hold");
+    expect($(".wo-edit").dataset.originalStatus).toBe("on_hold");
+    expect([...cardBody().querySelectorAll(".wo-tech-selected-row")].map((r) => r.dataset.technicianId))
+      .toEqual([tech.id]);
+    expect($(".wo-edit").dataset.originalCrew).toBe(tech.id);
+  });
+
+  it("Save mine resends with their value as expected, then repaints", async () => {
+    const detail = await openEditor();
+    respond("patch", "/work-orders/:id", conflict409([priorityConflict]), { status: 409 });
+    $(".wo-edit-priority").value = "P3";
+    saveDetails();
+    await vi.waitFor(() => expect(mineBtn()).not.toBeNull());
+    respond("patch", "/work-orders/:id", { ...detail, priority: "P3" });
+    clearRequests();
+    mineBtn().click();
+    await vi.waitFor(() => expect(patchSent(detail)).toBeTruthy());
+    expect(patchSent(detail)).toEqual({ priority: "P3", expected: { priority: "P2" } });
+    await vi.waitFor(() => expect(requestFor(`/work-orders/${detail.id}`, "GET")).not.toBeNull());
+  });
+
+  it("a third change before Save mine lands shows the conflict again", async () => {
+    await openEditor();
+    respond("patch", "/work-orders/:id", conflict409([priorityConflict]), { status: 409 });
+    $(".wo-edit-priority").value = "P3";
+    saveDetails();
+    await vi.waitFor(() => expect(mineBtn()).not.toBeNull());
+    respond("patch", "/work-orders/:id",
+      conflict409([{ ...priorityConflict, current: "P9", current_label: "P9", changed_by: "Kim Diaz" }]), { status: 409 });
+    mineBtn().click();
+    await vi.waitFor(() => expect(msg().textContent).toContain("Kim Diaz changed Priority to P9"));
+    expect(mineBtn()).not.toBeNull();
   });
 });

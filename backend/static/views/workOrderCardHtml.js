@@ -432,7 +432,7 @@ function detailsEditorHtml(detail) {
     : `Edit assignment and status for WO ${escapeHtml(detail.number)}.`;
   return `<details class="wo-edit-card" id="wo-edit-card">
             <summary class="wo-edit-summary">Edit details</summary>
-            <div class="wo-edit" data-original-supervisor-id="${escapeHtml(detail.supervisor_id || "")}">
+            <div class="wo-edit" data-original-supervisor-id="${escapeHtml(detail.supervisor_id || "")}" data-original-status="${escapeHtml(detail.status)}" data-original-crew="${escapeHtml(assignedIds(detail).join(","))}">
               <p class="hint">${hint}</p>
               <div class="wo-edit-grid">
                 ${adminMetadata}

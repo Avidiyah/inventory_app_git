@@ -47,7 +47,9 @@ import {
   syncWorkOrderTabs,
   technicianSelectionHtml,
 } from "./workOrderCardHtml.js";
-import { resolveConflict } from "./workOrderConflict.js";
+import {
+  currentValues, detailsPatch, isFieldConflict, keepDetails, resolveConflict, showConflict,
+} from "./workOrderConflict.js";
 import { actionsSettling } from "./workOrderLiveBody.js";
 import { getAllItems, itemsLoading } from "./workOrderReferenceData.js";
 import { exitSolo } from "./workOrderRouting.js";
@@ -337,34 +339,33 @@ listEl.addEventListener("click", async (event) => {
       await refreshCard(cardEl);
     } else if (action === "save-details") {
       const body = cardEl.querySelector(".wo-body");
-      // Only the fields the editor actually rendered: the legacy
-      // community/building/unit inputs are absent on an imported work order,
-      // and sending them as null would wipe values the editor never showed.
-      const value = (selector) => {
-        const el = body.querySelector(selector);
-        return el ? el.value.trim() || null : undefined;
+      // W3: only the fields the person changed, each with the value it showed,
+      // so the server can refuse a save someone else beat them to.
+      const patch = detailsPatch(body);
+      if (!patch) {
+        await refreshCard(cardEl);
+        return;
+      }
+      const send = async (expectedNow = {}) => {
+        const payload = { ...patch, expected: { ...patch.expected, ...expectedNow } };
+        saveDraft(workOrderId, "details", { number: cardEl.dataset.number, action: "save-details", payload });
+        try {
+          await apiUpdateWorkOrder(workOrderId, payload);
+        } catch (err) {
+          if (!isFieldConflict(err)) throw err;
+          showConflict(cardEl, err.detail.conflicts, {
+            keep: (conflicts) => {
+              clearDraft(workOrderId, "details");
+              keepDetails(body, conflicts);
+            },
+            retry: (conflicts) => send(currentValues(conflicts)),
+          });
+          return;
+        }
+        clearDraft(workOrderId, "details");
+        await refreshCard(cardEl);
       };
-      const patch = {
-        status: value(".wo-edit-status"),
-        location: value(".wo-edit-location"),
-        service_type: value(".wo-edit-service-type"),
-        schedule_date: value(".wo-edit-schedule-date"),
-        output_to: value(".wo-edit-output-to"),
-        vendor_assignee: value(".wo-edit-vendor"),
-        description: value(".wo-edit-description"),
-        priority: value(".wo-edit-priority"),
-        supervisor_id: body.querySelector(".wo-edit-supervisor")?.value || null,
-        expected_supervisor_id:
-          body.querySelector(".wo-edit")?.dataset.originalSupervisorId || null,
-        assigned_to_ids: Array.from(body.querySelectorAll(".wo-tech-selected-row")).map(
-          (row) => row.dataset.technicianId
-        ),
-      };
-      Object.keys(patch).forEach((k) => patch[k] === undefined && delete patch[k]);
-      saveDraft(workOrderId, "details", { number: cardEl.dataset.number, action: "save-details", payload: patch });
-      await apiUpdateWorkOrder(workOrderId, patch);
-      clearDraft(workOrderId, "details");
-      await refreshCard(cardEl);
+      await send();
     } else if (action === "save-notes") {
       const notesInput = cardEl.querySelector(".wo-notes-input");
       const notesMessage = cardEl.querySelector(".wo-notes-message");
