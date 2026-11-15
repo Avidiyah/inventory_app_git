@@ -4846,6 +4846,12 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     }
 }
 
+/* A card a live update just changed or added (morph.js). Plays once; the
+   class is removed on animationend. */
+.just-changed { animation: just-changed-fade 1s ease-out 1; }
+@keyframes just-changed-fade { from { box-shadow: 0 0 0 4px rgba(200, 16, 46, .35); } }
+@media (prefers-reduced-motion: reduce) { .just-changed { animation: none; } }
+
 /* Pre-import (legacy) work order: kept for search, old attributes dropped. A
    muted outline pill so it reads as a state marker, not an action. */
 .wo-legacy-tag,

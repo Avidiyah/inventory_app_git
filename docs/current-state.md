@@ -222,7 +222,8 @@ backend/static/pages/tools.html  Tools page fragment
 backend/static/shell-*.html      shell fragments
 backend/static/styles.css        global styles
 backend/static/scan/*.js         live scanner wrapper/debouncer
-backend/static/vendor/*          vendored ZXing browser library
+backend/static/vendor/*          vendored ZXing browser library; idiomorph 0.7.4 (ESM, 0BSD)
+backend/static/morph.js          `morphInto(container, newNodes, { flashSelector, flashKey })`: patches a container in place via idiomorph; never changes `open` on a `<details>`; flags new/changed matches with `.just-changed` (one-shot highlight, off under reduced motion). Only caller: the Work Orders page list (`renderCards`), which wipes instead of patching when the list holds anything but a previous list draw; list cards/groups carry `wo-`/`hubwo-` ids and one tap handler per list
 ```
 
 Work-order module rule: the nine other views import `workOrders.js` and only

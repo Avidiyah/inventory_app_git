@@ -59,7 +59,8 @@ describe("a frame naming a rendered card", () => {
     statusChanged(detail.id);
     await vi.waitFor(() =>
       expect(cardEls()[0].querySelector(".wo-priority")?.textContent).toBe("Urgent"));
-    expect(cardEls()[0].className).toBe("wo-card wo-card-status-assigned wo-card-urgent");
+    // The summary text changed, so the card also takes the one-shot highlight.
+    expect(cardEls()[0].className).toBe("wo-card wo-card-status-assigned wo-card-urgent just-changed");
     expect(detailGets(detail.id)).toBe(1);
     expect(listGets()).toBe(0);
   });

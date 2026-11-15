@@ -29,6 +29,7 @@ import {
   friendlyError,
 } from "../format.js";
 import { setMessage, confirmDialog } from "../dom.js";
+import { morphInto } from "../morph.js";
 
 
 import { subscribe } from "../realtime.js";
@@ -261,7 +262,7 @@ export async function loadWorkOrders({
       cards = await apiListWorkOrders({ limit: null, sort: getSortDir() });
       if (archivedLookupToken !== archivedSearchToken) return;
     }
-    renderCards(cards);
+    renderCards(cards, { flash: background });
     renderMoreControl(capped, cards.length);
     renderFilterChips();
     renderScope();
@@ -310,14 +311,38 @@ export async function loadWorkOrders({
   }
 }
 
-function renderCards(cards) {
-  listEl.innerHTML = "";
-  if (!cards.length) {
-    listEl.innerHTML = `<p class="hint">No work orders match.</p>`;
-    return;
-  }
-  appendGroupedCards(listEl, cards, (c) => buildCard(c));
+// One path for first draw, filter change and live update: build the tree
+// detached, then patch the list in place, so an opened preview, a folded group,
+// focus and scroll position survive. Only a live update (`flash`) highlights
+// what changed; a filter the user just changed would light every card it adds.
+function renderCards(cards, { flash = false } = {}) {
+  // Anything other than a previous list draw (the card page, a skeleton) is
+  // wiped, not patched: a card-page card patched into a group would keep its
+  // own listeners, including the one that stops its summary folding.
+  if ([...listEl.children].some((el) => !el.matches(".wo-group, .hint"))) listEl.innerHTML = "";
+  const tree = document.createElement("div");
+  if (cards.length) appendGroupedCards(tree, cards, (c) => buildCard(c));
+  else tree.innerHTML = `<p class="hint">No work orders match.</p>`;
+  morphInto(listEl, tree.childNodes, {
+    flashSelector: flash ? "details.wo-card" : null,
+    flashKey: (el) => el.querySelector("summary.wo-summary")?.textContent ?? "",
+  });
 }
+
+// One tap handler per list. Patched-in cards are copies without handlers, and
+// the id and number are read off the card at tap time, so Open always acts on
+// the data now on screen. `onclick`, not addEventListener: mounting the same
+// container twice must not open twice.
+function installListTaps(container, onOpen = null) {
+  container.onclick = (event) => {
+    const cardEl = event.target.closest("[data-peek-open]")?.closest("details.wo-card");
+    if (!cardEl) return;
+    const card = { id: cardEl.dataset.id, number: cardEl.dataset.number };
+    if (onOpen) onOpen(card);
+    else void openWorkOrderPage(card);
+  };
+}
+if (listEl) installListTaps(listEl);
 
 // Status groups, in the order a crew works them (user 2026-11-14). Each group
 // is a native <details>; Completed starts folded unless it is all there is.
@@ -329,7 +354,7 @@ function groupKey(card) {
   return card.smr ? "smr" : card.status;
 }
 
-function appendGroupedCards(container, cards, build) {
+function appendGroupedCards(container, cards, build, idPrefix = "wo") {
   const groups = new Map();
   for (const card of cards) {
     const key = groupKey(card);
@@ -344,6 +369,7 @@ function appendGroupedCards(container, cards, build) {
     const group = document.createElement("details");
     group.className = `wo-group wo-group-${key}`;
     group.dataset.status = key;
+    group.id = `${idPrefix}-group-${key}`;
     group.open = !(FOLDED_GROUPS.has(key) && keys.length > 1);
     const label = key === "smr" ? "SMR" : statusLabel(key);
     group.innerHTML =
@@ -418,10 +444,12 @@ async function refreshCardSummary(cardEl) {
     return;
   }
   const summary = cardEl.querySelector("summary.wo-summary");
+  const before = summary?.textContent;
   if (summary) summary.innerHTML = summaryHtml(detail);
   setCardClass(cardEl, detail);
 
   if (!isSoloActive()) {
+    cardEl.classList.toggle("just-changed", before !== summary?.textContent);
     // A list card: a status change moves it to another group, which only a
     // reload places correctly (the server owns the order within a group).
     const group = cardEl.closest(".wo-group");
@@ -495,9 +523,12 @@ function runOrDeferListRefresh() {
   void loadWorkOrders({ background: true });
 }
 
-function buildCard(card, { onOpen, solo = false } = {}) {
+function buildCard(card, { solo = false, idPrefix = "wo" } = {}) {
   const el = document.createElement("details");
   el.className = workOrderCardClass(card);
+  // What the list patcher matches on; the prefix differs per list because the
+  // page list and the User Hub list can be in the document together.
+  el.id = `${idPrefix}-card-${card.id}`;
   el.dataset.id = card.id;
   // Read by workOrderRetry.js's held-editor capture, which only has the DOM
   // to work from -- a 401 can land mid-edit with no other handle on "which
@@ -534,16 +565,9 @@ function buildCard(card, { onOpen, solo = false } = {}) {
   }
 
   // A list card opens in place as a preview built from the row it already
-  // has (user 2026-11-14); its button goes to the full card.
+  // has (user 2026-11-14); its button goes to the full card through the
+  // list's one tap handler (`installListTaps`).
   body.innerHTML = peekHtml(card);
-  body.addEventListener("click", (event) => {
-    if (!event.target.closest("[data-peek-open]")) return;
-    if (onOpen) {
-      onOpen(card);
-      return;
-    }
-    void openWorkOrderPage({ id: card.id, number: card.number });
-  });
   return el;
 }
 
@@ -633,6 +657,7 @@ export function openWorkOrdersFilteredByDistribution({
 // callers both pass `{ mine: true }` -- routed to me or assigned to me -- and
 // the Admin caller passes nothing.
 export function mountWorkOrderList({ container, lockedFilter = null, onOpen } = {}) {
+  installListTaps(container, onOpen);
   async function refresh() {
     container.innerHTML = skeletonCard({ lines: 1 }).repeat(3);
     let cards;
@@ -647,7 +672,7 @@ export function mountWorkOrderList({ container, lockedFilter = null, onOpen } = 
       container.innerHTML = `<p class="hint">No work orders match.</p>`;
       return;
     }
-    appendGroupedCards(container, cards, (card) => buildCard(card, { onOpen }));
+    appendGroupedCards(container, cards, (card) => buildCard(card, { idPrefix: "hubwo" }), "hubwo");
   }
   return { refresh };
 }
