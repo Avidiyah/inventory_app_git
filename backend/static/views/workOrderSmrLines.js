@@ -198,7 +198,7 @@ export function readyRowHtml(detail, editable) {
   }
   if (pr && detail.smr_stage === "needs_review" && !(detail.smr_lines || []).some(inInvoicePeriod)) {
     const who = pr.by_name ? ` by ${pr.by_name}` : "";
-    const btn = editable ? ` <button type="button" class="secondary-btn" id="wo-act-smr-not-paper-reviewed" data-action="smr-not-paper-reviewed">Back to paper review</button>` : "";
+    const btn = editable ? ` <button type="button" class="secondary-btn" id="wo-act-smr-not-paper-reviewed" data-action="smr-not-paper-reviewed">Back to paper review</button>${labor ? ` ${READY_BTN}` : ""}` : "";
     return `<p class="wo-smr-ready wo-smr-ready--ready">${escapeHtml(`Paper reviewed · ${stamp(pr.at)}${who}`)}${btn}</p>`;
   }
   if (detail.smr_stage === "ready") {

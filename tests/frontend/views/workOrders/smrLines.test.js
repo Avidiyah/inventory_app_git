@@ -137,7 +137,8 @@ describe("ready to invoice", () => {
   it("a paper-reviewed order shows who and the undo", async () => {
     await open({ detail: { smr_stage: "needs_review", smr_lines: [AFTER_W7], smr_paper_reviewed: { at: "2026-11-13T12:00:00Z", by_name: "Pat" } } });
     expect(row().textContent).toContain("Paper reviewed");
-    expect(row().querySelector("[data-action]").dataset.action).toBe("smr-not-paper-reviewed");
+    const actions = [...row().querySelectorAll("[data-action]")].map((b) => b.dataset.action);
+    expect(actions).toEqual(["smr-not-paper-reviewed", "smr-ready"]);
   });
 
   it("a labor-only (material not keyed) order with a Weeks 1–7 line still offers the Ready button", async () => {
