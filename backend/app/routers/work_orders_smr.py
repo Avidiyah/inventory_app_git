@@ -174,8 +174,8 @@ def set_ready(
     user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
     db: Session = Depends(get_db),
 ) -> SmrTile:
-    """Stamp or clear Ready for invoice (Admin+). 409 "Date a line first."
-    when the order has no dated line. Returns the tile."""
+    """Stamp or clear Ready for invoice (Admin+). 409 "Add a labor line first."
+    when the order has no labor line. Returns the tile."""
     try:
         tile = smr_service.set_ready(db, work_order_id=work_order_id, ready=body.ready, user=user)
     except DomainError as exc:

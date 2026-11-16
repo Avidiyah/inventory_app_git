@@ -176,7 +176,7 @@ writes (w).
 | S16 | GET | `/work-orders/smr/hours.csv` | **admin** | `work_orders_smr.py` → `work_orders_smr_lines.hours_csv` (S15 as CSV) | same reads as S15 | `apiSmrHoursCsv` | `smrHours.js` (Download CSV on the Hours tab) |
 | S18 | POST | `/work-orders/smr/invoices` | **owner** | `work_orders_smr.py` → `work_orders_smr_weekly.import_invoices` (CSV `Invoice,Date,Vendor,Hours` + optional `Worker`, the invoice's name for the person, kept for the name fill; every row parsed before any write; rows of the invoice numbers named are deleted then re-inserted, so a re-upload replaces) | smr_vendor_invoices (w) | `apiImportSmrInvoices` | `workOrderIntegrations.js` (SMR Invoice Import) |
 | S19 | GET | `/work-orders/smr/weekly-hours` | **admin** | `work_orders_smr.py` → `work_orders_smr_weekly.weekly_hours` (one bar per vendor — Green Choice, XXL, BT — per week: `invoiced` split into `original` (Breakdown target hours, following the order's paper lines pro rata), `found` (charged line hours by line week), `carried` = paper rolled in from the vendor's earlier week (a week never explains more than its invoice; overflow carries forward, found first, what is left after Week 7 stays on that bar), `missing` = max(invoiced − original − found − carried, 0); `undated` paper hours + their orders' original in the trailing Undated column, week None) | work_orders (r, SMR, `smr_target`), smr_labor_lines (r), smr_vendor_invoices (r) | `apiSmrWeeklyHours` | `smrWeeklyHours.js` (chart panel above the SMR search, Admin+) |
-| S17 | PUT | `/work-orders/smr/{id}/ready` | **admin** | `work_orders_smr.py` → `work_orders_smr.set_ready` (`{ready}`; stamp needs a non-removed line in Weeks 1–7 else 409 `Date a line in Weeks 1–7 first.`; re-stamp keeps the first who/when; clearing a never-stamped order is a no-op; returns the tile) | work_orders (r/w: `smr_ready_at`, `smr_ready_by_id`), users (r) | `apiSetSmrReady` | `workOrderSmrActions.js` (Ready to invoice / Not ready on the card), `smrAdminReview.js` (Not ready) |
+| S17 | PUT | `/work-orders/smr/{id}/ready` | **admin** | `work_orders_smr.py` → `work_orders_smr.set_ready` (`{ready}`; stamp needs a non-removed labor line, any week, else 409 `Add a labor line first.`; re-stamp keeps the first who/when; clearing a never-stamped order is a no-op; returns the tile) | work_orders (r/w: `smr_ready_at`, `smr_ready_by_id`), users (r) | `apiSetSmrReady` | `workOrderSmrActions.js` (Ready to invoice / Not ready on the card), `smrAdminReview.js` (Not ready) |
 | S20 | PUT | `/work-orders/smr/{id}/paper-reviewed` | **admin** | `work_orders_smr.py` → `work_orders_smr.set_paper_reviewed` (`{reviewed}`; Needs paper review → Needs review, or back; not in paper review → 400; returns the tile) | work_orders (r/w: `smr_paper_reviewed_at`, `smr_paper_reviewed_by_id`), users (r) | `apiSetSmrPaperReviewed` | `workOrderSmrActions.js` (Mark paper reviewed) |
 
 (Numbering is append-only and stable — other docs cite it. Gaps (NF1, NF1a–c,
@@ -322,10 +322,10 @@ endpoint or form exists; every other surface resolves an existing number and
   of Edited, Matched and archive. Detail `smr_paper_check`, tile `paper_check`,
   three workbook columns.
 - SMR27 stage (S17, user 2026-11-12, `rules.stage_for`): first match wins —
-  `ready` (`smr_ready_at` set and a non-removed line in Weeks 1–7) → `no_material`
+  `ready` (`smr_ready_at` set and a non-removed labor line) → `no_material`
   (no material lines) → `needs_review` (a Weeks 1–7 line) → `paper_review` (on the
   Breakdown sheet, `smr_target` set) → `other` (not billed). Ready is pressed by
-  Admin+ on any order with a Weeks 1–7 line (labor-only included); a stamp that
+  Admin+ on any order with a labor line, any stage or week (user 2026-11-16); a stamp that
   loses that line is held, not shown. `closed_week` labels the sheet's COMPLETION
   DATE week whenever `weeks` holds "Undated"; `belfor_only` = every line is Belfor's. Detail `smr_stage` + `smr_ready`;
   tile `stage`, `closed_week`, `belfor_only`, `ready`; the SMR page's Status

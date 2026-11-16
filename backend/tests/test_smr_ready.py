@@ -62,21 +62,23 @@ def test_a_technician_is_forbidden(db):
     assert _put(db, _user(db), order.id, True).status_code == 403
 
 
-def test_an_undated_order_refuses_the_stamp(db):
+def test_an_order_without_labor_lines_refuses_the_stamp(db):
     owner, admin = _user(db, "owner"), _user(db, "admin")
     order = _smr_order(db, owner)
     refused = _put(db, admin, order.id, True)
     assert refused.status_code == 409
-    assert "Date a line in Weeks 1–7 first." in refused.json()["detail"]
+    assert "Add a labor line first." in refused.json()["detail"]
 
 
-def test_a_line_after_week_7_refuses_the_stamp(db):
+def test_a_line_after_week_7_takes_the_stamp(db):
+    # No Weeks 1-7 gate since 2026-11-16: any labor line can be invoiced.
     owner, admin = _user(db, "owner"), _user(db, "admin")
     order = _smr_order(db, owner)
     lines_service.add_line(db, work_order_id=order.id, user=owner, payload=SmrLineIn(
         vendor="Belfor", hours_each=Decimal("2.0"), reason_code="accurate", work_date=date(2026, 7, 20),
         reason="paper", status="excluded", exclusion_ground="after 07/12 (no invoices)"))
-    assert _put(db, admin, order.id, True).status_code == 409
+    stamped = _put(db, admin, order.id, True)
+    assert stamped.status_code == 200 and stamped.json()["stage"] == "ready"
 
 
 def test_stamp_is_idempotent_and_clears(db):

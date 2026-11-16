@@ -145,10 +145,11 @@ def has_invoice_period_line(lines) -> bool:
 
 def stage_for(lines, ready_at, *, has_materials: bool, billed: bool, paper_reviewed_at=None) -> str:
     """Where the order stands, first match wins; `lines` already without
-    removed ones. A Ready stamp only shows while an invoice-period line does;
+    removed ones. A Ready stamp shows while any labor line does, whatever the
+    stage (user 2026-11-16: no Weeks 1-7 gate on invoicing);
     `billed` = on the NetFacilities Breakdown sheet (`smr_target`)."""
     dated = has_invoice_period_line(lines)
-    if dated and ready_at is not None:
+    if lines and ready_at is not None:
         return "ready"
     if not has_materials:
         return "no_material"

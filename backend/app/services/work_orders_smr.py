@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.domain import work_orders as wo
 from app.domain import work_orders_smr as smr
 from app.domain import work_orders_smr_lines as rules
-from app.domain.errors import SmrNotDatedError, WorkOrderNotFoundError, WorkOrderStateError
+from app.domain.errors import SmrNoLaborError, WorkOrderNotFoundError, WorkOrderStateError
 from app.models import (
     SmrLaborLine,
     User,
@@ -212,8 +212,8 @@ def set_ready(db: Session, *, work_order_id: uuid.UUID, ready: bool, user: User)
         order.smr_ready_by_id = None
     elif order.smr_ready_at is None:
         lines = [l for l in smr.correction_lines(order) if l.exclusion_ground != rules.GROUND_REMOVED]
-        if not rules.has_invoice_period_line(lines):
-            raise SmrNotDatedError("Date a line in Weeks 1–7 first.")
+        if not lines:
+            raise SmrNoLaborError("Add a labor line first.")
         order.smr_ready_at = datetime.now(timezone.utc)
         order.smr_ready_by_id = user.id
     db.commit()

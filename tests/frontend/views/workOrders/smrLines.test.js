@@ -99,8 +99,8 @@ describe("who sees what", () => {
   });
 });
 
-// Ready to invoice: a person's stamp, offered while a line is in invoice
-// Weeks 1–7 (the backend's gate), whatever the stage says about materials.
+// Ready to invoice: a person's stamp, offered at any stage while a labor line
+// exists (the backend's gate), whatever the stage says about materials.
 describe("ready to invoice", () => {
   const row = () => card().querySelector(".wo-smr-ready");
   // Week 9 = After W7: outside the invoice period, so no Ready button.
@@ -128,10 +128,10 @@ describe("ready to invoice", () => {
     expect(requestFor("/ready", "PUT").body).toEqual({ ready: false });
   });
 
-  it("a paper-review order offers Mark paper reviewed", async () => {
+  it("a paper-review order offers Mark paper reviewed and Ready to invoice", async () => {
     await open({ detail: { smr_stage: "paper_review", smr_lines: [AFTER_W7] } });
-    expect(row().textContent).toBe("Mark paper reviewed");
-    expect(row().querySelector("[data-action]").dataset.action).toBe("smr-paper-reviewed");
+    const actions = [...row().querySelectorAll("[data-action]")].map((b) => b.dataset.action);
+    expect(actions).toEqual(["smr-paper-reviewed", "smr-ready"]);
   });
 
   it("a paper-reviewed order shows who and the undo", async () => {
@@ -145,14 +145,20 @@ describe("ready to invoice", () => {
     expect(row().querySelector('[data-action="smr-ready"]').textContent).toBe("Ready to invoice");
   });
 
-  it("a material-not-keyed order with no Weeks 1–7 line offers no button", async () => {
+  it("a material-not-keyed order with only an After W7 line still offers the Ready button", async () => {
     await open({ detail: { smr_stage: "no_material", smr_lines: [AFTER_W7] } });
+    expect(row().querySelector('[data-action="smr-ready"]')).not.toBeNull();
+  });
+
+  it("an order with no labor lines offers no button", async () => {
+    await open({ detail: { smr_stage: "other", smr_lines: [] } });
+    expect(row().textContent).toBe("Add a labor line to mark ready");
     expect(row().querySelector("[data-action]")).toBeNull();
   });
 
-  it("a ready stamp on an order that lost its Weeks 1–7 line is held, not shown as ready", async () => {
-    await open({ detail: { smr_stage: "paper_review", smr_lines: [AFTER_W7], smr_ready: { at: "2026-11-08T15:00:00Z", by_name: "JM" } } });
-    expect(row().textContent).toBe("Ready stamp held until a line is in Weeks 1–7");
+  it("a ready stamp on an order that lost its labor lines is held, not shown as ready", async () => {
+    await open({ detail: { smr_stage: "paper_review", smr_lines: [], smr_ready: { at: "2026-11-08T15:00:00Z", by_name: "JM" } } });
+    expect(row().textContent).toBe("Ready stamp held until a labor line is added");
     expect(row().querySelector("[data-action]")).toBeNull();
   });
 
