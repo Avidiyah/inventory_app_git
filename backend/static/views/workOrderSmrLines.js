@@ -183,35 +183,28 @@ export function smrInvoiceSectionHtml(detail) {
 // Rendered at the top of the card, under the controls.
 const inInvoicePeriod = (line) => line.exclusion_ground !== "removed" && line.week >= 1 && line.week <= 7;
 
-// Ready to invoice is offered at every stage once a labor line exists
-// (user 2026-11-16); only an order with no labor lines can't be invoiced.
-const hasLabor = (line) => line.exclusion_ground !== "removed";
-const READY_BTN = `<button type="button" class="secondary-btn" id="wo-act-smr-ready" data-action="smr-ready">Ready to invoice</button>`;
+// Ready to invoice is offered on every SMR order, any stage, no rules
+// (user 2026-11-16).
+const READY_BTN = ` <button type="button" class="secondary-btn" id="wo-act-smr-ready" data-action="smr-ready">Ready to invoice</button>`;
 
 export function readyRowHtml(detail, editable) {
   const stamp_ = detail.smr_ready;
   const pr = detail.smr_paper_reviewed;
-  const labor = (detail.smr_lines || []).some(hasLabor);
-  if (detail.smr_stage === "paper_review" && editable && !stamp_) {
-    const ready = labor ? ` ${READY_BTN}` : "";
-    return `<p class="wo-smr-ready"><button type="button" class="secondary-btn" id="wo-act-smr-paper-reviewed" data-action="smr-paper-reviewed">Mark paper reviewed</button>${ready}</p>`;
-  }
-  if (pr && detail.smr_stage === "needs_review" && !(detail.smr_lines || []).some(inInvoicePeriod)) {
-    const who = pr.by_name ? ` by ${pr.by_name}` : "";
-    const btn = editable ? ` <button type="button" class="secondary-btn" id="wo-act-smr-not-paper-reviewed" data-action="smr-not-paper-reviewed">Back to paper review</button>${labor ? ` ${READY_BTN}` : ""}` : "";
-    return `<p class="wo-smr-ready wo-smr-ready--ready">${escapeHtml(`Paper reviewed · ${stamp(pr.at)}${who}`)}${btn}</p>`;
-  }
   if (detail.smr_stage === "ready") {
     const who = stamp_?.by_name ? ` by ${stamp_.by_name}` : "";
     const text = `Ready to invoice · ${stamp(stamp_?.at)}${who}`;
     const btn = editable ? ` <button type="button" class="secondary-btn" id="wo-act-smr-not-ready" data-action="smr-not-ready">Not ready</button>` : "";
     return `<p class="wo-smr-ready wo-smr-ready--ready">${escapeHtml(text)}${btn}</p>`;
   }
-  if (labor) {
-    return editable
-      ? `<p class="wo-smr-ready">${READY_BTN}</p>`
-      : `<p class="wo-smr-ready hint">Not yet ready to invoice</p>`;
+  if (detail.smr_stage === "paper_review" && editable) {
+    return `<p class="wo-smr-ready"><button type="button" class="secondary-btn" id="wo-act-smr-paper-reviewed" data-action="smr-paper-reviewed">Mark paper reviewed</button>${READY_BTN}</p>`;
   }
-  const text = stamp_ ? "Ready stamp held until a labor line is added" : "Add a labor line to mark ready";
-  return `<p class="wo-smr-ready hint">${text}</p>`;
+  if (pr && detail.smr_stage === "needs_review" && !(detail.smr_lines || []).some(inInvoicePeriod)) {
+    const who = pr.by_name ? ` by ${pr.by_name}` : "";
+    const btn = editable ? ` <button type="button" class="secondary-btn" id="wo-act-smr-not-paper-reviewed" data-action="smr-not-paper-reviewed">Back to paper review</button>${READY_BTN}` : "";
+    return `<p class="wo-smr-ready wo-smr-ready--ready">${escapeHtml(`Paper reviewed · ${stamp(pr.at)}${who}`)}${btn}</p>`;
+  }
+  return editable
+    ? `<p class="wo-smr-ready">${READY_BTN.trim()}</p>`
+    : `<p class="wo-smr-ready hint">Not yet ready to invoice</p>`;
 }

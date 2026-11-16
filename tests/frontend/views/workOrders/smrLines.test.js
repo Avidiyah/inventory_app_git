@@ -151,16 +151,9 @@ describe("ready to invoice", () => {
     expect(row().querySelector('[data-action="smr-ready"]')).not.toBeNull();
   });
 
-  it("an order with no labor lines offers no button", async () => {
+  it("an order with no labor lines still offers the Ready button", async () => {
     await open({ detail: { smr_stage: "other", smr_lines: [] } });
-    expect(row().textContent).toBe("Add a labor line to mark ready");
-    expect(row().querySelector("[data-action]")).toBeNull();
-  });
-
-  it("a ready stamp on an order that lost its labor lines is held, not shown as ready", async () => {
-    await open({ detail: { smr_stage: "paper_review", smr_lines: [], smr_ready: { at: "2026-11-08T15:00:00Z", by_name: "JM" } } });
-    expect(row().textContent).toBe("Ready stamp held until a labor line is added");
-    expect(row().querySelector("[data-action]")).toBeNull();
+    expect(row().querySelector('[data-action="smr-ready"]')).not.toBeNull();
   });
 
   it("below Admin a ready order shows the stamp with no button", async () => {

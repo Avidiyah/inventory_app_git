@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.domain import work_orders as wo
 from app.domain import work_orders_smr as smr
 from app.domain import work_orders_smr_lines as rules
-from app.domain.errors import SmrNoLaborError, WorkOrderNotFoundError, WorkOrderStateError
+from app.domain.errors import WorkOrderNotFoundError, WorkOrderStateError
 from app.models import (
     SmrLaborLine,
     User,
@@ -200,7 +200,7 @@ def set_paper_check(db: Session, *, work_order_id: uuid.UUID, checked: bool, use
 
 def set_ready(db: Session, *, work_order_id: uuid.UUID, ready: bool, user: User) -> SmrTile:
     """Stamp or clear Ready for invoice (Admin+, spec 2026-11-06). A stamp
-    needs a line dated in Weeks 1-7 (409 otherwise); a second stamp keeps the first who /
+    works on any SMR order (user 2026-11-16); a second stamp keeps the first who /
     when; clearing a never-stamped order is a no-op. Returns the tile."""
     order = db.get(WorkOrder, work_order_id)
     if order is None:
@@ -211,9 +211,6 @@ def set_ready(db: Session, *, work_order_id: uuid.UUID, ready: bool, user: User)
         order.smr_ready_at = None
         order.smr_ready_by_id = None
     elif order.smr_ready_at is None:
-        lines = [l for l in smr.correction_lines(order) if l.exclusion_ground != rules.GROUND_REMOVED]
-        if not lines:
-            raise SmrNoLaborError("Add a labor line first.")
         order.smr_ready_at = datetime.now(timezone.utc)
         order.smr_ready_by_id = user.id
     db.commit()

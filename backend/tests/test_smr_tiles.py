@@ -336,7 +336,7 @@ def test_belfor_only(db):
     assert _tile(db, order).belfor_only is False
 
 
-def test_ready_beats_no_material_and_needs_an_invoice_period_line(db):
+def test_ready_stamp_always_wins(db):
     owner = _user(db)
     order = _staged(db, owner, materials=False)
     line = lines_service.add_line(db, work_order_id=order.id, payload=_line_in(), user=owner)
@@ -350,7 +350,7 @@ def test_ready_beats_no_material_and_needs_an_invoice_period_line(db):
     lines_service.edit_line(db, line_id=line.id,
                             payload=SmrLineEditIn(status="excluded", exclusion_ground="removed", reason="x"), user=owner)
     tile = _tile(db, order)
-    assert tile.stage == "no_material" and tile.ready is not None
+    assert tile.stage == "ready"  # no line rules since 2026-11-16
 
 
 # --- ids_only: a filter change builds no tile (spec 2026-11-13-smr-filter-ids) ---

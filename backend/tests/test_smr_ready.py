@@ -62,12 +62,12 @@ def test_a_technician_is_forbidden(db):
     assert _put(db, _user(db), order.id, True).status_code == 403
 
 
-def test_an_order_without_labor_lines_refuses_the_stamp(db):
+def test_an_order_without_labor_lines_takes_the_stamp(db):
+    # No rules on invoicing since 2026-11-16: any SMR order can be stamped.
     owner, admin = _user(db, "owner"), _user(db, "admin")
     order = _smr_order(db, owner)
-    refused = _put(db, admin, order.id, True)
-    assert refused.status_code == 409
-    assert "Add a labor line first." in refused.json()["detail"]
+    stamped = _put(db, admin, order.id, True)
+    assert stamped.status_code == 200 and stamped.json()["stage"] == "ready"
 
 
 def test_a_line_after_week_7_takes_the_stamp(db):

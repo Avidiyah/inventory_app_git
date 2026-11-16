@@ -352,12 +352,6 @@ class WorkOrderAlreadySignedError(DomainError):
     work order, S1). Maps to 409."""
 
 
-class SmrNoLaborError(DomainError):
-    """Raised for a Ready-for-invoice stamp on an SMR order with no labor
-    line (spec 2026-11-06-smr-paper-stage). Maps to 409: the body is fine,
-    the order has no labor to bill yet."""
-
-
 class ReportWeekError(DomainError):
     """Raised by `services.work_order_report.resolve_week` for a `week` that is
     not a Monday or lies after the current week. Maps to 422: the request is
