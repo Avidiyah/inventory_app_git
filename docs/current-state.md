@@ -1794,7 +1794,8 @@ below Admin; the Admin/Owner picker includes themselves "(not assigned)";
 entries show their session window, capped ones tagged "auto-stopped"; a
 Technician off the crew gets no Labor section), and on SMR orders Invoice
 (under Labor, open for Admin+: work description, Generate correction block,
-Print receipt, Mark pasted). **SMR Labor card** (user 2026-11-12;
+Print receipt, Mark pasted; an order with no vendor lines prints its standard
+labor entries as `Belfor ST` at $62.50/h, rounded like the card). **SMR Labor card** (user 2026-11-12;
 `workOrderSmrLines.js` / `workOrderSmrActions.js`, Admin+ edits, open by
 default): an SMR order's Labor card lists its charged vendor lines, nothing
 else (`GET /work-orders/{id}` sends charged lines only; readings, excluded

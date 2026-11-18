@@ -351,6 +351,8 @@ def _next_block(order: WorkOrder, *, user: User, now: datetime) -> SmrCorrection
     text = block_rules.render_correction_block(
         order.number, order.smr_target, lines, version, now.astimezone(wo.NOTE_TIMEZONE).date(),
         materials=materials, description=order.smr_description,
+        # Standard labor entries are the record only with no lines; not loaded otherwise.
+        entries=() if lines else order.labor_entries,
     )
     return SmrCorrectionBlock(
         id=uuid.uuid4(), work_order_id=order.id, version=version, text=text, generated_at=now,

@@ -251,3 +251,31 @@ def test_the_work_description_wraps_to_the_width_under_its_heading():
     ]
     assert all(len(row) <= receipt.PRICING_LINE_WIDTH for row in rows)
     assert "WORK DESCRIPTION" not in _render([_line()])
+
+
+def test_standard_labor_entries_print_as_belfor_st_when_the_order_has_no_lines():
+    # User 2026-11-18 (order 23470834): two technicians' 30 minutes each, no
+    # paper lines; the block bills the hour at the ST rate instead of nothing.
+    entries = [NS(minutes=30, technician_id="a"), NS(minutes=30, technician_id="b")]
+    rows = block.render_correction_block("23470834", _target("1", "62.50"), [], 1, date(2026, 11, 18),
+                                         entries=entries).split("\n")
+    assert rows[rows.index("Finalized labor record:"):] == [
+        "Finalized labor record:",
+        "ST $62.50/h",
+        "Belfor ST                           1.0 h",
+        "",
+        "Labor total                        $62.50",
+        "Materials total                     $0.00",
+        "Total                              $62.50",
+    ]
+    assert "Finalized Total                     1.0 h" in rows
+    assert not any(row.startswith("Add to WO") for row in rows)
+    # Minutes round up to the half hour; anonymous skilled entries round apart on their own row.
+    mixed = block.render_correction_block("1", None, [], 1, date(2026, 11, 18), entries=[
+        NS(minutes=40, technician_id="a"), NS(minutes=10, technician_id=None)]).split("\n")
+    assert "Belfor ST                           1.0 h" in mixed
+    assert "Skilled Technician ST               0.5 h" in mixed
+    assert "Labor total                        $93.75" in mixed
+    # Paper lines govern once any exist: the entries no longer print or charge.
+    assert block.render_correction_block("23281563", TARGET, _sample_lines(), 2, date(2026, 11, 10),
+                                         entries=entries) == _render(_sample_lines())

@@ -32,6 +32,7 @@ from typing import Optional, Sequence
 
 from app.domain import receipt
 from app.domain import work_orders as wo
+from app.domain.work_orders_smr import labor_figures, labor_split
 from app.domain.work_orders_smr_lines import (
     GL_RATE,
     GROUND_REMOVED,
@@ -40,7 +41,6 @@ from app.domain.work_orders_smr_lines import (
     VENDORS,
     is_gl,
     line_hours,
-    lines_charge,
 )
 
 WIDTH = receipt.PRICING_LINE_WIDTH
@@ -120,6 +120,18 @@ def _labor_rows(charged) -> list[str]:
     return [_fit(f"ST ${wo.LABOR_RATE}/h  GL ${GL_RATE}/h"), *rows] if rows else []
 
 
+def _entry_rows(entries) -> list[str]:
+    """The labor record of an order with no paper lines (user 2026-11-18):
+    its standard labor entries at the ST rate, as Belfor's, in the hours the
+    order bills (rounded up to the half hour); anonymous Skilled Technician
+    entries keep their own row, rounded apart like everywhere else."""
+    split = labor_split(entries)
+    rows = [_row(label, _hours(Decimal(minutes) / 60))
+            for label, minutes in (("Belfor ST", split.real_billed), ("Skilled Technician ST", split.skilled_billed))
+            if minutes]
+    return [_fit(f"ST ${wo.LABOR_RATE}/h"), *rows] if rows else []
+
+
 def _has(target: Optional[dict]) -> tuple[Decimal, str]:
     """What NetFacilities has: the Breakdown hours, and the amount text with
     the labor type and labor dollars when the sheet row carries them."""
@@ -174,18 +186,25 @@ def _description_rows(description: Optional[str]) -> list[str]:
 
 def render_correction_block(order_number: str, target: Optional[dict], lines, version: int,
                             generated_on: date, materials: Sequence[receipt.ReceiptLine] = (),
-                            description: Optional[str] = None) -> str:
+                            description: Optional[str] = None, entries: Sequence = ()) -> str:
     """The block for one order from its current lines and materials.
     `target` is the order's `smr_target` (the Breakdown row NetFacilities
-    billed, D6); None when the order has no sheet row, which the block says."""
+    billed, D6); None when the order has no sheet row, which the block says.
+    `entries` are the order's standard labor entries: they are the labor
+    record only while the order has no lines (`labor_figures`, D9)."""
     lines = list(lines)
-    charge = lines_charge(lines)
+    # ponytail: the stale check (`lines_digest`) reads lines only, so an entry
+    # edited after a block was generated does not flag it; add the entries to
+    # the digest if that ever bites.
+    figures = labor_figures(entries, lines)
+    hours = figures.lines.charged_hours if figures.lines else Decimal(figures.billed_minutes) / 60
+    labor_total = figures.labor_total
     billed, has = _has(target)
-    change = charge.charged_hours - billed
+    change = hours - billed
     # Two rates (user 2026-11-11): the dollars to add are the corrected labor
     # less what NetFacilities has, not the hours difference at one rate.
     billed_money = Decimal(target["labor_total"]) if target and target.get("labor_total") else billed * wo.LABOR_RATE
-    money_change = charge.labor_total - billed_money
+    money_change = labor_total - billed_money
     charged = [l for l in lines if l.status == STATUS_CHARGED and l.exclusion_ground != GROUND_REMOVED]
     material_rows, materials_total = _materials_rows(materials, target)
     out = [
@@ -197,19 +216,19 @@ def render_correction_block(order_number: str, target: Optional[dict], lines, ve
         "",
         # User 2026-11-07: estimate, finalized total, then the diff only when there is one.
         _row("Original Estimate", has),
-        _row("Finalized Total", _hours(charge.charged_hours)),
+        _row("Finalized Total", _hours(hours)),
         *([_row("Add to WO", _hours(change, signed=True)), _row("", receipt.format_money(money_change))]
           if change or money_change else []),
         "",
         _fit(f"Finalized labor record{_paper_days(charged)}:"),
     ]
-    out += _labor_rows(charged) or [_fit("  (nothing charged)")]
+    out += _labor_rows(charged) or (_entry_rows(entries) if not lines else []) or [_fit("  (nothing charged)")]
     # User 2026-11-06: no Reason lines; a change is justified if asked.
     out += [
         "",
-        _row("Labor total", receipt.format_money(charge.labor_total)),
+        _row("Labor total", receipt.format_money(labor_total)),
         _row("Materials total", receipt.format_money(materials_total)),
-        _row("Total", receipt.format_money(materials_total + charge.labor_total)),
+        _row("Total", receipt.format_money(materials_total + labor_total)),
     ]
     return "\n".join(out)
 
