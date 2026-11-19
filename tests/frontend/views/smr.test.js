@@ -162,7 +162,7 @@ describe("the SMR page", () => {
       expect(document.querySelector(`.smr-btn[data-filter="${value}"]`)).toBeNull();
     }
     const row = (name) => Array.from(document.querySelectorAll(`.smr-controls[data-row="${name}"] .smr-btn[data-filter]`)).map((b) => b.dataset.filter);
-    expect(row("stage")).toEqual(["no_material", "paper_review", "needs_review", "ready", "all"]);
+    expect(row("stage")).toEqual(["no_material", "paper_review", "needs_review", "ready", "other", "all"]);
     expect(row("pile")).toEqual(["Before W1", "Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6", "Week 7", "After W7", "Undated", "belfor", "all"]);
     expect(row("flags")).toEqual(["short", "matched", "block_pending", "archived", "all"]);
   });
