@@ -11,7 +11,6 @@ left to do:
 | Doc | Holds |
 |---|---|
 | `docs/current-state.md` | contracts, invariants, data model, roles, known gaps — **the authority**; if it conflicts with code, trust the code |
-| `docs/endpoint-map.md` | every endpoint traced DB↔view, request/response contracts, error catalog |
 | `docs/project-summary.md` | what the app is, stack, architecture, verification baseline |
 
 **Nothing is scheduled.** Every item is an owner-requested feature, a

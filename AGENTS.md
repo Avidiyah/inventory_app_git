@@ -8,7 +8,7 @@ Codex defaults, follow this file.
 For every implementation, refactor, review, planning, or architecture task:
 
 1. Read the relevant living docs in `docs/` before editing code
-   (`current-state.md`, `endpoint-map.md`, `open-work.md`). `docs/` is the
+   (`current-state.md`, `open-work.md`). `docs/` is the
    only project memory; `docs/superpowers/` is history — open a file there
    by name, never sweep it.
 2. Inspect the codebase and make the requested edits.

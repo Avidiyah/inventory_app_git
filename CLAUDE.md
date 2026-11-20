@@ -38,7 +38,7 @@ gathered in the parent.
   backend/scripts/import_local_data.ps1, backend/static/shell-head.html,
   backend/static/shell-tail.html.
 - **Docs** — `docs/` in the repo is the only doc source: read the living docs
-  directly (`current-state.md`, `endpoint-map.md`, `open-work.md`);
+  directly (`current-state.md`, `open-work.md`);
   `docs/superpowers/` is history — open a file there by name, never sweep it.
 
 Standard tools (Read/Grep/Glob/Bash/Edit) remain the default for anything
@@ -53,7 +53,7 @@ at most one line of rationale, only where a future session would
 otherwise re-litigate it. Form: tables for enumerable facts, clipped
 bullets elsewhere, no paragraph over ~3 sentences, never restate what
 code or another doc owns. Soft word budgets (also stated in each doc's
-header): `current-state.md` 16,500 · `endpoint-map.md` 11,000 ·
+header): `current-state.md` 16,500 ·
 `open-work.md` 12,000. Budgets bound form, not content — compress
 phrasing first, delete only what is stale, and exceed a budget rather
 than drop a load-bearing fact. An update that breaches a budget should
