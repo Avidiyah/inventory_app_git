@@ -29,14 +29,9 @@ observation becomes active work.
 
 ## 1. Requested feature
 
-User-requested behavior, not framework work. IMP-001–003 and IMP-005–040 are
-implemented or retired (IMP-034, the User Hub, shipped in phases P1–P5 ending
-2026-08-30; spec `docs/superpowers/specs/2026-08-20-user-hub-design.md`; its
-two follow-ons live in section 2 as `N-WO-STATUS-EVENTS` and
-`N-REPORT-EXPORT-AUDIT`; IMP-039 was replaced by IMP-040, whose two standing
-notes live in section 2 as `N-NF-STEEL-SESSION`; IMP-038 and IMP-040 were
-owner-confirmed closed 2026-09-14; IMP-041 shipped 2026-09-21). IMP-004,
-IMP-035 and IMP-042 are the open requests.
+User-requested behavior, not framework work. IMP-004, IMP-035 and IMP-042 are
+the open requests; every other IMP number through 042 is implemented or
+retired.
 
 ### IMP-004 — Mass Stage redesign
 
@@ -50,26 +45,6 @@ the rest of the work-order data after a result is selected. Use mass staging
 primarily to group work orders by Location: if a saved Community from mass
 staging appears in a work order's Location field, display that work order
 under the Communities cards. Request logged only.
-
-### IMP-041 — Attendance timesheet · shipped
-
-- **Logged** 2026-09-21 · *User Hub / Attendance* · **closed** 2026-09-21 · spec
-  `docs/superpowers/specs/2026-09-21-attendance-timesheet-design.md`
-
-Shipped in full (P1–P4b); the spec owns what. Amended 2026-10-15 by
-`2026-10-15-attendance-midnight-close-and-lunch-design.md` (midnight close
-replaces D4/D5; flat lunch). Night shifts crossing midnight are its
-non-goal. Two things were deliberately
-not built, and reopening either needs a new reason, not a reminder:
-
-- A **billed** column beside clocked and charged. `billed_labor_minutes`
-  rounds a *work order's combined* labor up to 30 minutes across every
-  technician and day that touched it, so no per-person-per-day billed number
-  exists; one invented here would be an approximation of an invoice in a
-  column that reads as a fact. Reopen only with a per-person billing rule
-  behind it.
-- `promptTime()`'s analog dial. The dropdowns + nudge row shipped in P1, are
-  complete and keyboard-accessible, and the dial is optional polish.
 
 ### IMP-035 — Item/work-order photo attachments
 
@@ -216,8 +191,7 @@ instances); B3's rate limiter holds counters in process memory (the cap
 becomes 60/s per process, a deliberate trade); a realtime connection registry
 does not degrade — it **silently halves delivery**, since connections are
 process-local and instance A's users never receive instance B's events, with
-no error on either side. The archived design note survives in the vault under
-`archive/superpowers/`.
+no error on either side.
 
 ### N4 — reconsider serving the SPA from the API process
 
@@ -1011,7 +985,7 @@ DEC-002 growth changes the target).
 | PRO-014 | Critical: proves recoverability from destructive error or outage. | DEC-003, DEC-008, and DEC-009. |
 | PRO-015 | High: makes high-risk response repeatable under pressure. | DEC-010 and communication roles. |
 | PRO-016 | High: makes clean-environment setup reproducible. | None. |
-| PRO-017 | High: prevents stale canonical facts from driving decisions. | Vault orphan/tombstone policy. |
+| PRO-017 | High: prevents stale canonical facts from driving decisions. | None. |
 | PRO-018 | High: controls changes to critical code and production. | DEC-010 and administrator access. |
 | PRO-019 | Medium: makes releases/support visible and traceable. | DEC-010. |
 | PRO-020 | High: detects production invariant drift before it compounds. | Source-of-truth rule and alert severity for each invariant. |
@@ -1237,18 +1211,14 @@ status `Candidate`.
   `.env.example`.
 - **Dependency/decision:** SEC-008 and PRO-006.
 
-#### PRO-017 - Trustworthy generated facts and Obsidian synchronization
+#### PRO-017 - Trustworthy generated facts
 
-`Production baseline`; `M`; Professionalism; `Confirmed`; status `Candidate`.
+`Production baseline`; `S-M`; Professionalism; `Confirmed`; status `Candidate`.
 
-- **Evidence/outcome:** migration/route/schema/test counts and provenance drift;
-  `scripts/sync-obsidian.ps1:94-152` writes current mirrors but does not remove
-  or flag orphans, and its content-hash shortcut can skip provenance-only
-  refreshes. Generate or check volatile facts and make stale memory detectable.
-- **Done when:** CI checks current Alembic/OpenAPI/test facts; sync `-Check`
-  detects stale metadata and orphan mirrors; obsolete notes are removed or
-  tombstoned; targeted Obsidian search returns current authority first.
-- **Dependency/decision:** vault deletion/tombstone policy.
+- **Evidence/outcome:** migration/route/schema/test counts quoted in `docs/`
+  drift from code. Generate or check volatile facts so stale ones are detectable.
+- **Done when:** CI checks the Alembic/OpenAPI/test facts the docs quote.
+- **Dependency/decision:** none.
 
 #### PRO-018 - Repository and production change governance
 
@@ -1672,16 +1642,7 @@ These are sequencing constraints, not a schedule:
 6. **Choose enterprise scope explicitly:** SEC-019 and SCL-020/SCL-021 are not
    required for the provisional single-region target unless DEC-001 changes.
 
-### Review evidence and external standards
-
-Clean-commit verification at `ac99487`: 679 Python tests and 32 non-vendor
-JavaScript syntax checks passed. After concurrent search-ranking worktree changes
-appeared during this documentation session, all 683 collected tests and the same
-32 syntax checks passed. `pip check` is clean; `pip-audit --local` was clean at
-the preceding review baseline. Alembic head/current were `fbc4e6a8d0f2`;
-`alembic check` proposed six intended-index removals and two transaction-FK
-`RESTRICT` rewrites, the exact drift tracked by SCL-004. Docker was unavailable
-locally, which is why image-build evidence is a candidate rather than success.
+### External standards
 
 Primary references used to set the maturity bar:
 
@@ -1712,64 +1673,11 @@ This ruling does **not** prohibit SCL-014's triggered data-model change: after a
 legacy-value audit and owner-approved malformed-date policy, a separately
 validated typed sortable representation could make bounded SQL ordering safe.
 
-### X3 — Paginate the unbounded collections — **shipped 2026-08-10**
+### Attendance: billed column and analog time dial — **ruled out**
 
-Promoted and shipped the same day as a **safety ceiling rather than
-pagination**, because the symptom was not occurring and two of the endpoints
-back client-side search. Recorded here only because it was parked as out of
-scope for being *a feature*, not for being unimportant — and measurement then
-showed the feature half was never needed.
-
----
-
-## Verified strengths at `ac99487` — re-audit after relevant change
-
-These statements are scoped to the reviewed commit. Re-audit a statement when
-its code, dependency, deployment topology, or named exception materially changes.
-
-**Known drift since `ac99487` (checked 2026-08-16, statements not otherwise
-re-audited):** the migration count below is now **32 revisions at head
-`0c1d2e3f4a5b`**, not 31 at `fbc4e6a8d0f2`; the suite now collects **974** tests,
-not 679/683. The `BackgroundTasks` statement is unchanged but now sits beside a
-real-time dispatch task and a NetFacilities job coordinator, both supervised
-through `lifespan.py` rather than `BackgroundTasks` — the finding still holds,
-its context does not. Figures below are otherwise left at their audited values
-on purpose: this is a dated record, not a live one.
-
-- **Pydantic v1→v2 migration debt** — none. `pydantic==2.13.4`, already current.
-- **`BackgroundTasks` durability** — no usage anywhere, so no dropped-job
-  exposure. The CSV import is the workload that would normally live in a queue;
-  it runs inline, threadpooled rather than blocking the loop.
-- **Async boundary** — route handlers follow the established async/threadpool
-  boundary. PRO-017 owns replacing volatile route counts with a generated check.
-- **Error-translation consistency** — routers use the shared `to_http` boundary
-  (63 direct router call sites at this baseline). PRO-017 owns count freshness.
-- **API versioning** — routers mount at `/auth`, `/items`, `/work-orders` with
-  no `/v1`. A non-issue while the SPA is the only client and ships in the same
-  deploy. Becomes real the moment a mobile app or third-party integration
-  consumes the API.
-- **ORM and migrations** — SQLAlchemy 2.0 and 31 Alembic revisions at head
-  (`fbc4e6a8d0f2`) provide a strong migration foundation. SCL-004 is the narrow
-  exception: model metadata currently drifts from intended index/FK state.
-- **Concurrency foundation** — `with_for_update()` protects core inventory and
-  custody mutations. SCL-001 through SCL-003 and SEC-005 are the specifically
-  demonstrated cross-table or multi-session exceptions; SCL-005/SCL-006 instead
-  track transaction-boundary and partial-persistence risk.
-- **Password hashing foundation** — scrypt with `hmac.compare_digest`, no
-  third-party dependency. SEC-004 tracks policy, cost, and non-user timing; it
-  does not replace or invalidate existing hashes merely by raising new-password
-  rules, but it still owns weak-credential reset and KDF version/rehash migration.
-- **Sessions and cookies** — session tokens are high entropy and stored hashed;
-  production cookies are `HttpOnly`, `Secure`, and `SameSite`, with expiry and
-  revocation behavior. SEC-011/SEC-016 own MFA, lifecycle, and review evidence.
-- **Browser security posture** — CSP/HSTS and a no-CORS same-origin deployment
-  form a strong baseline. SEC-017 is the explicit topology-change trigger.
-- **Injection/output foundation** — ORM parameterization, HTML escaping, and URL
-  validation are established. SEC-006 is the spreadsheet-output exception.
-- **Authorization foundation** — role gates and server-side price redaction are
-  broadly applied. SEC-002 and SEC-007 are the demonstrated workflow exceptions.
-- **Upload/container foundation** — uploads are byte-capped and nonpersistent;
-  the container runs non-root and production secrets are externally referenced.
-  SEC-003 owns decoded-resource limits; SEC-008 owns the tracked local credential.
-- **Layering** — `routers → services → domain → models` held consistently across
-  nine resources.
+- A per-person **billed** column beside clocked and charged:
+  `billed_labor_minutes` rounds a work order's *combined* labor to 30 minutes
+  across every technician and day, so no per-person-per-day billed number
+  exists. Reopen only with a per-person billing rule behind it.
+- `promptTime()`'s analog dial: the dropdowns + nudge row are complete and
+  keyboard-accessible; the dial is optional polish.

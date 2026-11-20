@@ -16,4 +16,4 @@ Implementation is in `backend/static/pages/user-hub.html`, `backend/static/views
 
 ## Project-memory gap
 
-Obsidian tools are unavailable in this session, so canonical Obsidian notes were neither consulted nor updated. Checked-in attendance/Home specs supplied context. This note records the implementation and verification for later reconciliation into `4. Notes/Repository-Docs/inventory-app-git`; it does not replace the canonical project memory.
+Checked-in attendance/Home specs supplied context. This note records the implementation and verification for later reconciliation into `4. Notes/Repository-Docs/inventory-app-git`; it does not replace the canonical project memory.

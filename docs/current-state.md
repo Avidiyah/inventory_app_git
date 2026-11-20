@@ -1,6 +1,6 @@
 # Inventory App Current State
 
-Last reviewed: 2026-10-29 · Soft word budget: 16,500 (CLAUDE.md → Documentation
+Last reviewed: 2026-11-20 · Soft word budget: 16,500 (CLAUDE.md → Documentation
 conventions)
 
 Contracts and invariants — **the authority**; enough current-state context to
@@ -15,7 +15,8 @@ known gaps change. For review/debugging: `Data Model` + `Known Gaps` identify
 the contract and the intentional limitations.
 
 If this file conflicts with code, trust the code and update this file as part
-of the change. Alembic head is **`9b2c4d6e8f10`** (52 revisions). Operation
+of the change. Alembic head is **`b7d9f1a3c5e7`** (60 revisions; `backend/alembic/versions` owns the
+history). Operation
 and test counts are volatile — verify via `app.openapi()` and
 `pytest --collect-only` rather than trusting any quoted number.
 
@@ -240,33 +241,6 @@ leaf first: `workOrderGlyphs` → `workOrderPresenters` → `workOrderSignature`
 module may pass the 500-line cap; past 1,000 it must move function bodies
 into helper modules.
 
-Tests:
-
-```text
-backend/tests/test_auth_*.py
-backend/tests/test_roles.py
-backend/tests/test_route_role_gates.py
-backend/tests/test_barcodes.py
-backend/tests/test_item_*.py
-backend/tests/test_billing_validation.py
-backend/tests/test_history_wo_filter.py
-backend/tests/test_quantity_reverse.py
-backend/tests/test_user_requests.py
-backend/tests/test_mass_staging*.py
-backend/tests/test_netfacilities_*.py
-backend/tests/test_realtime_*.py
-backend/tests/test_rate_limit*.py
-backend/tests/test_login_throttle*.py
-backend/tests/test_list_*.py
-backend/tests/test_push_domain.py
-backend/tests/test_push_subscriptions.py
-backend/tests/test_vapid_keys.py
-backend/tests/conftest.py
-```
-
-The `Test Map` section below carries the full per-file coverage table; this list
-is a routing aid, not an inventory.
-
 ## Runtime And Stack
 
 | Area | Current implementation |
@@ -368,7 +342,7 @@ reading carries the cgroup figure Render enforces:
   works on a Render log export). Phase 3; spec
   `docs/superpowers/specs/2026-10-13-memory-soak-p3-design.md`.
 
-Logging (`app/logging_config.py`, added 2026-08-09 as N1):
+Logging (`app/logging_config.py`):
 
 - **Format is logfmt** -- `ts= level= req= [user_id=] event= <fields>` on
   stdout, which Render captures. The record's *message* is the event name
@@ -617,9 +591,7 @@ Security/access:
   more than the runaway client it catches. Refused requests are not themselves
   counted, so the cap cannot become an open-ended lockout. Never enforced by
   sleeping. This is a ceiling on malfunction, not a quota: the UI's heaviest
-  action is far below it, and a runaway `fetch` loop is far above it —
-  **confirmed by an owner browser pass against the deployed service on
-  2026-08-10**, in which ordinary field work never approached the cap.
+  action is far below it, and a runaway `fetch` loop is far above it.
 - **Every list endpoint returns at most 5,000 rows** (`MAX_LIST_ROWS`,
   `domain/list_limits.py`), applied in the service layer via
   `services/_list_cap.py`. This is a **safety ceiling, not pagination** — there
@@ -634,16 +606,11 @@ Security/access:
     which bounds the database work as well as the response.
   - **`GET /work-orders/` is the exception in how the cap applies.** Its
     ordering is decided in Python because `schedule_date` is raw text (X2), so
-    the ceiling bounds the *response*, not the query. Its `limit` param also
-    gained an upper bound of `MAX_LIST_ROWS` (it was `ge=1`, unbounded), and
-    omitting `limit` no longer takes a separate uncapped code path — same rows,
-    same order, less loading.
+    the ceiling bounds the *response*, not the query. Its `limit` param is
+    bounded by `MAX_LIST_ROWS`, and omitting `limit` takes the same capped path.
   - **The TechFM OA+ work-order CSV export is deliberately exempt** and remains the
     uncapped filtered set. A CSV that silently omits rows while looking complete
     is a records problem, not a performance one.
-  - **Owner-validated in the browser on 2026-08-10** across all six capped lists
-    and their consumers. Every list behaved exactly as before, which is the
-    whole claim — the ceiling sits far above any real data.
 - Both upload routes are size-capped (10 MB image / 25 MB CSV) and return 413
   above it; see *Upload size caps* under Runtime And Stack. On the import route
   the role gate runs first, so an unauthorised caller never reaches the check.
@@ -1893,61 +1860,8 @@ operational surface renders the derived full name.
 
 ## Migration History
 
-Alembic head: `9b2c4d6e8f10`.
-
-| Revision | Meaning |
-| --- | --- |
-| `4f0a7ce7d1ac` | initial users/items/transactions |
-| `9a2c5d4e8b11` | item JSONB attributes |
-| `4c1e7f3a9b22` | item location, attributes -> notes |
-| `a1b2c3d4e5f6` | auth password hashes, roles, sessions |
-| `b2d3e4f5a6c7` | restrict transaction FKs |
-| `c3d4e5f6a7b8` | transaction reason |
-| `d4e5f6a7b8c9` | transaction void metadata |
-| `e5f67b8c9d0` | item price/product link |
-| `f6b8c0d2e4a1` | item archived_at |
-| `a7c9e1f3b5d2` | additional item barcodes |
-| `b1f3d5a7c9e2` | mass-stage tables |
-| `c7e9a1b3d5f8` | session expires_at remember-me |
-| `c2e4f6a8d0b1` | room creator/assignee |
-| `e7f9a1c3b5d2` | transaction billable_quantity |
-| `d8b2f4a6c1e3` | transaction unit_price (historical price snapshot) |
-| `f1a3c5e7b9d4` | user archived_at (soft delete) |
-| `b3d5f7a9c1e4` | standalone `work_orders` (number identity) + `work_order_items` + transaction `affects_stock`/`work_order_id` + `mass_stages.community` + `mass_stage_work_orders` slots (replaces rooms) |
-| `c4e6a8b0d2f5` | backfill `work_order_items` lines from existing linked dispenses |
-| `a9d1f3b7c2e8` | `work_order_items.billable_quantity` (per-line billing override) |
-| `d2f4b6a8c0e3` | `tools` + `tool_transactions` tables (tool custody tracking) |
-| `e4a6c8b0d2f7` | `tool_transactions.reason` + nullable `assigned_to_id` (Correct Count / `adjust`) |
-| `f2a4c6b8d0e1` | work-order CSV import fields + Team Lead routing + legacy backfill |
-| `f3b5d7a9c1e2` | nullable user first/last names for legacy-safe display and CSV routing |
-| `f4c6e8a0b2d3` | work-order Created/Assigned default and five-state live lifecycle; existing statuses preserved |
-| `f5d7f9b1c3e4` | reconcile Created/Assigned pre-work rows from technician assignment instead of Team Lead routing |
-| `f6e8a0b2d4f5` | nullable `work_orders.notes` text storage (now used as an append-only authored/timestamped log without another migration); On-Hold uses the existing application-validated text status column |
-| `f7a9b1c3d5e6` | plural `work_order_technicians` assignments (backfilled from `assigned_to_id`) + per-technician `work_order_labor` minute entries |
-| `f8a0c2e4b6d8` | durable generic `user_requests` queue; first producer is a linked Scan / Stock inventory-recount exception |
-| `f9b1d3e5a7c9` | backfill one open missing-price/link request per unpriced item already present on a live work order |
-| `faa2c4e6b8d0` | backfill missing-price/link requests for live work-order items whose recorded price is `$0.00` or otherwise non-positive; tag seeded rows with `details.migration_source` so downgrade removes only this migration's inserts |
-| `fbc4e6a8d0f2` | hash session tokens at rest (`sessions.token_hash` replaces the raw token) + `login_attempts` throttle counters |
-| `0c1d2e3f4a5b` | nullable `work_orders.priority`; no default and no backfill, written only by NetFacilities enrichment |
-| `1d2e3f4a5b6c` | `push_subscriptions` for Web Push opt-in, keyed on `endpoint` so a re-subscribe reassigns a shared device rather than duplicating it; nothing to backfill |
-| `a2c4e6b8d0f1` | `work_order_labor_sessions` for tracked start/stop labor, with a partial unique index on `(technician_id) WHERE ended_at IS NULL` enforcing one running clock per person; nothing backfilled, so existing labor rows keep rendering as a bare duration. The new `ready_to_complete` status needed no migration — `work_orders.status` has no CHECK constraint |
-| `b7d9f1a3c5e8` | `attendance_punches` + `attendance_punch_edits`, with a partial unique index on `(user_id) WHERE ended_at IS NULL` enforcing one open punch per person; nothing backfilled — there is no historical source for "was this person at work" |
-| `c4a6e8b0d2f5` | `attendance_punches.deleted_at` for the soft delete, with the open-punch partial unique index rebuilt as `WHERE ended_at IS NULL AND deleted_at IS NULL`; nothing backfilled |
-| `a1c3e5b7d9f0` | `items.low_stock_threshold` for the per-item reorder line |
-| `b3d5f7a9c1e2` → `c6e8a0b2d4f7` | work-order auto-close batch columns added, then dropped once the batch was retired |
-| `d1e3f5a7b9c2` | rename `user_requests.request_type` `item_request` → `catalogue_request` (data only) |
-| `fcbc2524ea62` | `netfacilities_cloud_sessions` (one encrypted cloud session per user) |
-| `e2f4a6c8b0d3` | `work_order_report_weeks` (the frozen weekly closed record) |
-| `d5b7f9a1c3e6` | `work_order_labor_sessions.reviewed_at` (Admin accepted an auto-closed session) |
-| `e7c9a1b3d5f7` | `dispense_exports` (Weekly export windows on Saved Items) |
-| `a7c3e9f1b2d4` | `work_order_signatures` — one witness sign-off per work order (unique `work_order_id`, cascade on delete); nothing backfilled |
-| `5b7c9d1e2f30` | `work_orders.smr_imported_at` + `smr_baseline` (JSONB, frozen pre-audit snapshot); `work_order_labor.technician_id` nullable (NULL = Skilled Technician line); no backfill |
-| `6c8d0e2f3a41` | `work_orders.smr_target` (JSONB, the client's Breakdown-sheet target: hours, labor $, material $, raw row; overwritten per target import); no backfill |
-| `7d9e1f3a4b52` | `work_orders.smr_paper_checked_at` + `smr_paper_checked_by_id` (FK users, `ON DELETE SET NULL`): SMR paper check, independent of Edited / Matched / archive; no backfill |
-| `3e5a7c9b1d2f` | `ck_smr_labor_lines_excluded_ground` dropped: an excluded line needs no ground (user 2026-11-06) |
-| `8e0f2a4b5c63` | SMR27 paper corrections (spec 2026-11-04): `smr_workers` (vendor people, no app user; `user_id` `ON DELETE SET NULL`), `smr_paper_readings` (one per printing read), `smr_labor_lines` (the unit of charge; checks: headcount ≥ 1, 0.5 h steps, status ∈ charged/excluded, charged needs a date or the Week 1 placement basis, excluded needs a ground), `smr_line_edits` (append-only history, the `attendance_punch_edits` shape), `smr_correction_blocks` (versioned pasted text + lines digest); no backfill, existing `smr_*` columns untouched |
-| `451c56c5643a` | `ck_smr_labor_lines_charged_dated` widened: a charged line with a blank day needs a placement basis (`Week 1 placement (crew sheets, Supplement)` or `week placement (weekly reports)`) and its `week`; no data change |
-| `9b2c4d6e8f10` | `work_orders.smr_ready_at` + `smr_ready_by_id` (FK users, `ON DELETE SET NULL`): Ready for invoice stamp (spec 2026-11-06-smr-paper-stage); no backfill |
+`backend/alembic/versions` is the authority (`alembic history`); head is in
+this file's header. Every schema change needs a model change and a migration.
 
 ## Test Map
 
@@ -2108,8 +2022,7 @@ Do not "fix" these accidentally unless the task asks for it.
 - Completed mass stages cannot be reopened.
 - Stage deletion does not reverse load transactions already written.
 - Frontend has no bundler/type checker; ID and module contract drift is manual.
-- NetFacilities authentication is per-user Steel cloud sign-in only; the
-  pre-Steel system was fully removed 2026-08-29 (see the Removed register).
+- NetFacilities authentication is per-user Steel cloud sign-in only.
   `NetFacilitiesClient` requires an injected browser context — only the Steel
   adapter can construct a working one. Browser-managed downloading, app-side
   credential/MFA handling, and secondary-data retrieval remain absent;
@@ -2121,10 +2034,6 @@ Do not "fix" these accidentally unless the task asks for it.
   scan rows stay intact). That `adjust` is an inventory record only -- it is not
   billed, because work-order materials bill off the line total, not per-row (see
   Work orders invariants). Scoped to `work_order_items`-originated rows.
-- The `b3d5f7a9c1e4` migration is a clean rebuild: it WIPES all prior
-  mass-stage/work-order data (stages, slots, planned items, logged materials).
-  Inventory `items` and historical `transactions` are preserved (old txns keep
-  their `work_order_number` string with `work_order_id` NULL).
 - Work-order numbers are a single global namespace, unique case-insensitively;
   there is no per-community/building number scoping.
 - Work-order CSV import accepts the real header row first or Excel's optional
@@ -2179,7 +2088,6 @@ working feature. Dormant is **currently empty**.
 | `GET /items/search-index` | 2026-08-10 (X3) | no caller; `GET /items/?q=` covers it |
 | `backend/static/index.html` | 2026-06-12 | runtime shell assembly in `main.py`, deliberately uncached |
 | Sliding-window session idle timeout | `c7e9a1b3d5f8` | absolute `expires_at` + remember-me; consequence: a password reset must revoke sessions |
-| Ten docs → four; NetFacilities/realtime/push plan docs, `handoff.md` | 2026-08-10 / 2026-08-16 | `open-work.md` is the only backlog; the archived docs survive in the vault under `archive/superpowers/` (N3 cites one) |
 | Pre-Steel NetFacilities auth — local headed sign-in, shared secret file, five local routes, `services/netfacilities_auth.py` and siblings | 2026-08-29 | per-user Steel cloud auth (`services/netfacilities_cloud_auth.py`) |
 
 Still live — occasionally assumed dead: the **three** HTTP middleware layers
