@@ -35,8 +35,8 @@ implemented or retired (IMP-034, the User Hub, shipped in phases P1–P5 ending
 two follow-ons live in section 2 as `N-WO-STATUS-EVENTS` and
 `N-REPORT-EXPORT-AUDIT`; IMP-039 was replaced by IMP-040, whose two standing
 notes live in section 2 as `N-NF-STEEL-SESSION`; IMP-038 and IMP-040 were
-owner-confirmed closed 2026-09-14; IMP-041 shipped 2026-09-21). IMP-004 and
-IMP-035 are the open requests.
+owner-confirmed closed 2026-09-14; IMP-041 shipped 2026-09-21). IMP-004,
+IMP-035 and IMP-042 are the open requests.
 
 ### IMP-004 — Mass Stage redesign
 
@@ -83,6 +83,21 @@ of magnitude versus text-only rows; this is also `SCL-017`'s concrete future
 trigger. Needs its own scoping pass (upload limits, storage backend,
 retention/deletion policy, whether it reuses `SEC-003`'s image bounding)
 before promotion.
+
+### IMP-042 — Material and catalogue requests from a work order
+
+- **Logged** 2026-11-15 · *Work Orders / Requests* · outside the live
+  rendering roadmap (W1–W7)
+
+The owner needs material and catalogue requests filed from work orders "some
+way"; the form is not yet chosen. The card's Request section and its stocked
+"Add requested material" lines were hidden on 2026-11-06 (`ac95d23`). Still
+present: `views/workOrderRequests.js` (loaded, never mounted; tests drive it
+via `tests/frontend/helpers/detachedSections.js`) and every backend route.
+Live rendering's old W4 (that section, patched live) was dropped for this
+reason; whatever brings requests back should follow the W2 patch rules
+(`2026-11-14-work-order-live-rendering-design.md`, Stage 2). Needs its own
+scoping pass before promotion.
 
 ---
 

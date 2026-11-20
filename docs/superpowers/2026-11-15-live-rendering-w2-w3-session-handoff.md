@@ -26,7 +26,7 @@ The owner tested two devices: the list updated live, but an open card did not. A
 
 ## W3–W7 roadmap (owner-approved)
 
-W3 save-time conflict check · W4 request section in the card · W5 Requests page · W6 Low Stock + SMR Admin Review · W7 User Hub. Process: spec, then owner OK, then plan, then owner OK, for each W in turn.
+W3 save-time conflict check · ~~W4 request section in the card~~ (dropped 2026-11-15: the section was hidden in `ac95d23`; requests logged as IMP-042 in `docs/open-work.md`) · W5 Requests page · W6 Low Stock + SMR Admin Review · W7 User Hub. Process: spec, then owner OK, then plan, then owner OK, for each W in turn.
 
 - **W3 spec drafted:** `docs/superpowers/specs/2026-11-15-work-order-save-conflict-check-design.md` (1,722 words), **awaiting owner review**.
   - Owner picks: per-field expected values; Keep theirs / Save mine with name + age; per-field stamp table; protects Edit details, material quantity/billing, labor minutes.
