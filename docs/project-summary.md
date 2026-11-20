@@ -54,10 +54,6 @@ backlogs had drifted out of agreement with each other.
 - **`docs/current-state.md`** — the durable contract/invariants reference (data
   model, hard invariants, API surface, roles, known gaps). "If it conflicts with
   code, trust the code."
-- **`docs/endpoint-map.md`** — traces every endpoint DB↔view
-  (router→service→table, api.js→view), plus full request/response contracts, an
-  error catalog, and service algorithms — meant to make reading source
-  unnecessary.
 - **`docs/project-summary.md`** — this file: what the app is, stack,
   architecture, and the verification baseline.
 

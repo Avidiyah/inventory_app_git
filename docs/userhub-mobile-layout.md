@@ -13,7 +13,3 @@ Implementation is in `backend/static/pages/user-hub.html`, `backend/static/views
 - Focused Vitest suites for `hubHome`, `hubClock`, and `userHub`: 71 tests passed. Clock coverage includes escaped mobile details and the retained desktop label.
 - Chromium fixture using the real shell, view modules, and stylesheet with simulated payloads: idle, active, empty, and attendance-error states checked at 320, 360, 390, 600, 601, and 1280px; no page overflow. Long work-order text also checked at mobile widths.
 - Browser checks use fixture data; they are not a production backend end-to-end test.
-
-## Project-memory gap
-
-Obsidian tools are unavailable in this session, so canonical Obsidian notes were neither consulted nor updated. Checked-in attendance/Home specs supplied context. This note records the implementation and verification for later reconciliation into `4. Notes/Repository-Docs/inventory-app-git`; it does not replace the canonical project memory.

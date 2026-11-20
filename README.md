@@ -8,9 +8,6 @@ repository documents:
 
 - [docs/current-state.md](docs/current-state.md) — contracts, invariants, data
   model, deployment.
-- [docs/endpoint-map.md](docs/endpoint-map.md) — every endpoint wired
-  Database ↔ User View (read/write flows, table index). Start here to locate the
-  files for a given endpoint without searching.
 - [docs/project-summary.md](docs/project-summary.md) — concise current-worktree
   orientation and verification baseline.
 - [docs/open-work.md](docs/open-work.md) — the only backlog: every improvement

@@ -56,28 +56,6 @@ describe("the table cannot silently fall behind api.js", () => {
   });
 });
 
-describe("docs/endpoint-map.md", () => {
-  // Empty, and meant to stay that way: N-ENDPOINT-MAP-HUB-ADMIN's trigger was
-  // the next edit to the Master Endpoint Index, which P2 made, so `/hub/admin`
-  // now has its row (H2a). A wrapper listed here again is a documentation gap
-  // shipping, not a fix.
-  const KNOWN_UNDOCUMENTED = [];
-
-  it("names every exported wrapper", async () => {
-    const { readFileSync } = await import("node:fs");
-    // Name-level, not path-level: the doc is prose in a table and a reformat
-    // must not turn CI red. A wrapper missing here means an endpoint shipped
-    // without a documentation row.
-    const doc = readFileSync("docs/endpoint-map.md", "utf8");
-    const documented = new Set(doc.match(/\bapi[A-Z]\w+/g) ?? []);
-    const undocumented = Object.keys(api)
-      .filter((name) => name.startsWith("api"))
-      .filter((name) => !documented.has(name));
-    expect(undocumented, `add these to docs/endpoint-map.md: ${undocumented.join(", ")}`)
-      .toEqual(KNOWN_UNDOCUMENTED);
-  });
-});
-
 describe("factories match the schemas they stand in for", () => {
   // P2 builds its assertions on these shapes, so a factory field the response
   // model does not declare is a green test over an app the field never reaches.

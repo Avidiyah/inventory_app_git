@@ -37,15 +37,9 @@ gathered in the parent.
   (grep these instead of trusting the graph): backend/Dockerfile,
   backend/scripts/import_local_data.ps1, backend/static/shell-head.html,
   backend/static/shell-tail.html.
-- **obsidian** (`mcp__obsidian__*`) — reads/writes the user's Obsidian vault
-  directly for docs that mirror there. For doc/design/plan context, search the
-  vault mirror first — `John_Vault/4. Notes/Repository-Docs/inventory-app-git/`
-  under `C:\Users\mcclu\Desktop\Obsidian` — via `mcp__obsidian__search_files`
-  (pass `excludePatterns` to skip noise) or direct Reads of that path; don't
-  sweep the repo for `*.md`. The `docs/` -> vault mirror is generated
-  automatically at turn end (`scripts/sync-obsidian.ps1` via Stop hook), so the
-  vault is current — and never sync it by hand. Agents without obsidian MCP
-  tools (e.g. the codebase-memory tiers) should Read the vault path directly.
+- **Docs** — `docs/` in the repo is the only doc source: read the living docs
+  directly (`current-state.md`, `open-work.md`);
+  `docs/superpowers/` is history — open a file there by name, never sweep it.
 
 Standard tools (Read/Grep/Glob/Bash/Edit) remain the default for anything
 the graph doesn't cover: reading full files, editing, running the app, git.
@@ -59,7 +53,7 @@ at most one line of rationale, only where a future session would
 otherwise re-litigate it. Form: tables for enumerable facts, clipped
 bullets elsewhere, no paragraph over ~3 sentences, never restate what
 code or another doc owns. Soft word budgets (also stated in each doc's
-header): `current-state.md` 16,500 · `endpoint-map.md` 11,000 ·
+header): `current-state.md` 16,500 ·
 `open-work.md` 12,000. Budgets bound form, not content — compress
 phrasing first, delete only what is stale, and exceed a budget rather
 than drop a load-bearing fact. An update that breaches a budget should

@@ -1,11 +1,11 @@
 # Inventory App Current State
 
-Last reviewed: 2026-10-29 · Soft word budget: 16,500 (CLAUDE.md → Documentation
+Last reviewed: 2026-11-20 · Soft word budget: 16,500 (CLAUDE.md → Documentation
 conventions)
 
 Contracts and invariants — **the authority**; enough current-state context to
-make changes without rereading the repository. `docs/endpoint-map.md` owns the
-endpoint trace, request/response contracts, and error catalog;
+make changes without rereading the repository. Code owns the endpoint trace, request/response contracts, and error catalog
+(`routers/`, `schemas/`, `domain/errors.py`; trace with codebase-memory-mcp);
 `docs/open-work.md` is the only backlog.
 
 For implementation work: read `Fast Orientation`, `Architecture Rules`, and
@@ -15,7 +15,8 @@ known gaps change. For review/debugging: `Data Model` + `Known Gaps` identify
 the contract and the intentional limitations.
 
 If this file conflicts with code, trust the code and update this file as part
-of the change. Alembic head is **`9b2c4d6e8f10`** (52 revisions). Operation
+of the change. Alembic head is **`b7d9f1a3c5e7`** (60 revisions; `backend/alembic/versions` owns the
+history). Operation
 and test counts are volatile — verify via `app.openapi()` and
 `pytest --collect-only` rather than trusting any quoted number.
 
@@ -108,10 +109,10 @@ Path shorthand:
 | Mass staging UI (community tree) | `static/views/massStage.js`, `static/pages/mass-stage.html`, `static/api.js`, then backend mass-stage files | `tests/frontend/views/massStage.test.js` (all thirteen `data-action` branches, named by `massStageActionCoverage.test.js`), backend mass-stage tests, manual UI check |
 | Work Orders API/domain | `domain/work_orders.py`, `services/work_orders.py`, `services/work_order_conflicts.py`, `field_stamps.py`, `services/work_order_signature.py`, `routers/work_orders.py`, `schemas/work_orders.py`, `models.py` | `test_work_orders_domain.py`, `test_work_orders_service.py`, `test_work_order_conflicts.py`, `test_work_order_field_stamps.py`, `test_work_order_signature.py`, `test_work_order_line_sync.py`, `test_work_order_billing.py`, `test_route_role_gates.py` |
 | Work Orders UI | `static/views/workOrder*.js` (barrel: `workOrders.js`), `static/pages/work-orders.html`, `static/api.js`, then backend work-order files | `tests/frontend/views/workOrders/` (characterization: render, roles, actions, editor, filters, solo, realtime, integrations, plus the action/export audit), `backend/tests/e2e/test_work_orders.py`, backend work-order tests |
-| User Hub Graphs | `domain/hub.py`, `domain/work_orders.py`, `services/hub.py`, `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubGraphs.js` (tiles, pop-up, pie drill), `static/views/hubGraphTrends.js` (weekly trend charts), `static/views/workOrderList.js`, `static/views/workOrderFilters.js` (`selectFilterValue`), `static/pages/user-hub.html`, `static/styles.css`, `static/tips.js`, `static/api.js` | `test_hub_graphs_domain.py`, hub service/router/gate/realtime tests, `tests/frontend/views/userHub.test.js` (tab shell, lazy fetch, failure isolation), `tests/frontend/views/hubGraphs.test.js` (tile grid and grouping switch, the pop-up, the three-way drill, trends, the Work Orders hand-off); manual role/realtime checks. Aggregation semantics: endpoint-map → User Hub reads |
-| User Hub Report (Admin weekly closed report) | `services/work_order_report.py` (week resolution, window, lazy closed-row freeze, live new-work-order rows), `services/work_order_report_xlsx.py` + `services/_xlsx_theme.py`, `models.py` (`WorkOrderReportWeek`), `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubReport.js`, `static/views/workOrderList.js` (`openWorkOrdersByNumberSearch`), `static/pages/user-hub.html`, `static/styles.css`, `static/api.js` | `test_work_order_report.py` (resolve/window/projection/freeze/new work orders), `test_work_order_report_xlsx.py`, `test_work_order_report_weeks.py`, `test_xlsx_theme.py`, hub router + role-gate tests, `tests/frontend/views/userHub.test.js` (tab shell), `tests/frontend/views/hubReport.test.js` (week picker, counts, sections, hand-off, skeleton and retry); manual Excel check. **Admin-only**; completed closed rows are a **frozen record**, while `New Work Orders` is selected live by `created_at`, blocked by community, and always appears last in Excel; contract in endpoint-map → `HubReportResponse` |
-| Attendance (punches, Home tab, Timesheets (Team Lead+): live roster + payroll actions + day cards, one page; Admin Leaderboards tab) | `domain/attendance.py`, `services/attendance.py` (punch writes), `services/attendance_week.py` (the clocked week read), `services/attendance_compare.py` (clocked + charged, and the CSV), `routers/attendance.py`, `services/attendance_live.py` (the live roster), `routers/attendance.py`, `routers/_attendance_events.py` (`attendance.changed`), `routers/hub.py` (`GET /hub/attendance/week`, `/live` and `POST /clock-out` are **Team Lead+**, `/export` and `/week/review` **admin only**; the three punch writes are `get_current_user` + the service guard), `schemas/attendance.py`, `static/views/hubHome.js`, `static/views/hubTimesheetsTab.js` (tabpanel shell + one shared week payload + the write calls + Export CSV / Mark all reviewed), `static/views/hubAttendanceDay.js` (week picker, seven day cards, the day page), `static/views/hubLeaderboardsTab.js` (own window, Week/Month switch), `static/views/hubPerformanceBoard.js` (the scored board), `domain/performance.py` + `services/performance_score.py` + `schemas/performance.py` (`GET /hub/performance`, **admin only**), `static/views/hubAttendanceHours.js` (the profile's Hours grid; its drill-down is shared with the day page), `static/views/hubAttendanceRoster.js`, `static/views/hubAttendancePunchEditor.js`, `static/api.js` | `test_attendance_*.py`, `test_attendance_week_service.py`, `test_attendance_week_router.py`, `test_attendance_compare_service.py`, `test_attendance_export_router.py`, `test_attendance_live_service.py`, `test_attendance_live_router.py`, `test_attendance_admin_service.py`, `test_attendance_admin_router.py`, `test_route_role_gates.py`, `tests/frontend/views/hubHome.test.js`, `hubAttendanceDay.test.js`, `hubAttendanceHours.test.js`, `hubPerformanceBoard.test.js`, `hubLeaderboardsTab.test.js`, `test_performance_domain.py`, `test_performance_service.py`, `test_performance_router.py`, `hubAttendanceRoster.test.js`, `hubAttendancePunchEditor.test.js`, `hubTimesheetsTab.test.js`, `workOrderStartPunch.test.js`. The week read serves the day cards and the day page and is side-effect-free — no sweep, no row locks; a forgotten work-order clock is clipped on read by `work_orders.capped_session_end`. It borrows `work_order_report.resolve_week` + `labor_day.day_bounds`. No punch may cross Central midnight (any write that sets a time, 400); a legacy cross-midnight row is owned by the day it started, marked `carried` on the next, and editable only on its start day. A Team Lead+ edits, adds, and deletes anyone's punches from the day page (a day card opens it in place: everyone clocked in that date, ◀ ▶ steps a day and crosses week edges by refetching, Back restores the cards); every write lands one `attendance_punch_edits` row per field in the same transaction, any time change clears `needs_review`, and a delete is **soft** (`deleted_at`). The tab refetches the week after a write rather than patching itself. The Timesheets tab is **Team Lead+**, one page with no sub-tabs (Export CSV, Mark all reviewed, "Looks right" and the lunch waiver stay Admin+, as does the Leaderboards tab); `GET /hub/timesheets` and the Team Lead crew grid are retired (D6) — a Team Lead keeps the Dashboard crew board. At the top sits the live roster from `GET /hub/attendance/live`: green charging / yellow idle / red idle past `IDLE_RED_MINUTES`, sorted red→yellow→green longest-idle-first, with everybody unclocked behind an `N not clocked in` footer. It is side-effect-free too, so the tab polls it on the hub's existing 60 s timer and on `attendance.changed` (audience Team Lead+, emitted by all six punch writes); the strip ticks client-side from `domain.attendance.idle_anchor` plus the server skew, and an open labor session past `LABOR_SESSION_MAX_MINUTES` is not charging |
-| User profile (per-person weekly history on the Users page) | `services/person_week.py`, `schemas/attendance.py` (`PersonWeek*`), `routers/hub.py` (`GET /hub/people/{user_id}/week`, **Team Lead+**), `static/views/userProfile.js`, `static/views/dayTimeline.js` (an opened day in time order), `static/views/profileOrigin.js`, `static/views/hubWeek.js` (shared week helpers, also used by `hubAttendanceHours.js`), `static/views/users.js`, `static/views/hubAttendanceHours.js`, `static/views/hubTimesheetsTab.js`, `static/views/workOrderRouting.js`, `static/views/workOrderActions.js`, `static/pages/saved-users.html`, `static/api.js`, `static/styles.css` | `test_person_week_service.py`, `test_person_week_router.py`, `test_route_role_gates.py`, `tests/frontend/views/userProfile.test.js`, `users.test.js`, `hubAttendanceHours.test.js`, `hubTimesheetsTab.test.js`, `workOrders/solo.test.js`, `unit/profileOrigin.test.js`, `unit/hubWeek.test.js` | The Users page opens with a collapsed “+ Add user” panel (the create form, closes itself after a save); the table (Name · Username · Role · Actions) has a search box (name or username, `filterRanked`) and an Active / Archived / Needs a fix scope toggle; archived rows paint only under Archived, and Needs a fix (its cell carries the count) shows only active people with a flagged day this week. A Team Lead+ load also fetches `GET /hub/attendance/week` (failure = no counts) and prints “⚠ N days to fix” beside each name whose week has a needs-review or pending-review day; Back from a profile refetches only the week, so a punch just fixed drops off the counts at once, and the week polls every 60 s while the Users page is on screen and the tab visible. Team Lead+ clicks a Technician, Team Lead, TechFM OA, or Admin name (Owner rows have no profile); the table is replaced by a "This week" totals card over Mon–Sun `<details>` day cards; every number carries its own words (Paid · Charged to work orders, incl. by-hand · Not charged · N work orders completed) plus a `<progress>` bar captioned "N% of paid time charged to work orders" — no column heads or colour key. A fresh week opens today (Central, from `server_now`) and every needs-review or pending-review day (the same days the Users list counts); a reload after a punch save keeps whichever days were open. An opened day leads with “⚠ Not counted in the week — <why>” when it is pending (the why names the cause and the fix: midnight auto-close, past-midnight end, punch marked for review, or a cap-stopped work-order clock awaiting Mark all reviewed), then reads "On the clock … · lunch", then each work-order clock stretch and each not-charged gap as a row (times · what · length), then Entered by hand, Work orders completed, Punches. Read-only, side-effect-free; "completed" = crew member on a work order whose `completed_at` falls on that Central day (reopen clears it); wall-clock minutes, no billed number or dollars. Also reachable from the Timesheets day page (mounts in place, Back restores the day page from cache). Days are cards edged by paid band (0 / <8h amber / 8–10h green / >10h red), the band also named in words beside the date; completed work orders are cards with the status badge and an Archived tag; a live card opens the solo work order by id, an archived one the number search with restore; the solo Back reads '‹ Back to profile' and returns to that page, person and week (`profileOrigin.js`, cleared by nav click and logout) |
+| User Hub Graphs | `domain/hub.py`, `domain/work_orders.py`, `services/hub.py`, `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubGraphs.js` (tiles, pop-up, pie drill), `static/views/hubGraphTrends.js` (weekly trend charts), `static/views/workOrderList.js`, `static/views/workOrderFilters.js` (`selectFilterValue`), `static/pages/user-hub.html`, `static/styles.css`, `static/tips.js`, `static/api.js` | `test_hub_graphs_domain.py`, hub service/router/gate/realtime tests, `tests/frontend/views/userHub.test.js` (tab shell, lazy fetch, failure isolation), `tests/frontend/views/hubGraphs.test.js` (tile grid and grouping switch, the pop-up, the three-way drill, trends, the Work Orders hand-off); manual role/realtime checks. Aggregation semantics: `services/hub.py` |
+| User Hub Report (Admin weekly closed report) | `services/work_order_report.py` (week resolution, window, lazy closed-row freeze, live new-work-order rows), `services/work_order_report_xlsx.py` + `services/_xlsx_theme.py`, `models.py` (`WorkOrderReportWeek`), `schemas/hub.py`, `routers/hub.py`, `static/views/userHub.js`, `static/views/hubReport.js`, `static/views/workOrderList.js` (`openWorkOrdersByNumberSearch`), `static/pages/user-hub.html`, `static/styles.css`, `static/api.js` | `test_work_order_report.py` (resolve/window/projection/freeze/new work orders), `test_work_order_report_xlsx.py`, `test_work_order_report_weeks.py`, `test_xlsx_theme.py`, hub router + role-gate tests, `tests/frontend/views/userHub.test.js` (tab shell), `tests/frontend/views/hubReport.test.js` (week picker, counts, sections, hand-off, skeleton and retry); manual Excel check. **Admin-only**; completed closed rows are a **frozen record**, while `New Work Orders` is selected live by `created_at`, blocked by community, and always appears last in Excel; contract: `HubReportResponse` in `schemas/hub.py` |
+| Attendance (punches, Home tab, Timesheets (Team Lead+): live roster + payroll actions + day cards, one page; Admin Leaderboards tab) | `domain/attendance.py`, `services/attendance.py` (punch writes), `services/attendance_week.py` (the clocked week read), `services/attendance_compare.py` (clocked + charged, and the CSV), `routers/attendance.py`, `services/attendance_live.py` (the live roster), `routers/attendance.py`, `routers/_attendance_events.py` (`attendance.changed`), `routers/hub.py` (`GET /hub/attendance/week`, `/live` and `POST /clock-out` are **Team Lead+**, `/export` and `/week/review` **admin only**; the three punch writes are `get_current_user` + the service guard), `schemas/attendance.py`, `static/views/hubHome.js`, `static/views/hubTimesheetsTab.js` (tabpanel shell + one shared week payload + the write calls + Export CSV / Mark all reviewed), `static/views/hubAttendanceDay.js` (week picker, seven day cards, the day page), `static/views/hubLeaderboardsTab.js` (own window, Week/Month switch), `static/views/hubPerformanceBoard.js` (the scored board), `domain/performance.py` + `services/performance_score.py` + `schemas/performance.py` (`GET /hub/performance`, **admin only**), `static/views/hubAttendanceHours.js` (the profile's Hours grid; its drill-down is shared with the day page), `static/views/hubAttendanceRoster.js`, `static/views/hubAttendancePunchEditor.js`, `static/api.js` | `test_attendance_*.py`, `test_attendance_week_service.py`, `test_attendance_week_router.py`, `test_attendance_compare_service.py`, `test_attendance_export_router.py`, `test_attendance_live_service.py`, `test_attendance_live_router.py`, `test_attendance_admin_service.py`, `test_attendance_admin_router.py`, `test_route_role_gates.py`, `tests/frontend/views/hubHome.test.js`, `hubAttendanceDay.test.js`, `hubAttendanceHours.test.js`, `hubPerformanceBoard.test.js`, `hubLeaderboardsTab.test.js`, `test_performance_domain.py`, `test_performance_service.py`, `test_performance_router.py`, `hubAttendanceRoster.test.js`, `hubAttendancePunchEditor.test.js`, `hubTimesheetsTab.test.js`, `workOrderStartPunch.test.js` |
+| User profile (per-person weekly history on the Users page) | `services/person_week.py`, `schemas/attendance.py` (`PersonWeek*`), `routers/hub.py` (`GET /hub/people/{user_id}/week`, **Team Lead+**), `static/views/userProfile.js`, `static/views/dayTimeline.js` (an opened day in time order), `static/views/profileOrigin.js`, `static/views/hubWeek.js` (shared week helpers, also used by `hubAttendanceHours.js`), `static/views/users.js`, `static/views/hubAttendanceHours.js`, `static/views/hubTimesheetsTab.js`, `static/views/workOrderRouting.js`, `static/views/workOrderActions.js`, `static/pages/saved-users.html`, `static/api.js`, `static/styles.css` | `test_person_week_service.py`, `test_person_week_router.py`, `test_route_role_gates.py`, `tests/frontend/views/userProfile.test.js`, `users.test.js`, `hubAttendanceHours.test.js`, `hubTimesheetsTab.test.js`, `workOrders/solo.test.js`, `unit/profileOrigin.test.js`, `unit/hubWeek.test.js` |
 | SMR27 audit | `domain/work_orders_smr.py`, `domain/work_orders_smr_block.py` (correction block + lines digest), `services/work_orders_smr.py`, `services/work_orders_smr_lines.py` (readings, lines, workers, blocks, Hours), `services/work_orders_smr_import.py` (paper import), `services/work_orders_smr_xlsx.py`, `routers/work_orders_smr.py`, `schemas/work_orders_smr.py`, `schemas/work_orders_smr_lines.py`, `models_smr.py` (the five `smr_*` tables), `static/views/smr.js`, `static/views/smrHours.js`, `static/pages/smr.html`, `styles.css` (`#smr-page` ladder), the Skilled Technician control in `workOrderCardHtml.js` / `workOrderActions.js`, the SMR Import and SMR Labor Import buttons in `workOrderIntegrations.js`, the target lines and paper check (`paperCheckHtml`) in `workOrderPresenters.js`, the Ready to invoice row (`readyRowHtml`) in `workOrderSmrLines.js`, the SMR Admin Review page (`static/views/smrAdminReview.js`, `static/pages/smr-admin-review.html`: ready unarchived orders, full correction block, Print / Mark pasted / Regenerate / Not ready / Archive) | `test_work_orders_smr_domain.py`, `test_smr_block.py`, `test_smr_import.py`, `test_smr_paper_import.py`, `test_smr_lines.py`, `test_smr_lines_routes.py`, `test_smr_tiles.py`, `test_smr_export_xlsx.py`, `test_smr_export_lines_xlsx.py`, `test_smr_exclusion.py`, `test_work_order_skilled_labor.py`, `test_models_smr.py`, `test_smr_paper_check.py`, `test_smr_ready.py`, `tests/frontend/views/smr.test.js`, `tests/frontend/views/workOrders/smrLines.test.js`, `tests/frontend/views/smrAdminReview.test.js`; specs `docs/superpowers/specs/2026-10-23-smr-audit-workflow-design.md` … `2026-11-06-smr-paper-stage-design.md` |
 | NetFacilities enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_cloud_auth.py`, `services/netfacilities_cloud_crypto.py`, `services/netfacilities_jobs.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | `test_netfacilities_*.py`; behavior under API Surface → NetFacilities |
 | Admin Review / fixed-width receipt | `static/views/adminReview.js`, `static/adminReviewReceipt.js`, `static/pricingText.js`, `static/pages/admin-review.html`, `static/views/history.js`, `static/views/nav.js`, `static/api.js` | work-order billing/role tests, pure receipt assertions, served DOM/resource check, `tests/frontend/views/adminReview.test.js` |
@@ -240,33 +241,6 @@ leaf first: `workOrderGlyphs` → `workOrderPresenters` → `workOrderSignature`
 module may pass the 500-line cap; past 1,000 it must move function bodies
 into helper modules.
 
-Tests:
-
-```text
-backend/tests/test_auth_*.py
-backend/tests/test_roles.py
-backend/tests/test_route_role_gates.py
-backend/tests/test_barcodes.py
-backend/tests/test_item_*.py
-backend/tests/test_billing_validation.py
-backend/tests/test_history_wo_filter.py
-backend/tests/test_quantity_reverse.py
-backend/tests/test_user_requests.py
-backend/tests/test_mass_staging*.py
-backend/tests/test_netfacilities_*.py
-backend/tests/test_realtime_*.py
-backend/tests/test_rate_limit*.py
-backend/tests/test_login_throttle*.py
-backend/tests/test_list_*.py
-backend/tests/test_push_domain.py
-backend/tests/test_push_subscriptions.py
-backend/tests/test_vapid_keys.py
-backend/tests/conftest.py
-```
-
-The `Test Map` section below carries the full per-file coverage table; this list
-is a routing aid, not an inventory.
-
 ## Runtime And Stack
 
 | Area | Current implementation |
@@ -368,7 +342,7 @@ reading carries the cgroup figure Render enforces:
   works on a Render log export). Phase 3; spec
   `docs/superpowers/specs/2026-10-13-memory-soak-p3-design.md`.
 
-Logging (`app/logging_config.py`, added 2026-08-09 as N1):
+Logging (`app/logging_config.py`):
 
 - **Format is logfmt** -- `ts= level= req= [user_id=] event= <fields>` on
   stdout, which Render captures. The record's *message* is the event name
@@ -409,7 +383,7 @@ Real-time invalidation (`domain/realtime.py`, `services/realtime*.py`,
 
 - The wire envelope is exactly `type`, `id`, `req` — no row data, no actor.
   **Three events**; the vocabulary, audiences, and pinned emitter sets live in
-  `docs/endpoint-map.md` → Real-time, asserted by `test_realtime_emit.py`.
+  `domain/realtime.py`, asserted by `test_realtime_emit.py`.
   Audience is a noise rule, not a security boundary — scoping happens on the
   client's REST refetch. Emission is non-blocking and best-effort, after the
   mutating service returns; REST remains the source of truth.
@@ -617,9 +591,7 @@ Security/access:
   more than the runaway client it catches. Refused requests are not themselves
   counted, so the cap cannot become an open-ended lockout. Never enforced by
   sleeping. This is a ceiling on malfunction, not a quota: the UI's heaviest
-  action is far below it, and a runaway `fetch` loop is far above it —
-  **confirmed by an owner browser pass against the deployed service on
-  2026-08-10**, in which ordinary field work never approached the cap.
+  action is far below it, and a runaway `fetch` loop is far above it.
 - **Every list endpoint returns at most 5,000 rows** (`MAX_LIST_ROWS`,
   `domain/list_limits.py`), applied in the service layer via
   `services/_list_cap.py`. This is a **safety ceiling, not pagination** — there
@@ -634,16 +606,11 @@ Security/access:
     which bounds the database work as well as the response.
   - **`GET /work-orders/` is the exception in how the cap applies.** Its
     ordering is decided in Python because `schedule_date` is raw text (X2), so
-    the ceiling bounds the *response*, not the query. Its `limit` param also
-    gained an upper bound of `MAX_LIST_ROWS` (it was `ge=1`, unbounded), and
-    omitting `limit` no longer takes a separate uncapped code path — same rows,
-    same order, less loading.
+    the ceiling bounds the *response*, not the query. Its `limit` param is
+    bounded by `MAX_LIST_ROWS`, and omitting `limit` takes the same capped path.
   - **The TechFM OA+ work-order CSV export is deliberately exempt** and remains the
     uncapped filtered set. A CSV that silently omits rows while looking complete
     is a records problem, not a performance one.
-  - **Owner-validated in the browser on 2026-08-10** across all six capped lists
-    and their consumers. Every list behaved exactly as before, which is the
-    whole claim — the ceiling sits far above any real data.
 - Both upload routes are size-capped (10 MB image / 25 MB CSV) and return 413
   above it; see *Upload size caps* under Runtime And Stack. On the import route
   the role gate runs first, so an unauthorised caller never reaches the check.
@@ -1630,10 +1597,9 @@ Rules:
 
 ## API Surface
 
-`docs/endpoint-map.md` owns the complete route table (method / path / gate /
-service / tables / wrapper / views), the request/response contracts, and the
-error catalog — go there for "what does this endpoint send/return/do". What
-stays here is behavior that table cannot carry:
+Code owns the route table, request/response contracts, and error catalog
+(`routers/`, `schemas/`, `routers/_errors.py`; `app.openapi()` lists every
+route). What stays here is behavior the code does not state in one place:
 
 - All routes except `POST /auth/login`, `GET /`, `GET /workorder_card/*`, and
   `GET /healthz` require authentication.
@@ -1869,6 +1835,47 @@ rows' pricing from the line `unit_price` and appends the per-work-order
 **Work Order Summary** block (`materials_total` + 15%) — per-row figures can
 diverge from it; the summary is authoritative.
 
+Timesheets tab (Team Lead+; Export CSV, Mark all reviewed, "Looks right",
+the lunch waiver and the Leaderboards tab stay Admin+): one page, no sub-tabs.
+
+- Live roster on top from `GET /hub/attendance/live`: green charging / yellow
+  idle / red idle past `IDLE_RED_MINUTES`, longest-idle first, the unclocked
+  behind an `N not clocked in` footer. Polled on the hub's 60 s timer and on
+  `attendance.changed` (Team Lead+ audience, emitted by all six punch
+  writes); ticks client-side from `domain.attendance.idle_anchor` + server
+  skew. An open labor session past `LABOR_SESSION_MAX_MINUTES` is not charging.
+- Week read (`GET /hub/attendance/week`) serves the day cards and day page and
+  is side-effect-free: no sweep, no locks; a forgotten job clock is clipped on
+  read by `work_orders.capped_session_end`.
+- Day page (opened from a day card; ◀ ▶ steps days, refetching across week
+  edges): Team Lead+ edits, adds and soft-deletes (`deleted_at`) anyone's
+  punches. Each write lands one `attendance_punch_edits` row per field, a time
+  change clears `needs_review`, and the tab refetches the week.
+- No punch may cross Central midnight (400). A legacy cross-midnight row
+  belongs to its start day, shows `carried` on the next, and is editable only
+  on its start day.
+
+Users page + profile (profile is Team Lead+, `GET /hub/people/{user_id}/week`,
+read-only and side-effect-free; Owner rows have none):
+
+- List: collapsed "+ Add user" panel; search (name or username); Active /
+  Archived / Needs a fix scope. Team Lead+ also fetches the attendance week
+  and prints "⚠ N days to fix" per person (needs-review or pending-review
+  days), repolled every 60 s while visible; a failed fetch shows no counts.
+- Profile replaces the table: a "This week" totals card (Paid · Charged ·
+  Not charged · work orders completed, `<progress>` of paid time charged)
+  over Mon–Sun day cards edged by paid band (0 / <8h amber / 8–10h green /
+  >10h red). Opens today plus every flagged day; a reload keeps open days.
+- An opened pending day leads with "⚠ Not counted in the week — <why>", then
+  on-the-clock + lunch, clock stretches and not-charged gaps in time order,
+  hand-entered labor, completed work orders, punches. "Completed" = crew
+  member on an order whose `completed_at` falls on that Central day.
+  Wall-clock minutes only; no billed number or dollars.
+- Completed-order cards open the solo work order (archived: number search
+  with restore); solo Back returns to the same person and week
+  (`profileOrigin.js`, cleared by nav click and logout). Also reachable from
+  the Timesheets day page.
+
 Users: Team Lead+ list, archived included (dimmed, restorable — keeps the
 History by-user filter working). Add User requires username + both names +
 password + a subordinate role. Edit Name (self or manageable subordinate)
@@ -1884,8 +1891,7 @@ unauthenticated diagnostic harness outside the SPA.
 ## Backend Feature Context
 
 Per-function service internals are code-owned — use codebase-memory-mcp
-(`get_code_snippet`, `trace_path`) and `docs/endpoint-map.md` → Service
-Invariants. Two facts worth pinning here: `authenticate` rejects archived
+(`get_code_snippet`, `trace_path`). Two facts worth pinning here: `authenticate` rejects archived
 users indistinguishably from bad credentials (and
 `get_active_session_user` filters them again), and only login, account
 creation, and the Users table ever display a login username — every
@@ -1893,61 +1899,8 @@ operational surface renders the derived full name.
 
 ## Migration History
 
-Alembic head: `9b2c4d6e8f10`.
-
-| Revision | Meaning |
-| --- | --- |
-| `4f0a7ce7d1ac` | initial users/items/transactions |
-| `9a2c5d4e8b11` | item JSONB attributes |
-| `4c1e7f3a9b22` | item location, attributes -> notes |
-| `a1b2c3d4e5f6` | auth password hashes, roles, sessions |
-| `b2d3e4f5a6c7` | restrict transaction FKs |
-| `c3d4e5f6a7b8` | transaction reason |
-| `d4e5f6a7b8c9` | transaction void metadata |
-| `e5f67b8c9d0` | item price/product link |
-| `f6b8c0d2e4a1` | item archived_at |
-| `a7c9e1f3b5d2` | additional item barcodes |
-| `b1f3d5a7c9e2` | mass-stage tables |
-| `c7e9a1b3d5f8` | session expires_at remember-me |
-| `c2e4f6a8d0b1` | room creator/assignee |
-| `e7f9a1c3b5d2` | transaction billable_quantity |
-| `d8b2f4a6c1e3` | transaction unit_price (historical price snapshot) |
-| `f1a3c5e7b9d4` | user archived_at (soft delete) |
-| `b3d5f7a9c1e4` | standalone `work_orders` (number identity) + `work_order_items` + transaction `affects_stock`/`work_order_id` + `mass_stages.community` + `mass_stage_work_orders` slots (replaces rooms) |
-| `c4e6a8b0d2f5` | backfill `work_order_items` lines from existing linked dispenses |
-| `a9d1f3b7c2e8` | `work_order_items.billable_quantity` (per-line billing override) |
-| `d2f4b6a8c0e3` | `tools` + `tool_transactions` tables (tool custody tracking) |
-| `e4a6c8b0d2f7` | `tool_transactions.reason` + nullable `assigned_to_id` (Correct Count / `adjust`) |
-| `f2a4c6b8d0e1` | work-order CSV import fields + Team Lead routing + legacy backfill |
-| `f3b5d7a9c1e2` | nullable user first/last names for legacy-safe display and CSV routing |
-| `f4c6e8a0b2d3` | work-order Created/Assigned default and five-state live lifecycle; existing statuses preserved |
-| `f5d7f9b1c3e4` | reconcile Created/Assigned pre-work rows from technician assignment instead of Team Lead routing |
-| `f6e8a0b2d4f5` | nullable `work_orders.notes` text storage (now used as an append-only authored/timestamped log without another migration); On-Hold uses the existing application-validated text status column |
-| `f7a9b1c3d5e6` | plural `work_order_technicians` assignments (backfilled from `assigned_to_id`) + per-technician `work_order_labor` minute entries |
-| `f8a0c2e4b6d8` | durable generic `user_requests` queue; first producer is a linked Scan / Stock inventory-recount exception |
-| `f9b1d3e5a7c9` | backfill one open missing-price/link request per unpriced item already present on a live work order |
-| `faa2c4e6b8d0` | backfill missing-price/link requests for live work-order items whose recorded price is `$0.00` or otherwise non-positive; tag seeded rows with `details.migration_source` so downgrade removes only this migration's inserts |
-| `fbc4e6a8d0f2` | hash session tokens at rest (`sessions.token_hash` replaces the raw token) + `login_attempts` throttle counters |
-| `0c1d2e3f4a5b` | nullable `work_orders.priority`; no default and no backfill, written only by NetFacilities enrichment |
-| `1d2e3f4a5b6c` | `push_subscriptions` for Web Push opt-in, keyed on `endpoint` so a re-subscribe reassigns a shared device rather than duplicating it; nothing to backfill |
-| `a2c4e6b8d0f1` | `work_order_labor_sessions` for tracked start/stop labor, with a partial unique index on `(technician_id) WHERE ended_at IS NULL` enforcing one running clock per person; nothing backfilled, so existing labor rows keep rendering as a bare duration. The new `ready_to_complete` status needed no migration — `work_orders.status` has no CHECK constraint |
-| `b7d9f1a3c5e8` | `attendance_punches` + `attendance_punch_edits`, with a partial unique index on `(user_id) WHERE ended_at IS NULL` enforcing one open punch per person; nothing backfilled — there is no historical source for "was this person at work" |
-| `c4a6e8b0d2f5` | `attendance_punches.deleted_at` for the soft delete, with the open-punch partial unique index rebuilt as `WHERE ended_at IS NULL AND deleted_at IS NULL`; nothing backfilled |
-| `a1c3e5b7d9f0` | `items.low_stock_threshold` for the per-item reorder line |
-| `b3d5f7a9c1e2` → `c6e8a0b2d4f7` | work-order auto-close batch columns added, then dropped once the batch was retired |
-| `d1e3f5a7b9c2` | rename `user_requests.request_type` `item_request` → `catalogue_request` (data only) |
-| `fcbc2524ea62` | `netfacilities_cloud_sessions` (one encrypted cloud session per user) |
-| `e2f4a6c8b0d3` | `work_order_report_weeks` (the frozen weekly closed record) |
-| `d5b7f9a1c3e6` | `work_order_labor_sessions.reviewed_at` (Admin accepted an auto-closed session) |
-| `e7c9a1b3d5f7` | `dispense_exports` (Weekly export windows on Saved Items) |
-| `a7c3e9f1b2d4` | `work_order_signatures` — one witness sign-off per work order (unique `work_order_id`, cascade on delete); nothing backfilled |
-| `5b7c9d1e2f30` | `work_orders.smr_imported_at` + `smr_baseline` (JSONB, frozen pre-audit snapshot); `work_order_labor.technician_id` nullable (NULL = Skilled Technician line); no backfill |
-| `6c8d0e2f3a41` | `work_orders.smr_target` (JSONB, the client's Breakdown-sheet target: hours, labor $, material $, raw row; overwritten per target import); no backfill |
-| `7d9e1f3a4b52` | `work_orders.smr_paper_checked_at` + `smr_paper_checked_by_id` (FK users, `ON DELETE SET NULL`): SMR paper check, independent of Edited / Matched / archive; no backfill |
-| `3e5a7c9b1d2f` | `ck_smr_labor_lines_excluded_ground` dropped: an excluded line needs no ground (user 2026-11-06) |
-| `8e0f2a4b5c63` | SMR27 paper corrections (spec 2026-11-04): `smr_workers` (vendor people, no app user; `user_id` `ON DELETE SET NULL`), `smr_paper_readings` (one per printing read), `smr_labor_lines` (the unit of charge; checks: headcount ≥ 1, 0.5 h steps, status ∈ charged/excluded, charged needs a date or the Week 1 placement basis, excluded needs a ground), `smr_line_edits` (append-only history, the `attendance_punch_edits` shape), `smr_correction_blocks` (versioned pasted text + lines digest); no backfill, existing `smr_*` columns untouched |
-| `451c56c5643a` | `ck_smr_labor_lines_charged_dated` widened: a charged line with a blank day needs a placement basis (`Week 1 placement (crew sheets, Supplement)` or `week placement (weekly reports)`) and its `week`; no data change |
-| `9b2c4d6e8f10` | `work_orders.smr_ready_at` + `smr_ready_by_id` (FK users, `ON DELETE SET NULL`): Ready for invoice stamp (spec 2026-11-06-smr-paper-stage); no backfill |
+`backend/alembic/versions` is the authority (`alembic history`); head is in
+this file's header. Every schema change needs a model change and a migration.
 
 ## Test Map
 
@@ -1967,90 +1920,23 @@ Database-backed tests:
 - skip if DB is unreachable
 - let services call `commit()` inside a rolled-back outer transaction
 
-Coverage map:
+Per-file coverage is code-owned: read the test file, or pick it from the
+Task Routing Map. Guard tests that must be extended with the thing they guard:
 
-| Test file | Covers |
+| Test file | Extend or heed when |
 | --- | --- |
-| `test_auth_password.py` | scrypt password hashing/checking |
-| `test_auth_session_lifetime.py` | remembered/non-remembered session lifecycle |
-| `test_auth_profile_schema.py` | `/auth/me` response includes first/last/full name plus profile timestamps |
-| `test_user_names.py` | required trimmed names, neutral legacy display, name persistence, and self/manager edit authorization |
-| `test_user_role_edit.py` | TechFM OA and above-only subordinate role changes, rank restrictions, session revocation, and UI/API contracts |
-| `test_user_archive.py` | user archive blocks login, revokes sessions, list scoping, refuses archive with outstanding custody, and force-returns held tools atomically |
-| `test_item_update_partial.py` | partial item PATCH + clear price/link to null |
-| `test_history_price_snapshot.py` | frozen `unit_price` snapshot; non-zero rows unchanged by price edits; snapshot 0 / NULL falls back to live price |
-| `test_roles.py` | five-role hierarchy, TechFM OA's position and limits, labels, and transaction/user-management rules |
-| `test_role_mirror_parity.py` | `static/roles.js` ranks/roles/labels match `app/domain/roles.py` |
-| `test_work_order_status_parity.py` | the status vocabulary agrees across its four hand-edited homes — `ALL_STATUSES`, `statusLabel`, the page filter (values **and** lifecycle order), and the badge/accent/hover CSS — plus the `renderBody` action names matching their click handlers |
-| `test_route_role_gates.py` | important route minimum-role gates, plus a guard that no route gate is left at the Admin floor |
-| `test_user_requests.py` | DB-backed recount lifecycle; Technician own-scan removal boundaries; deduplicated missing-price requests across work orders; NULL/`$0.00` price detection; positive-price+link automatic resolution; simultaneous recount + missing-price creation; Admin resolve/reopen lifecycle |
-| `test_barcodes.py` | backend image decode and supported formats |
-| `test_item_barcodes.py` | additional barcode uniqueness/lookup/update |
-| `test_archived_barcode_reuse.py` | reusing a barcode held by an archived item (with confirmation) |
-| `test_item_search.py` | Find Item literal name/barcode search, blank-query guard, archived exclusion, lightweight index projection, and unchanged unfiltered list |
-| `test_item_price_gating.py` | item price/link server redaction |
-| `test_billing_validation.py` | pure billable quantity rules (per-transaction `validate_billable_quantity` + type-agnostic `validate_billable_value` for lines) |
-| `test_history_wo_filter.py` | work-order history filter escaping/combination |
-| `test_quantity_reverse.py` | stock delta reversal for voids |
-| `test_mass_staging.py` | pure mass-stage allocation/lifecycle rules |
-| `test_mass_stages_api.py` | schemas, route gates, response builders |
-| `test_mass_staging_load.py` | DB-backed slot load/return, add-work-order enforce-match + refusal of an unimported number, Technician/Team Lead worker assignment, reuse |
-| `test_work_orders_domain.py` | pure rules: number normalization, the seven-status lifecycle order, community vocabulary, worker-derived Created/Assigned, activity-derived In-Progress, note-log formatting, the 12-hour cap and 1-minute floor, combined labor rounding/charge, fill-blanks, visibility scope |
-| `test_work_orders_service.py` | DB-backed service coverage: find-or-create/resolve-only, assignment/scope/routing, the walkthrough actions, tracked sessions (auto-hold on last clock-out, cross-work-order auto-stop with `side_transitions`, the partial unique index, the lazy cap, an open session billing nothing), the two-person Review handoff, labor rules (Admin/Owner hand-keyed hours, an Admin/Owner crediting themselves, worker self-edit in the open week), Begin-Charging auto-assign (incl. legacy-only assignee, Owner refused, refused start assigns nobody), the Technician crew write-lock, open visibility with an unrecognised role failing closed, notes/archive/materials, zero-stock adds + recount lifecycle, Owner legacy re-archive, AND-composed filters, community aliases, list cap |
-| `test_work_order_signature.py` | migration round-trip; service save/second-save 409/unique-constraint race/invisible 404/bad payload writes nothing/clear + notes/archive-restore keep/WO delete cascades/PNG read; every route over a real `TestClient` incl. the 422 body cap and the `no-store` PNG |
-| `test_work_order_import.py` | CSV parsing/import, required-number-header and UTF-8 preflight, blank/missing-task NetFacilities fallback, generated-to-real replacement, duplicate-row precedence, manual-task preservation, full-name Admin/Team Lead routing independent of Created status, unmatched/ambiguous/archived/ineligible-role fallback, idempotence, closed-row count/no-mutation, and Admin gate |
-| `test_work_order_name_responses.py` | work-order response exposes plural operational names, rounded labor detail/totals, and the note-log text while omitting login usernames |
-| `test_work_order_open_queries.py`, `test_item_list_queries.py`, `test_work_order_list_queries.py` | query-count guards: the Work Orders list costs the same for one item or many; one card open stays within its statement budget and does not grow with SMR lines; `/items/` and `/items/low-stock` cost the same for 2 and 12 items |
-| `test_work_order_line_sync.py` | line stays in sync across every stock-out path (scan/scan-and-go/load), accumulate, void walk-back, orphan self-heal |
-| `test_work_order_billing.py` | line is the billing unit: work-order rows carry no per-row History charge (incl. the signed line-edit `adjust`); ad-hoc rows still billed; per-line override drives charge + `materials_total`, clears when quantity drops below it, redacts below Admin; history row exposes `work_order_id` |
-| `test_smr_weekly.py` | SMR weekly chart (spec 2026-11-06-smr-weekly-hours-chart): invoice re-upload replaces / other invoices add, bad row names itself, Owner-only upload + Admin-only series, one order's target following its lines pro rata (week cell + Undated cell) as deltas against the dev DB; Belfor off the chart |
-| `test_work_orders_smr_domain.py`, `test_smr_import.py`, `test_smr_tiles.py`, `test_smr_export_xlsx.py`, `test_smr_export_lines_xlsx.py`, `test_smr_exclusion.py`, `test_work_order_skilled_labor.py`, `test_models_smr.py` | SMR27 audit: sheet parsing, snapshot JSON/edited/deltas, split labor rounding; Owner import create/restore/baseline-once/rerun/Canceled-skip/header preflight; tiles before/after/delta with archived included; workbook sheets, phase parity, removed-line BEFORE-only, archived included; SMR rows off list/filter options/Hub/report but still enrichment candidates and editable; Skilled Technician add/update/delete gates and Hub exclusion; schema round-trip; target match (spec 2026-10-23-smr-target-match): Breakdown row parsing, undershoot-only gap rule, target import last-row-wins / unknown skipped / rerun overwrites, target on detail (money redacted below TechFM OA) and tiles, target + gap export columns; paper check (spec 2026-10-27-smr-paper-check): any-role mark/clear, re-mark keeps first who/when, non-SMR 400, detail/tile/export carry it, checker delete nulls the who; stage (user 2026-11-12): `stage_for` five stages and their precedence (removed lines ignored, a line after Week 7 does not count, ready beats no_material), `closed_week` from the sheet's COMPLETION DATE, `belfor_only`, stage counts replace the Edited/Untouched/Matched/Short/No-target/Paper-checked/With-lines cells; `test_smr_ready.py`: PUT ready Admin+ 403 / idempotent stamp / clear / detail `smr_stage` + `smr_ready`; export `STAGE`, `READY AT`, `READY BY`, `BELFOR ONLY`. Gates in `test_route_role_gates.py` |
-| `test_smr_tile_orders.py` | SMR tile row loader: row-built tiles equal object-built ones, a pasted block reads current and a moved one stale, no per-order query |
-| `test_smr_block.py`, `test_smr_paper_import.py`, `test_smr_lines.py`, `test_smr_lines_routes.py` (+ `test_models_smr.py`, `test_work_orders_smr_domain.py`, `test_smr_tiles.py`, `test_work_order_skilled_labor.py` extensions) | SMR27 paper corrections (spec 2026-11-04): five-table round-trips and the DB check refusals, worker `user_id` nulls on user delete; lines charge (each charged line at its kind's rate, GL kinds $43.50 and the rest $62.50, no pooled rounding; legacy entries reported apart and not charged when lines exist; no lines = unchanged), status rules, tie check (0.5 h band, other-week and excluded-ground exceptions, named failure), `week_of`; block renderer pinned at 41 chars with one verbatim block, ST-by-vendor / GL-by-kind rows, decrease, excluded line, digest change; Regenerate all + undo; paper import ties / aborts with nothing written / idempotent rerun / changed-row rejection / missing orders created from the Breakdown upload with `smr_imported_at` + baseline + target / unknown number aborts / paper-check set once; lines add / edit / hard delete with no history row, dating flips to charged, worker FK + merge, block version / stale / pasted; routes S6–S16 over HTTP (reading + line + block + pasted round trip, PATCH dating with 400 / 404, DELETE 204 / 404 / 403, the detail lists charged lines only, workers search / add / Owner-only merge 403, import-paper multipart with the Breakdown upload, Hours JSON + CSV, the two tile switches); detail carries lines, readings, legacy minutes, block. Gates in `test_route_role_gates.py` |
-| `test_work_order_export.py` | TechFM OA+ scoped full/client CSV exports, joined operational filters (including date), unchanged client scope behavior, import-header compatibility including generated-task round-trip, billing totals, and receipt cells |
-| `test_netfacilities_parser.py` | sanitized server-rendered HTML parsing, identifier/status fail-closed checks, login-document detection, required fields, input validation, and safe Priority body-vs-script structure classification |
-| `test_netfacilities_client.py` | one allowlisted authenticated GET, refusal to run without an injected browser context, rendered document routing with only same-origin `GET` subresources allowed, one-read diagnostic reuse, response metadata/size boundaries, auth redirect detection, and runtime browser placement |
-| `test_netfacilities_config.py` | disabled default, timeout/render-flag validation, lazy imports, and production-safe startup |
-| `test_netfacilities_service.py` | exact live candidate union, serial fake reads, pre-request progress ordering/validated-number filtering, two-field compare-and-set writes, idempotency/concurrent-edit protection, error counts, auth stop, timeout, and no-create behavior |
-| `test_netfacilities_jobs.py` | cloud-session-only precondition (no session means sign in, never a silent fallback), owned client lifetime, serialized duplicate admission, shared in-flight current-number snapshots, terminal progress clearing, aggregate results, auth-loss state carrying the user to expire, and clean shutdown cancellation |
-| `test_work_order_priority.py` | nullable ORM/response contract, generic-update exclusion, and read-only UI source contract |
-| `test_receipt.py` | backend fixed-width receipt output matches the frontend contract for markup, truncation, quantities, missing prices, and labor rounding |
-| `test_tools_domain.py` | pure `domain.tools.validate_return` outstanding-balance cap |
-| `test_tools_service.py` | DB-backed: create/duplicate-live-barcode, archived-barcode reuse, checkout/return round-trip incl. `apply_delta` reuse, active-target validation without stock/ledger mutation, checkout overdraft (`NegativeQuantityError`), return-beyond-outstanding (`ToolReturnExceedsCheckedOutError`), per-tool and per-user custody aggregates, multi-user custody split, archive guard until full return, Correct Count increase/decrease/no-op (`NoChangeError`), and the regression that an `adjust` row never enters a custody balance |
-| `test_catalogue_requests.py` | catalogue requests for material with no catalogue row at all, as distinct from a recount of an in-app item whose count is wrong; the `item_request` → `catalogue_request` migration round-trip; UI source pins for the User Requests tabs, work-order Request card, and hub rows |
-| `test_material_requests_domain.py` | pure `domain/material_requests.py` zero-crossing edges and the status vocabulary |
-| `test_material_requests.py` | DB-backed material request lifecycle: file/dedupe, stocked/open edges on every stock write, manual mark-stocked, cancel ownership (403), add-from-line resolve, archived-work-order resolve, catalogue-fulfilment chain, counts, and every route over HTTP |
-| `test_stock_events_flush.py` | `routers/_stock_events.flush_stock_events` drains both the low-stock and material-request buffers exactly once per request |
-| `test_history_date_filter.py` | pure `date_from`/`date_to` → half-open tz-aware UTC bounds builder used by `history.list_history` |
-| `test_search_parity.py` | pins the two punctuation-insensitive search normalizers together — `services/items.py` (Find Item) and `static/format.js` (the client-filtered views) |
-| `test_session_token_hashing.py` | X1: a read of `sessions` yields nothing replayable as a credential |
-| `test_password_reset_revokes_sessions.py` | a reset signs the target out — there is no idle timeout to retire the old session (`c7e9a1b3d5f8` removed the sliding window) |
-| `test_login_throttle.py` | pure backoff curve: a free window wide enough that ordinary mistyping is never punished, plus a bounded ceiling |
-| `test_login_throttle_service.py` | DB-backed counting/locking, and the isolation properties that keep the throttle from becoming a DoS weapon against the crew |
-| `test_rate_limit.py` | pure B3 policy: cap, window, and exemption list |
-| `test_rate_limit_service.py` | in-memory sliding-window counters; `now` is an argument, so no sleeping and no flakiness |
-| `test_rate_limit_middleware.py` | the limiter as actually wired, driven through the ASGI stack directly rather than a dev server |
-| `test_list_limits.py` | pure X3 ceiling policy: the `+1` fetch and the exact truncation boundary |
-| `test_list_cap_service.py` | the `event=list.truncated` early-warning signal — silent below the ceiling, exactly one line above it |
-| `test_list_caps_applied.py` | the ceiling is actually wired into every list service; catches a new list endpoint that forgets the cap |
-| `test_upload_limits.py` | `routers/_uploads.py` size caps and both call sites |
-| `test_health_check.py` | `/healthz` liveness probe with the connection check monkeypatched |
-| `test_docs_endpoints.py` | C4: `/docs`, `/redoc`, `/openapi.json` are un-mounted when `COOKIE_SECURE=true` |
-| `test_logging.py` | `logging_config.py` and its three call sites: per-request id, JSON formatter, request context |
-| `test_db_availability_guard.py` | stops CI reporting success over a half-skipped suite — DB-backed tests must not silently skip in CI |
-| `test_realtime_dependency.py` | the WebSocket protocol library is actually installed — `TestClient` drives ASGI directly and would pass without it |
-| `test_realtime_domain.py` | pure envelope/audience rules and policy constants; no sockets, clock, or DB |
-| `test_realtime_registry.py` | connection registry, per-user cap, bounded handoff, and dispatch supervision |
-| `test_realtime_endpoint.py` | handshake policy and connection lifecycle |
-| `test_realtime_limits.py` | handshake-attempt and inbound-frame limits, in state and at the endpoint |
-| `test_realtime_session_binding.py` | periodic re-resolution replacing the instant revocation a socket cannot get from a next request |
-| `test_realtime_emit.py` | the **exact** emitter set: only commands that can change Review membership or card fields emit. Extend this assertion when adding one |
-| `test_push_domain.py` | pure Web Push response classification and endpoint allowlist |
-| `test_vapid_keys.py` | VAPID keypair interoperability (not cryptography) |
-| `test_push_subscriptions.py` | Owner-only send gate, the two separate role floors, and the Admin-and-above test audience derived from rank; DB-backed endpoint reassignment on a shared device, caller-scoped delete, archived-user exclusion, delete-only-on-404/410, and the SSRF guard refusing a disallowed endpoint before any request — on both fan-out entry points. Its fan-out tests hide any subscription the developer's own database holds, inside the rolled-back transaction; without that a genuinely enrolled device joins every send under test |
-| `test_notifications_domain.py` | pure recipient rules: actor suppression, dedup, dropping an unrouted Team Lead, and that message text interpolates a work-order number or a count and nothing else. Every event is partitioned into a number event or a count event, so a new one cannot skip that decision |
-| `test_notifications.py` | recipient resolution against the DB, that nothing is scheduled without recipients or without a VAPID key, and that delivery opens its own session and swallows failures |
-| `test_work_orders_notifications.py` | every trigger at its route: right recipients, once per event across idempotent repeats, multi-event PATCHes, pinned overlap ordering, tracking-stop firing `held` only on the true auto-hold, the approve/send-back pair, routing notifying only the new Team Lead, and a broken rule never failing the write |
+| `test_route_role_gates.py` | adding a route: minimum-role gates, plus a guard that no gate is left at the Admin floor |
+| `test_realtime_emit.py` | adding an emitter: it asserts the **exact** emitter set |
+| `test_list_caps_applied.py` | adding a list endpoint: fails if it forgets the row cap |
+| `test_memprobe.py` | adding a route: it must be catalogued or excluded in `scripts/memprobe_routes.py` |
+| `test_notifications_domain.py` | adding a notification event: every event is a number event or a count event |
+| `test_role_mirror_parity.py` | changing roles: `static/roles.js` must match `domain/roles.py` |
+| `test_work_order_status_parity.py` | changing statuses: `ALL_STATUSES`, `statusLabel`, the page filter and the badge CSS must agree |
+| `test_search_parity.py` | changing search normalization: `services/items.py` and `static/format.js` are pinned together |
+| `test_receipt.py` | changing the fixed-width receipt: backend output must match the frontend contract |
+| `test_db_availability_guard.py` | CI: DB-backed tests must not silently skip |
+| `test_realtime_dependency.py` | dependencies: `TestClient` would pass without the WebSocket library installed |
+| `test_push_subscriptions.py` | fan-out tests hide the developer database's real subscriptions inside the rolled-back transaction; keep that, or an enrolled device joins every send under test |
 
 Frontend layers:
 
@@ -2108,8 +1994,7 @@ Do not "fix" these accidentally unless the task asks for it.
 - Completed mass stages cannot be reopened.
 - Stage deletion does not reverse load transactions already written.
 - Frontend has no bundler/type checker; ID and module contract drift is manual.
-- NetFacilities authentication is per-user Steel cloud sign-in only; the
-  pre-Steel system was fully removed 2026-08-29 (see the Removed register).
+- NetFacilities authentication is per-user Steel cloud sign-in only.
   `NetFacilitiesClient` requires an injected browser context — only the Steel
   adapter can construct a working one. Browser-managed downloading, app-side
   credential/MFA handling, and secondary-data retrieval remain absent;
@@ -2121,10 +2006,6 @@ Do not "fix" these accidentally unless the task asks for it.
   scan rows stay intact). That `adjust` is an inventory record only -- it is not
   billed, because work-order materials bill off the line total, not per-row (see
   Work orders invariants). Scoped to `work_order_items`-originated rows.
-- The `b3d5f7a9c1e4` migration is a clean rebuild: it WIPES all prior
-  mass-stage/work-order data (stages, slots, planned items, logged materials).
-  Inventory `items` and historical `transactions` are preserved (old txns keep
-  their `work_order_number` string with `work_order_id` NULL).
 - Work-order numbers are a single global namespace, unique case-insensitively;
   there is no per-community/building number scoping.
 - Work-order CSV import accepts the real header row first or Excel's optional
@@ -2179,7 +2060,6 @@ working feature. Dormant is **currently empty**.
 | `GET /items/search-index` | 2026-08-10 (X3) | no caller; `GET /items/?q=` covers it |
 | `backend/static/index.html` | 2026-06-12 | runtime shell assembly in `main.py`, deliberately uncached |
 | Sliding-window session idle timeout | `c7e9a1b3d5f8` | absolute `expires_at` + remember-me; consequence: a password reset must revoke sessions |
-| Ten docs → four; NetFacilities/realtime/push plan docs, `handoff.md` | 2026-08-10 / 2026-08-16 | `open-work.md` is the only backlog; the archived docs survive in the vault under `archive/superpowers/` (N3 cites one) |
 | Pre-Steel NetFacilities auth — local headed sign-in, shared secret file, five local routes, `services/netfacilities_auth.py` and siblings | 2026-08-29 | per-user Steel cloud auth (`services/netfacilities_cloud_auth.py`) |
 
 Still live — occasionally assumed dead: the **three** HTTP middleware layers

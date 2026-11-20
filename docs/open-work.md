@@ -11,7 +11,6 @@ left to do:
 | Doc | Holds |
 |---|---|
 | `docs/current-state.md` | contracts, invariants, data model, roles, known gaps — **the authority**; if it conflicts with code, trust the code |
-| `docs/endpoint-map.md` | every endpoint traced DB↔view, request/response contracts, error catalog |
 | `docs/project-summary.md` | what the app is, stack, architecture, verification baseline |
 
 **Nothing is scheduled.** Every item is an owner-requested feature, a
@@ -29,14 +28,9 @@ observation becomes active work.
 
 ## 1. Requested feature
 
-User-requested behavior, not framework work. IMP-001–003 and IMP-005–040 are
-implemented or retired (IMP-034, the User Hub, shipped in phases P1–P5 ending
-2026-08-30; spec `docs/superpowers/specs/2026-08-20-user-hub-design.md`; its
-two follow-ons live in section 2 as `N-WO-STATUS-EVENTS` and
-`N-REPORT-EXPORT-AUDIT`; IMP-039 was replaced by IMP-040, whose two standing
-notes live in section 2 as `N-NF-STEEL-SESSION`; IMP-038 and IMP-040 were
-owner-confirmed closed 2026-09-14; IMP-041 shipped 2026-09-21). IMP-004,
-IMP-035 and IMP-042 are the open requests.
+User-requested behavior, not framework work. IMP-004, IMP-035 and IMP-042 are
+the open requests; every other IMP number through 042 is implemented or
+retired.
 
 ### IMP-004 — Mass Stage redesign
 
@@ -50,26 +44,6 @@ the rest of the work-order data after a result is selected. Use mass staging
 primarily to group work orders by Location: if a saved Community from mass
 staging appears in a work order's Location field, display that work order
 under the Communities cards. Request logged only.
-
-### IMP-041 — Attendance timesheet · shipped
-
-- **Logged** 2026-09-21 · *User Hub / Attendance* · **closed** 2026-09-21 · spec
-  `docs/superpowers/specs/2026-09-21-attendance-timesheet-design.md`
-
-Shipped in full (P1–P4b); the spec owns what. Amended 2026-10-15 by
-`2026-10-15-attendance-midnight-close-and-lunch-design.md` (midnight close
-replaces D4/D5; flat lunch). Night shifts crossing midnight are its
-non-goal. Two things were deliberately
-not built, and reopening either needs a new reason, not a reminder:
-
-- A **billed** column beside clocked and charged. `billed_labor_minutes`
-  rounds a *work order's combined* labor up to 30 minutes across every
-  technician and day that touched it, so no per-person-per-day billed number
-  exists; one invented here would be an approximation of an invoice in a
-  column that reads as a fact. Reopen only with a per-person billing rule
-  behind it.
-- `promptTime()`'s analog dial. The dropdowns + nudge row shipped in P1, are
-  complete and keyboard-accessible, and the dial is optional polish.
 
 ### IMP-035 — Item/work-order photo attachments
 
@@ -150,7 +124,7 @@ Facts the suite is built from (2026-10-13):
 Open alongside it: the Render dashboard Auto-Deploy toggle is not yet
 confirmed off.
 
-### N-HUB-TAB-SHELL — `userHub.js` is over the 500-line rule (561)
+### N-HUB-TAB-SHELL — `userHub.js` is over the 500-line rule (601)
 
 A tab shell that grows ~55 lines per tab; the fifth tab (Report) crossed the
 limit and was wired in the established shape deliberately — one inconsistent
@@ -216,22 +190,20 @@ instances); B3's rate limiter holds counters in process memory (the cap
 becomes 60/s per process, a deliberate trade); a realtime connection registry
 does not degrade — it **silently halves delivery**, since connections are
 process-local and instance A's users never receive instance B's events, with
-no error on either side. The archived design note survives in the vault under
-`archive/superpowers/`.
+no error on either side.
 
 ### N4 — reconsider serving the SPA from the API process
 
 **Trigger: introducing a CDN** · deferred by design. `NoCacheStaticFiles`
 plus per-request shell assembly deliberately solve the real blank-page
 stale-cache failure; the cost is a Python round-trip per asset, no CDN, no
-content hashing. `static/styles.css` is 2,710 lines, unminified, re-fetched
+content hashing. `static/styles.css` is 7,048 lines, unminified, re-fetched
 on every navigation — the number to watch.
 
-### N6 — `services/work_orders.py` is 2,034 lines / 59 functions
+### N6 — `services/work_orders.py` is 3,325 lines / 93 functions
 
 **Trigger: none — this is a boundary rule, not a refactor request.** Its
-frontend counterpart, the `workOrder*.js` group (~3,100 lines across a barrel
-and eight modules since the P4 split, largest 752), grows faster than the
+frontend counterpart, the `workOrder*.js` group (~5,600 lines across 19 files, largest 841), grows faster than the
 service; change risk concentrates in these two areas. The extraction target
 already exists and works: `domain/work_orders.py` holds the pure rules.
 **Further rule-shaped logic belongs behind that boundary**; splitting the
@@ -254,7 +226,8 @@ order.
 Visual C++ 2013 redistributable on Windows; the failure is a missing
 `libiconv.dll` at import — naming neither `pyzbar` nor the real cause — and
 takes down the whole app at import time rather than degrading decode alone.
-Containerized deploys are unaffected. Also noted in `requirements.txt` and
+Containerized deploys are unaffected; a bare Linux environment needs
+`libzbar0` installed or the app fails at import the same way. Also noted in `requirements.txt` and
 `current-state.md`.
 
 ### N8 — `/docs` and `/redoc` are CSP-broken
@@ -266,16 +239,14 @@ pages render ~1 KB blank shells; `/openapi.json` is unaffected. Fix: vendor
 `swagger_js_url`/`swagger_css_url`. **Do not loosen CSP** for a developer
 convenience.
 
-### N9 — Web Push: remaining deliberate limits (feature shipped)
+### N9 — Web Push: remaining deliberate limits
 
-Phases A+B shipped 2026-08-18 — see *API Surface → Web Push* in
-`current-state.md`, and `docs/adding-a-notification-trigger.md` for adding a
+See *API Surface → Web Push* in `current-state.md`, and `docs/adding-a-notification-trigger.md` for adding a
 trigger. Standing limits, none defects: the fan-out is sequential inside the
 background task (hundreds of devices would need a queue); no per-user opt-out
 or per-event preferences (routing is role + assignment only); no delivery
 record beyond the discarded `{sent, dropped, failed}` log line; iOS requires
-a manual Home-Screen install per device, with its own cookie jar; and
-`views/push.js` has no automated test (PRO-008 class).
+a manual Home-Screen install per device, with its own cookie jar.
 
 ### N10 — Work Orders live status: frontend gaps with no automated coverage
 
@@ -298,7 +269,7 @@ gaps below are behaviours that suite pins rather than fixes. All frontend-only:
   that card's refresh and the deferred full-list refetch. **Trigger:** a
   badge stuck on an old status with no open card visible anywhere.
 
-### N-WO-CHARACTERIZED — five defects the P2 suite pins rather than fixes
+### N-WO-CHARACTERIZED — three defects the P2 suite pins rather than fixes
 
 Found while writing `tests/frontend/views/workOrders/`. Characterization
 tests record today's behaviour, so each is green *as a bug* — a fix must
@@ -348,7 +319,6 @@ the hub tab shell, the scanner widget, or the Mass Stage page.
 | `billingEditor.js` writes its message through `setMessage`, which replaces `className` wholesale, so `.charge-editor-msg` stops matching after the first message and any CSS keyed on it drops off. | `history.test.js` → "out-of-range shows the range message and sends nothing" |
 | The pricing list resolves a work-order **number** to an id and fetches the work order's line prices, but `markedCharge` only consults that map when the row itself carries `work_order_id` — so a row with `work_order_id: null` costs two round trips and is still dropped as unpriced. | `history.test.js` → "a row with no work_order_id resolves the number and fetches the work order, then drops the line anyway" |
 | The first open of the Graphs tab fetches `/hub/graphs` twice: `showTab → renderActiveTab → loadGraphs()` (no payload yet) and the click handler's own `loadGraphs()`. The request-id guard discards the first response. | `userHub.test.js` → "Graphs fetches with weeks=12" |
-| `destroyHubGraphs()` is a no-op; the "on tab change" lifecycle the P5 plan names has nothing to assert. | `userHub.test.js` → "Graphs: a community tab click re-renders from memory" |
 | The safety interval refetches `/hub` for every role every 60 s while the page is visible, regardless of whether the socket is connected — by design per spec §6.2; recorded so the request count in P6 tests is not mistaken for a leak. | `userHub.test.js` → "every 60 s refetches" |
 | `scan.js` promises "clicking Upload tears the camera down first", but `startLive` disables the Upload button, so the `if (liveRunning) stopLive()` guard is unreachable from the UI. | `scan.test.js` → "Upload is disabled while live, so its stop-the-camera-first branch is unreachable by click" |
 | A failed continuous commit (`{committed:false}` without `declined`) starts no cooldown, so a label still in frame re-attempts every dwell until it succeeds or the operator moves — reasonable for a transient error, identical for a permanent 404. | `scan.test.js` → "a failed commit ({committed:false}) buzzes the error pattern and does NOT start a cooldown" |
@@ -377,7 +347,7 @@ tab, the Tools page, the Users page, or the push opt-in.
 | One domain flag vocabulary, two copies of the label map: `hubAdmin.js`'s `FLAG_LABELS` omits `assigned_idle`, which `hubSupervisor.js` has, so the same flag reads "idle" on the crew board and "assigned idle" in the on-the-clock list. Both fall back to snake case with spaces for anything unmapped, so a new flag in `domain/hub.py` ships readable but unlabelled in both places. | `hubAdmin.test.js` → "a assigned_idle flag renders as ⚠ assigned idle beside the elapsed time"; `hubSupervisor.test.js` → "flags … render as …" |
 | The admin pipeline has six tiles (`HubAdminPipeline`) while the Work Orders page's status filter offers seven — nothing rolls up `on_hold`, so a held work order appears in no pipeline tile and is unreachable from the Dashboard. | `hubAdmin.test.js` → "six tiles in lifecycle order, labelled off the Work Orders page's own options" |
 | The first entry to the Graphs tab fetches `/hub/graphs` twice: `showTab` → `renderActiveTab` finds no payload and calls `loadGraphs()`, then the tab button's own listener calls `loadGraphs({background: false})`. The request-id guard discards the duplicate render, not the duplicate request. | `hubGraphs.test.js` → "opening the tab fetches the graphs twice — renderActiveTab and the tab button both load" |
-| Two different `formatHm`s: `hubTimesheets.js` defines a private one rendering `h:mm` while `format.js` exports one rendering `N h M m`, and the hub shows both at once (the Dashboard's "1 h 30 m" beside the grid's "1:30"). A reader importing the shared one into that grid would silently change every cell. | `hubTimesheets.test.js` → "renders h:mm, not format.js's 'N h M m' — two renderings, one name" |
+| Two different `formatHm`s: `hubWeek.js` exports one rendering `h:mm` while `format.js` exports one rendering `N h M m`, and the hub shows both at once (the Dashboard's "1 h 30 m" beside the grid's "1:30"). A reader importing the shared one into that grid would silently change every cell. | `unit/hubWeek.test.js` → "prints minutes as h:mm, floored at zero" |
 | Two unreachable validation branches behind `input[type=number]`, which drops any non-numeric text so the raw value arrives as `""`: `notes.js`'s `Invalid number for "k".` and the `!Number.isFinite` half of `correctionPanel.js`'s "Enter a valid new count." Each is answered first by its own blank-value branch. Harmless today; a change to a text input would make both live, untested paths. `toolCheckout.js` and `toolReturn.js` carry the same dead `!Number.isFinite(quantity)` half in front of "Enter a quantity greater than zero." | `notes.test.js` → "a number field holding text is refused as invalid"; `correction.test.js` → "a non-numeric count is refused"; `toolsCheckout.test.js` → "refuses a blank quantity" (both editors) |
 | `tools.js`'s `loadTools` writes its failed-`/tools/` error row with a hardcoded `colspan="5"`, but a non-manager's table has four columns — the row overhangs for Team Lead and Technician. `renderTools` never runs on that branch either, so the header row stays empty and the overhang is invisible in practice. | `toolsCustody.test.js` → "a failed /tools/ writes one error row for technician — always colspan 5" |
 | The checkout-scan guard in `tools.js`'s `onItemFound` has an unreachable half: `!canManageCustody()` can never be true there, because `#tool-checkout-scan-btn` refuses a non-manager with "Select an active user first." before `scanPurpose` can become `"checkout"`. Only the `!user` half — a reload that drops the user the scan was armed for — reaches "Select an active user before scanning for checkout." | `toolsScan.test.js` → "refuses once a reload has dropped the user it was armed for" |
@@ -483,33 +453,17 @@ question before any code.
 
 Files: `backend/static/views/scan.js`, `backend/static/views/transactions.js`.
 
-### 24. No low-stock signal until a dispense is rejected
-
-Mass Stage already computes and displays "short by N" during staging
-(`massStage.js` `shortBy`/`coverageHtml`), but Find Item never surfaces low
-stock — the first signal is a rejected dispense on the floor. Highlighting
-quantity at or below a threshold on the Find Item table would let Team Leads
-act before the crew hits a wall, even without a formal reorder-point field.
-
-**Assumes people are being surprised by empty stock** — worth one question
-before any code.
-
-Files: `backend/static/views/items.js`, `backend/static/pages/saved-items.html`.
-
 ### Dropdown-normalization follow-ups (2026-08-21)
 
-- **`--gray-600` is used but never defined.** `styles.css:1398`
+- **`--gray-600` is used but never defined.** `styles.css:1714`
   (`.user-request-resolved .user-request-status`) reads `var(--gray-600)`;
   `:root` declares 50/100/200/300/400/500/700/900 and no 600. The
   declaration is invalid at computed-value time, so a resolved user request
   silently inherits the panel text color instead of going muted. Either add
   the token or point the rule at `--text-panel-mute`.
-- **`.lu-card-body` still uses light-panel colors.** `styles.css:3569-3587`
+- **`.lu-card-body` still uses light-panel colors.** `styles.css:4973`
   sets `--color-ink` text and `--gray-300` borders on the work-order lookup
   card, both of which the design system says disappear on the dark canvas.
-- **`.wo-mode-select` is still a native `<select>`.** `styles.css:3616`,
-  on the Work Orders page — same OS-drawn-popup problem the rest of the app
-  was migrated off. `static/menus.js`'s `comboHtml()` makes it a small fix.
 - **`scrollIntoView({ behavior: "smooth" })` ignores reduced-motion.** The
   CSS `prefers-reduced-motion` block cannot reach a scripted scroll. Call
   sites across `views/` need to read the media query and pass `"auto"`.
@@ -615,7 +569,7 @@ binds:
   role sees every live work order (`can_view_work_order`); archiving still
   removes it from view. A Technician *writes* only to a work order they are on
   the crew of (`require_crew_for_technician`, 403 otherwise) and Begin Charging
-  puts them on it. `SEC-021` is closed by this; `SEC-002`'s crew half is done
+  puts them on it. `SEC-002`'s crew half is done
   (`routers/transactions.py`), its archived-ID half is still outstanding.
 - **DEC-006 — Mass Stage ownership:** creator-owned; Admin/Owner/TechFM OA
   bypass as everywhere else. The fix tightens `get_stage` and the mutations
@@ -685,7 +639,6 @@ binds:
 | SEC-018 | High: gives ordinary operational data an owned lifecycle and export policy. | DEC-009. |
 | SEC-019 | Compliance-dependent: satisfies only applicable legal/contractual duties. | DEC-001, DEC-009, and legal/contract owner. |
 | SEC-020 | Very high: prevents an unvalidated quantity from being billed to a customer work order. | None. |
-| SEC-021 | Done 2026-10-14: both request routes refuse a Technician who is not on the work order's crew. | DEC-005. |
 
 #### SEC-001 - Trustworthy, bounded request throttling
 
@@ -786,10 +739,10 @@ binds:
 `Must-fix`; `S`, or `M` with history rewrite; Security + Professionalism;
 `Confirmed`; status `Candidate`.
 
-- **Evidence/outcome:** `backend/.env` is tracked with a local database
-  credential despite ignore rules and has existed since the first commit.
-  Assess reuse, rotate affected credentials, untrack it, add a redacted example,
-  and scan the full history. PRO-006 owns ongoing pre-commit/CI prevention.
+- **Evidence/outcome:** `backend/.env` was tracked with a local database
+  credential from the first commit; it is no longer in the tree (checked
+  2026-11-20). Still unevidenced: reuse assessment, rotation, a redacted
+  `.env.example`, and a full-history scan. PRO-006 owns ongoing pre-commit/CI prevention.
 - **Done when:** the file is untracked, every potentially reusable value is
   rotated and therefore inactive, the scan is clean of active credentials, and
   the repository-distribution-based history-rewrite decision is recorded.
@@ -980,17 +933,6 @@ DEC-002 growth changes the target).
   patch models end the whole class of defect; per-key coercion beside
   `EDITABLE_DETAILS` is smaller and leaves `Any` in the schema.
 
-#### SEC-021 - Work-order visibility check when filing a request
-
-`Must-fix`; `S`; Security + Integrity; `Confirmed`; status **Done 2026-10-14**.
-
-- **Evidence/outcome:** both `POST /user-requests/material-request` and
-  `POST /user-requests/catalogue-request` (when it names a work order) now
-  refuse a Technician who is not on the work order's crew with 403
-  (`test_material_requests.py`). Every role sees every live work order, so the
-  old "number disclosed to another Technician" concern no longer applies;
-  an unknown or archived ID is still 404.
-
 ### Professionalism candidates
 
 | ID | Risk reduction/value | Owner input required |
@@ -1011,7 +953,7 @@ DEC-002 growth changes the target).
 | PRO-014 | Critical: proves recoverability from destructive error or outage. | DEC-003, DEC-008, and DEC-009. |
 | PRO-015 | High: makes high-risk response repeatable under pressure. | DEC-010 and communication roles. |
 | PRO-016 | High: makes clean-environment setup reproducible. | None. |
-| PRO-017 | High: prevents stale canonical facts from driving decisions. | Vault orphan/tombstone policy. |
+| PRO-017 | High: prevents stale canonical facts from driving decisions. | None. |
 | PRO-018 | High: controls changes to critical code and production. | DEC-010 and administrator access. |
 | PRO-019 | Medium: makes releases/support visible and traceable. | DEC-010. |
 | PRO-020 | High: detects production invariant drift before it compounds. | Source-of-truth rule and alert severity for each invariant. |
@@ -1061,9 +1003,9 @@ DEC-002 growth changes the target).
 
 `Must-fix`; `S`; Professionalism + Reliability; `Confirmed`; status `Candidate`.
 
-- **Evidence/outcome:** `render.yaml:10` declares a free web service that can
-  sleep and has no production capacity commitment. Use an always-on plan whose
-  CPU/RAM/restart behavior meets the service target.
+- **Evidence/outcome:** `render.yaml` now declares `plan: standard` (2 GB /
+  1 CPU, always-on), so the free-tier sleep is gone. Remaining: the measured
+  evidence below (N-MEMORY-CRASH is the live headroom risk).
 - **Done when:** normal traffic has no idle cold start and 30-day availability,
   warm latency, restart time, and at least 30% peak resource headroom satisfy
   the approved SLO.
@@ -1103,10 +1045,9 @@ status `Candidate`.
 `Production baseline`; `M`; Professionalism + Security; `Confirmed`; status
 `Candidate`.
 
-- **Evidence/outcome:** `requirements-dev.txt:12-15` states no test uses an HTTP
-  client; handlers/services are mostly invoked directly. Exercise routing,
-  middleware, cookies, serialization, uploads, malformed input, security
-  headers, auth failures, and production docs behavior through ASGI.
+- **Evidence/outcome:** about 30 test files now drive routes through
+  `TestClient`, but coverage is per-feature rather than systematic and no
+  OpenAPI snapshot exists.
 - **Done when:** critical inventory/work-order writes have HTTP tests and an
   OpenAPI snapshot/diff blocks unintended breaking changes.
 - **Dependency/decision:** existing PostgreSQL fixture extension.
@@ -1237,18 +1178,14 @@ status `Candidate`.
   `.env.example`.
 - **Dependency/decision:** SEC-008 and PRO-006.
 
-#### PRO-017 - Trustworthy generated facts and Obsidian synchronization
+#### PRO-017 - Trustworthy generated facts
 
-`Production baseline`; `M`; Professionalism; `Confirmed`; status `Candidate`.
+`Production baseline`; `S-M`; Professionalism; `Confirmed`; status `Candidate`.
 
-- **Evidence/outcome:** migration/route/schema/test counts and provenance drift;
-  `scripts/sync-obsidian.ps1:94-152` writes current mirrors but does not remove
-  or flag orphans, and its content-hash shortcut can skip provenance-only
-  refreshes. Generate or check volatile facts and make stale memory detectable.
-- **Done when:** CI checks current Alembic/OpenAPI/test facts; sync `-Check`
-  detects stale metadata and orphan mirrors; obsolete notes are removed or
-  tombstoned; targeted Obsidian search returns current authority first.
-- **Dependency/decision:** vault deletion/tombstone policy.
+- **Evidence/outcome:** migration/route/schema/test counts quoted in `docs/`
+  drift from code. Generate or check volatile facts so stale ones are detectable.
+- **Done when:** CI checks the Alembic/OpenAPI/test facts the docs quote.
+- **Dependency/decision:** none.
 
 #### PRO-018 - Repository and production change governance
 
@@ -1325,7 +1262,6 @@ status `Candidate`.
 | SCL-004 | High: prevents accidental removal of intended DB indexes/FK behavior. | None after schema-intent review. |
 | SCL-005 | High: prevents partial/misattributed imports and enables recovery. | DEC-007. |
 | SCL-006 | High: makes command atomicity explicit and testable. | Approved partial-import policy from DEC-007. |
-| SCL-007 | Medium: removes an existing O(N) query pattern cheaply. | None. |
 | SCL-008 | High: prevents connection exhaustion and unbounded DB waits. | DEC-002, DEC-003, and provider connection limits. |
 | SCL-009 | High: prevents duplicated inventory effects on retry. | Idempotency-key lifetime/conflict policy. |
 | SCL-010 | High: prevents startup migration races and unsafe rollback. | DEC-003 maintenance tolerance and provider release capability. |
@@ -1393,8 +1329,9 @@ Existing standing notes remain part of this register without duplicate tickets:
 `Must-fix`; `S`; Reliability + Professionalism; `Confirmed`; status `Candidate`.
 
 - **Evidence/outcome:** `alembic check` proposes six physical-index removals and
-  two transaction-FK rewrites because model metadata does not describe the
-  migration-owned schema. Align metadata without deleting intended protections.
+  two transaction-FK rewrites, plus one `push_subscriptions.user_id` index
+  addition (rechecked 2026-11-20), because model metadata does not describe
+  the migration-owned schema. Align metadata without deleting intended protections.
 - **Done when:** reviewed metadata matches the intended live schema and
   `alembic check` passes locally and in CI with no proposed operations.
 - **Dependency/decision:** index/FK intent audit.
@@ -1427,18 +1364,6 @@ Existing standing notes remain part of this register without duplicate tickets:
   partial-import policy.
 - **Dependency/decision:** design the common transaction policy first and deliver
   it with SCL-002/SCL-003/SCL-005; those items are not reverse dependencies.
-
-#### SCL-007 - Bounded item-list query count
-
-`Production baseline`; `S`; Scalability + Professionalism; `Confirmed`; status
-`Candidate`.
-
-- **Evidence/outcome:** item listing can return thousands of rows without eager
-  loading alternate barcodes, while response mapping reads that relationship per
-  item. Add eager/grouped loading and deterministic alternate-barcode order.
-- **Done when:** the endpoint uses at most two DB queries for 1, 100, and 5,000
-  items and preserves its response contract.
-- **Dependency/decision:** query-count fixture.
 
 #### SCL-008 - Explicit database connection and timeout budget
 
@@ -1672,16 +1597,7 @@ These are sequencing constraints, not a schedule:
 6. **Choose enterprise scope explicitly:** SEC-019 and SCL-020/SCL-021 are not
    required for the provisional single-region target unless DEC-001 changes.
 
-### Review evidence and external standards
-
-Clean-commit verification at `ac99487`: 679 Python tests and 32 non-vendor
-JavaScript syntax checks passed. After concurrent search-ranking worktree changes
-appeared during this documentation session, all 683 collected tests and the same
-32 syntax checks passed. `pip check` is clean; `pip-audit --local` was clean at
-the preceding review baseline. Alembic head/current were `fbc4e6a8d0f2`;
-`alembic check` proposed six intended-index removals and two transaction-FK
-`RESTRICT` rewrites, the exact drift tracked by SCL-004. Docker was unavailable
-locally, which is why image-build evidence is a candidate rather than success.
+### External standards
 
 Primary references used to set the maturity bar:
 
@@ -1712,64 +1628,11 @@ This ruling does **not** prohibit SCL-014's triggered data-model change: after a
 legacy-value audit and owner-approved malformed-date policy, a separately
 validated typed sortable representation could make bounded SQL ordering safe.
 
-### X3 — Paginate the unbounded collections — **shipped 2026-08-10**
+### Attendance: billed column and analog time dial — **ruled out**
 
-Promoted and shipped the same day as a **safety ceiling rather than
-pagination**, because the symptom was not occurring and two of the endpoints
-back client-side search. Recorded here only because it was parked as out of
-scope for being *a feature*, not for being unimportant — and measurement then
-showed the feature half was never needed.
-
----
-
-## Verified strengths at `ac99487` — re-audit after relevant change
-
-These statements are scoped to the reviewed commit. Re-audit a statement when
-its code, dependency, deployment topology, or named exception materially changes.
-
-**Known drift since `ac99487` (checked 2026-08-16, statements not otherwise
-re-audited):** the migration count below is now **32 revisions at head
-`0c1d2e3f4a5b`**, not 31 at `fbc4e6a8d0f2`; the suite now collects **974** tests,
-not 679/683. The `BackgroundTasks` statement is unchanged but now sits beside a
-real-time dispatch task and a NetFacilities job coordinator, both supervised
-through `lifespan.py` rather than `BackgroundTasks` — the finding still holds,
-its context does not. Figures below are otherwise left at their audited values
-on purpose: this is a dated record, not a live one.
-
-- **Pydantic v1→v2 migration debt** — none. `pydantic==2.13.4`, already current.
-- **`BackgroundTasks` durability** — no usage anywhere, so no dropped-job
-  exposure. The CSV import is the workload that would normally live in a queue;
-  it runs inline, threadpooled rather than blocking the loop.
-- **Async boundary** — route handlers follow the established async/threadpool
-  boundary. PRO-017 owns replacing volatile route counts with a generated check.
-- **Error-translation consistency** — routers use the shared `to_http` boundary
-  (63 direct router call sites at this baseline). PRO-017 owns count freshness.
-- **API versioning** — routers mount at `/auth`, `/items`, `/work-orders` with
-  no `/v1`. A non-issue while the SPA is the only client and ships in the same
-  deploy. Becomes real the moment a mobile app or third-party integration
-  consumes the API.
-- **ORM and migrations** — SQLAlchemy 2.0 and 31 Alembic revisions at head
-  (`fbc4e6a8d0f2`) provide a strong migration foundation. SCL-004 is the narrow
-  exception: model metadata currently drifts from intended index/FK state.
-- **Concurrency foundation** — `with_for_update()` protects core inventory and
-  custody mutations. SCL-001 through SCL-003 and SEC-005 are the specifically
-  demonstrated cross-table or multi-session exceptions; SCL-005/SCL-006 instead
-  track transaction-boundary and partial-persistence risk.
-- **Password hashing foundation** — scrypt with `hmac.compare_digest`, no
-  third-party dependency. SEC-004 tracks policy, cost, and non-user timing; it
-  does not replace or invalidate existing hashes merely by raising new-password
-  rules, but it still owns weak-credential reset and KDF version/rehash migration.
-- **Sessions and cookies** — session tokens are high entropy and stored hashed;
-  production cookies are `HttpOnly`, `Secure`, and `SameSite`, with expiry and
-  revocation behavior. SEC-011/SEC-016 own MFA, lifecycle, and review evidence.
-- **Browser security posture** — CSP/HSTS and a no-CORS same-origin deployment
-  form a strong baseline. SEC-017 is the explicit topology-change trigger.
-- **Injection/output foundation** — ORM parameterization, HTML escaping, and URL
-  validation are established. SEC-006 is the spreadsheet-output exception.
-- **Authorization foundation** — role gates and server-side price redaction are
-  broadly applied. SEC-002 and SEC-007 are the demonstrated workflow exceptions.
-- **Upload/container foundation** — uploads are byte-capped and nonpersistent;
-  the container runs non-root and production secrets are externally referenced.
-  SEC-003 owns decoded-resource limits; SEC-008 owns the tracked local credential.
-- **Layering** — `routers → services → domain → models` held consistently across
-  nine resources.
+- A per-person **billed** column beside clocked and charged:
+  `billed_labor_minutes` rounds a work order's *combined* labor to 30 minutes
+  across every technician and day, so no per-person-per-day billed number
+  exists. Reopen only with a per-person billing rule behind it.
+- `promptTime()`'s analog dial: the dropdowns + nudge row are complete and
+  keyboard-accessible; the dial is optional polish.
