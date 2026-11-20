@@ -17,7 +17,7 @@ gathered in the parent.
 ## MCP tools available here
 
 - **codebase-memory-mcp** (`mcp__codebase-memory-mcp__*`) — indexed
-  knowledge graph of this repo (replaces the retired graphify server).
+  knowledge graph of this repo.
   Project id: `C-Users-mcclu-Desktop-inventory_app_git` (watched;
   auto-refreshes after commits). Invoke the `codebase-memory` skill before
   structural exploration — it carries the full decision matrix. Quick map:
