@@ -16,7 +16,11 @@ export function patchHub(mount, html, { flashSelector = null, flashKey, skipSele
     || (old.matches("input, select, textarea") && isDirty(old))
     || old.matches(ALWAYS_SKIP)
     || Boolean(skipSelector && old.matches(skipSelector));
+  // A repaint before the glow ends must not cut it short (`animationend`
+  // clears it); morphInto's class sync would otherwise drop it.
+  const glowing = [...mount.querySelectorAll(".just-changed[id]")].map((el) => el.id);
   const restore = keepPlace(mount);
   morphInto(mount, fresh.childNodes, { flashSelector, skip, ...(flashKey ? { flashKey } : {}) });
   restore();
+  for (const id of glowing) mount.querySelector(`[id="${CSS.escape(id)}"]`)?.classList.add("just-changed");
 }

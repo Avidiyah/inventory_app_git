@@ -79,3 +79,12 @@ describe("patchHub", () => {
     expect(mount.querySelector(".just-changed")).toBeNull();
   });
 });
+
+describe("patchHub glow", () => {
+  it("a second repaint before the glow ends keeps it", () => {
+    patchHub(mount, `<p class="row" id="r1">1</p>`, FLASH);
+    patchHub(mount, `<p class="row" id="r1">2</p>`, FLASH);
+    patchHub(mount, `<p class="row" id="r1">2</p>`, FLASH);
+    expect(mount.querySelector("#r1").classList.contains("just-changed")).toBe(true);
+  });
+});

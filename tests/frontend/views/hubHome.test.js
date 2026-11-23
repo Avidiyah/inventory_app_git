@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { userEvent } from "@testing-library/user-event";
 import { requestFor, clearRequests } from "../helpers/requests.js";
-import { el, openHub, restoreHub, stopClock } from "../helpers/hub.js";
+import { connectHub, el, openHub, restoreHub, stopClock } from "../helpers/hub.js";
+import { server } from "../helpers/handlers.js";
 import { attendanceMe, hubPayload } from "../helpers/factories.js";
 
 afterEach(() => {
@@ -199,5 +200,83 @@ describe("this week's punches (self-edit)", () => {
     await user().click(section().querySelector(".punch-editor-save"));
     await vi.waitFor(() => expect(section().querySelector(".punch-editor-message").textContent)
       .toBe("You can only change your own time in the current week."));
+  });
+});
+
+describe("live (W7)", () => {
+  const twoPunches = (extra = []) => attendanceMe({
+    week_punches: [
+      { id: "p-mon", started_at: "2026-09-07T13:00:00Z", ended_at: "2026-09-07T21:00:00Z", needs_review: false, tags: [] },
+      ...extra,
+    ],
+  });
+  const section = () => el.panel("home").querySelector(".hub-home-week-punches");
+  const serveAttendance = (body) => server.use(http.get("/attendance/me", () => HttpResponse.json(body)));
+
+  it("a live attendance change patches Home and keeps the week list open", async () => {
+    await openHub({ role: "technician", attendance: twoPunches() });
+    const { emit } = await connectHub();
+    section().querySelector("details").open = true;
+    const list = section().querySelector(".hub-home-punch-list");
+    serveAttendance(twoPunches([{ id: "p-tue", started_at: "2026-09-08T13:00:00Z", ended_at: "2026-09-08T15:00:00Z", needs_review: false, tags: [] }]));
+    emit("attendance.changed");
+    await vi.waitFor(() => expect(section().querySelectorAll(".hub-home-punch-row")).toHaveLength(2));
+    expect(section().querySelector("details").open).toBe(true);
+    expect(section().querySelector(".hub-home-punch-list")).toBe(list);
+    expect(document.getElementById("hub-home-punch-p-tue").classList.contains("just-changed")).toBe(true);
+    expect(document.getElementById("hub-home-punch-p-mon").classList.contains("just-changed")).toBe(false);
+  });
+
+  it("an open punch editor survives a patch", async () => {
+    await openHub({ role: "technician", attendance: twoPunches() });
+    const { emit } = await connectHub();
+    await user().click(section().querySelector('[data-punch="p-mon"]'));
+    const editor = section().querySelector(".punch-editor");
+    emit("attendance.changed");
+    await vi.waitFor(() => expect(requestFor("/attendance/me")).not.toBeNull());
+    await vi.advanceTimersByTimeAsync(10);
+    expect(section().querySelector(".punch-editor")).toBe(editor);
+  });
+
+  it("an editor whose punch is gone closes with the note", async () => {
+    await openHub({ role: "technician", attendance: twoPunches() });
+    const { emit } = await connectHub();
+    await user().click(section().querySelector('[data-punch="p-mon"]'));
+    serveAttendance(attendanceMe({ week_punches: [] }));
+    emit("attendance.changed");
+    await vi.waitFor(() => expect(section().querySelector(".punch-editor")).toBeNull());
+    expect(document.getElementById("hub-punch-message").textContent).toBe("That punch was changed on another device.");
+  });
+
+  it("own punch-in uses the targeted refresh, not a full reload", async () => {
+    await openHub({ role: "supervisor", attendance: attendanceMe() });
+    clearRequests();
+    await user().click(punch().querySelector('[data-action="hub-punch-in"]'));
+    await vi.waitFor(() => expect(requestFor("/attendance/me")).not.toBeNull());
+    await vi.advanceTimersByTimeAsync(10);
+    expect(requestFor("/hub/crew")).toBeNull();
+  });
+
+  it("the clock node survives a Home patch and keeps its running time", async () => {
+    const payload = hubPayload({ clock: { running_session: { work_order_id: "w1", number: "7001", started_at: "2026-09-10T11:00:00Z" }, total_minutes_today: 0 } });
+    await openHub({ role: "technician", hub: payload });
+    const { emit } = await connectHub();
+    const clock = el.clockMount();
+    const hero = clock.querySelector(".hub-clock-hero").textContent;
+    emit("attendance.changed");
+    await vi.waitFor(() => expect(requestFor("/attendance/me")).not.toBeNull());
+    await vi.advanceTimersByTimeAsync(10);
+    expect(el.panel("home").contains(clock)).toBe(true);
+    expect(el.clockMount()).toBe(clock);
+    expect(clock.querySelector(".hub-clock-hero").textContent).toBe(hero);
+    expect(clock.querySelector(".just-changed")).toBeNull();
+  });
+
+  it("labor.session.changed refreshes the clock from another device", async () => {
+    await openHub({ role: "technician" });
+    const { emit } = await connectHub();
+    server.use(http.get("/hub", () => HttpResponse.json(hubPayload({ clock: { running_session: { work_order_id: "w1", number: "7001", started_at: "2026-09-10T11:00:00Z" }, total_minutes_today: 0 } }))));
+    emit("labor.session.changed");
+    await vi.waitFor(() => expect(el.clockMount().querySelector(".hub-clock-on")).not.toBeNull());
   });
 });

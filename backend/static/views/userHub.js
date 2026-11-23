@@ -126,13 +126,8 @@ function viewerIsAdmin() {
   return Boolean(latestPayload) && roleAtLeast(latestPayload.user.role, "admin");
 }
 
-// D16 (spec §5.4): the crew board is absent -- not an empty state -- for a
-// viewer who isn't personally routed as the supervisor on at least one live
-// work order. A plain Supervisor keeps P3a's original always-shown
-// behavior, since an empty board is meaningful information about their own
-// team; this only changes what an admin+ viewer with zero led work orders
-// sees. The condition itself has no role special-case (spec's own wording):
-// it reads `led.total`, the same field either viewer's payload carries.
+// D16 (spec §5.4): no crew board -- not an empty one -- for a viewer led on
+// no live work order; a plain Supervisor always sees theirs.
 function crewBoardShouldRender(payload) {
   return latestPayload?.user.role === "supervisor" || payload.led.total > 0;
 }
@@ -174,13 +169,13 @@ function renderAdmin() {
 // placeClockMount relied on when it moved the widget for Admins).
 function renderHome() {
   if (!latestPayload) return;
-  mountHubHome(tabPanels.home, latestPayload, latestAttendance, { onChanged: refreshUserHub });
+  mountHubHome(tabPanels.home, latestPayload, latestAttendance, { onChanged: refreshHomeFeeds });
   const slot = tabPanels.home.querySelector("#hub-home-clock-slot");
   if (slot) {
     clockMount.hidden = false;
     slot.appendChild(clockMount);
   }
-  mountHubClock(clockMount, latestPayload, { onChanged: refreshUserHub });
+  mountHubClock(clockMount, latestPayload, { onChanged: refreshHomeFeeds });
 }
 
 function renderActiveTab() {
@@ -331,6 +326,12 @@ const reportFeed = createFeed(() => apiGetHubReport({ week: reportWeek }), (payl
   },
 });
 
+// Own actions on Home (punch, clock, punch edits) refresh only what they can
+// change -- not the full page entry (W7 rule 5).
+function refreshHomeFeeds() {
+  return Promise.all([personalFeed.run(), attendanceFeed.run()]);
+}
+
 // The crew mount may not exist yet (the hub opens on Home); the fetch still
 // runs and `renderCrew` paints it when Dashboard opens.
 function refreshCrew() {
@@ -363,21 +364,10 @@ connectHubLive({
   timesheets: { run: () => { if (activeTab === "timesheets") refreshTimesheetsLive(tabPanels.timesheets); return Promise.resolve(); } },
 });
 
-// The count on the "My Work Orders" tab, rendered from whatever payload is
-// current. Called on every path that replaces `latestPayload` -- the initial
-// load *and* each background refresh -- because the number is the tab's only
-// signal while the tab is closed, and a count that only updates on a full page
-// re-entry is not a live count.
-//
-// `mine_total`, not `counts.assigned`: the latter is worker assignment alone,
-// so a Supervisor whose work is all routed to them read "(0)" over a list that
-// had cards in it. `mine_total` is built from the same predicate the tab's
-// card list filters on (`work_orders.mine_predicate`).
-//
-// P4 Tab 3 (spec §5.4): for a techfm_oa+ viewer this tab is an embedded,
-// unscoped company-wide list -- `apiListWorkOrders` already returns every live
-// work order for that role tier (`_scoped_to_user`), so any personal count
-// would misreport both the scope and the number. That tab keeps a bare label.
+// The "My Work Orders" count, repainted on every payload: the tab's only live
+// signal while closed. `mine_total` uses the list's own predicate
+// (`work_orders.mine_predicate`); a techfm_oa+ viewer's tab is the unscoped
+// company list (spec §5.4), so it keeps a bare label.
 function renderWorkOrdersTabLabel() {
   const tab = document.getElementById("hub-tab-work-orders");
   if (!tab || !latestPayload) return;
@@ -393,13 +383,11 @@ tabButtons.forEach((btn) => {
   });
 });
 
-// Called by nav.js on every activation of the hub page. A fresh fetch on
-// every entry (not a cache) matches the rest of the app's data-driven pages
-// (loadWorkOrders, loadTools, ...) -- the hub is exactly the kind of page
-// where "stale since I last looked" is the failure mode to avoid.
 // Select a tab from outside the hub (the work-order Back path, E8).
 export function openHubTab(name) { showTab(name); }
 
+// Called by nav.js on every activation of the hub page: a fresh fetch on
+// every entry, never a cache.
 export async function loadUserHub() {
   let payload;
   // A page entry is visible: lift a suspension left by a hide on another page.

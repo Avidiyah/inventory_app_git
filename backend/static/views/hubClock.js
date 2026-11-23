@@ -16,6 +16,7 @@ import { apiStartWorkOrderTracking, apiStopWorkOrderTracking } from "../api.js";
 import { escapeHtml, formatHm, friendlyError } from "../format.js";
 import { setMessage } from "../dom.js";
 import { tipHtml } from "../tooltip.js";
+import { patchHub } from "./hubPatch.js";
 
 // D18: the technician's own long-clock warnings, keyed off *session*
 // elapsed minutes -- mirrors the constants the design spec assigns to
@@ -120,7 +121,7 @@ function offClockHtml() {
 }
 
 function render() {
-  container.innerHTML = payload.clock.running_session ? onClockHtml() : offClockHtml();
+  patchHub(container, payload.clock.running_session ? onClockHtml() : offClockHtml());
 }
 
 function tick() {

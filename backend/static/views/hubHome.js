@@ -18,6 +18,7 @@ import { escapeHtml, formatHm, friendlyError } from "../format.js";
 import { setMessage } from "../dom.js";
 import { getCurrentUser } from "../state.js";
 import { mountPunchEditor } from "./hubAttendancePunchEditor.js";
+import { patchHub } from "./hubPatch.js";
 import { timeLabel } from "./hubWeek.js";
 
 let container = null;
@@ -25,6 +26,14 @@ let hub = null;
 let attendance = null;
 let skewMs = 0;
 let refreshCallback = null;
+// The punch the open editor edits; null for none or for "+ Add punch".
+let editingPunchId = null;
+
+const GONE_NOTE = "That punch was changed on another device.";
+// What a Home patch leaves alone (W7 rule 2): the reparented clock, an open
+// editor's host, and a punch message that is showing text.
+const HOME_SKIP = "#hub-home-clock-slot, .hub-home-punch-editor:not(:empty), #hub-punch-message:not(:empty)";
+const HOME_FLASH = "[id^=hub-home-punch-], .hub-tile[id]";
 
 function nowWithSkew() {
   return Date.now() + skewMs;
@@ -110,7 +119,7 @@ function weekPunchRowHtml(p) {
     ` <span class="day-tl-tag day-tl-tag-${t}">${t === "self" ? "Self" : "Admin"}-edited</span>`).join("");
   const flag = p.needs_review ? ` <span class="hub-home-punch-flag">⚠ needs review</span>` : "";
   const shop = p.shop ? ` <span class="day-tl-tag hub-shop-tag">Shop</span>` : "";
-  return `<li class="hub-home-punch-row">
+  return `<li class="hub-home-punch-row" id="hub-home-punch-${escapeHtml(p.id)}">
       <span>${escapeHtml(day)}</span> <span>${escapeHtml(span)}</span> <span>${escapeHtml(minutes)}</span>${shop}${tags}${flag}
       <button type="button" class="secondary-btn" data-action="hub-home-edit-punch" data-punch="${escapeHtml(p.id)}">Edit</button>
     </li>`;
@@ -128,10 +137,16 @@ function weekPunchesHtml() {
     </details></section>`;
 }
 
-// One editor at a time; a refresh repaints Home and so closes it.
+// One editor at a time. A live patch leaves it open; a save closes it.
+function closePunchEditor() {
+  editingPunchId = null;
+  container.querySelector(".hub-home-punch-editor")?.replaceChildren();
+}
+
 function openPunchEditor(punchId) {
   const host = container.querySelector(".hub-home-punch-editor");
   const punch = (attendance.week_punches || []).find((p) => p.id === punchId) || null;
+  editingPunchId = punch ? punch.id : null;
   async function save(work) {
     try {
       await work();
@@ -141,6 +156,7 @@ function openPunchEditor(punchId) {
       message.textContent = friendlyError(err, "Could not save that punch.");
       return;
     }
+    closePunchEditor();
     if (refreshCallback) await refreshCallback();
   }
   mountPunchEditor(host, {
@@ -150,7 +166,7 @@ function openPunchEditor(punchId) {
       ? apiEditAttendancePunch(punch.id, values)
       : apiAddAttendancePunch({ userId: getCurrentUser().id, ...values }))),
     onDelete: (reason) => save(() => apiDeleteAttendancePunch(punch.id, reason)),
-    onCancel: () => host.replaceChildren(),
+    onCancel: closePunchEditor,
   });
 }
 
@@ -160,9 +176,9 @@ function countsHtml() {
   const counts = hub.counts;
   return `
     <div class="hub-tile-grid">
-      <section class="hub-tile"><p class="hub-tile-label">Assigned to me</p><p class="hub-tile-value">${escapeHtml(String(counts.assigned))}</p><p class="hub-tile-sub">work orders</p></section>
-      <section class="hub-tile"><p class="hub-tile-label">In progress</p><p class="hub-tile-value">${escapeHtml(String(counts.in_progress))}</p></section>
-      <section class="hub-tile"><p class="hub-tile-label">Ready to complete</p><p class="hub-tile-value">${escapeHtml(String(counts.ready_to_complete))}</p></section>
+      <section class="hub-tile" id="hub-tile-assigned"><p class="hub-tile-label">Assigned to me</p><p class="hub-tile-value">${escapeHtml(String(counts.assigned))}</p><p class="hub-tile-sub">work orders</p></section>
+      <section class="hub-tile" id="hub-tile-in-progress"><p class="hub-tile-label">In progress</p><p class="hub-tile-value">${escapeHtml(String(counts.in_progress))}</p></section>
+      <section class="hub-tile" id="hub-tile-ready"><p class="hub-tile-label">Ready to complete</p><p class="hub-tile-value">${escapeHtml(String(counts.ready_to_complete))}</p></section>
     </div>`;
 }
 
@@ -184,13 +200,18 @@ export function mountHubHome(mountEl, hubPayload, attendancePayload, { onChanged
   skewMs = new Date(hubPayload.server_now).getTime() - Date.now();
   refreshCallback = onChanged || null;
 
-  container.innerHTML = `
+  // The punch the open editor edits is gone: close it and say so (rule 4).
+  const gone = editingPunchId && !(attendance?.week_punches || []).some((p) => p.id === editingPunchId);
+  if (gone) closePunchEditor();
+
+  patchHub(container, `
     <div class="hub-home-attendance">
       ${punchHtml()}
       ${weekPunchesHtml()}
     </div>
     <div id="hub-home-clock-slot"></div>
-    ${countsHtml()}`;
+    ${countsHtml()}`, { flashSelector: HOME_FLASH, skipSelector: HOME_SKIP });
+  if (gone) setMessage(document.getElementById("hub-punch-message"), GONE_NOTE, "error");
 
   if (!container.dataset.wired) {
     container.dataset.wired = "1";
