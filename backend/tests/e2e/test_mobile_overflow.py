@@ -11,7 +11,7 @@ from .test_smoke import PAGE_LANDMARKS, PAGE_NAMES
 pytestmark = pytest.mark.e2e
 
 WIDTHS = [375, 320]
-HUB_TABS = ["home", "dashboard", "timesheets", "leaderboards", "work-orders", "graphs", "report"]
+HUB_TABS = ["home", "dashboard", "timesheets", "leaderboards", "work-orders", "graphs", "report", "tutorials"]
 
 # Returns [] when nothing overflows, else one line per offender.
 _OFFENDERS_JS = """() => {

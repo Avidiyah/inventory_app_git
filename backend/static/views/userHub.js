@@ -28,6 +28,7 @@ import { refreshTimesheetsLive, renderTimesheetsTab, resetTimesheetsTab } from "
 import { refreshLeaderboardsLive, renderLeaderboardsTab, resetLeaderboardsTab } from "./hubLeaderboardsTab.js";
 import { destroyHubGraphs, mountHubGraphs } from "./hubGraphs.js";
 import { mountHubReport, renderReportError, renderReportSkeleton } from "./hubReport.js";
+import { mountHubTutorials } from "./hubTutorials.js";
 import { openWorkOrdersFilteredByDistribution } from "./workOrders.js";
 import { showPage } from "./nav.js";
 import { skeletonCard } from "../skeleton.js";
@@ -42,6 +43,7 @@ const tabPanels = {
   "work-orders": document.getElementById("hub-tabpanel-work-orders"),
   graphs: document.getElementById("hub-tabpanel-graphs"),
   report: document.getElementById("hub-tabpanel-report"),
+  tutorials: document.getElementById("hub-tabpanel-tutorials"),
 };
 const clockMount = document.getElementById("hub-clock-mount");
 const timesheetsTabButton = document.getElementById("hub-tab-timesheets");
@@ -54,9 +56,7 @@ let latestPayload = null;
 let latestAttendance = null;
 let latestCrewPayload = null;
 // A foreground crew/admin failure, held until the Dashboard body exists to
-// show it in. The fetches run while the hub is on Home, so the mount they
-// would write into is usually not there yet -- without this the tab would
-// open silently empty instead of explaining itself.
+// show it in (the fetches run while the hub is still on Home).
 let crewError = null;
 let adminError = null;
 let latestAdminPayload = null;
@@ -194,10 +194,11 @@ function renderActiveTab() {
     if (latestGraphsPayload) renderGraphs();
     else void loadGraphs();
   } else if (activeTab === "report") {
-    // Re-fetched on every tab re-entry, matching Graphs: the week in progress
-    // does not need a socket, but it should not be stale either.
+    // Re-fetched on every re-entry, like Graphs.
     if (latestReportPayload) renderReport();
     void loadReport({ background: Boolean(latestReportPayload) });
+  } else if (activeTab === "tutorials") {
+    mountHubTutorials(tabPanels.tutorials);
   } else {
     mountHubWorkOrders(tabPanels["work-orders"], latestPayload);
   }

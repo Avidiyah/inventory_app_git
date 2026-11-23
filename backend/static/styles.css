@@ -2331,6 +2331,7 @@ tr.archived-user {
 
 .hub-tabs {
     display: flex;
+    flex-wrap: wrap;
     gap: var(--space-2);
     border-bottom: var(--border);
     margin-bottom: var(--space-4);
@@ -2343,6 +2344,53 @@ tr.archived-user {
 .tutorial-slot .tut-btn { margin-left: 0; }
 #hub-picker { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-3); }
 #hub-picker .hub-tabs { flex: 1 1 auto; min-width: 0; }
+
+/* Hub Tutorials tab: sub-tabs, page groups, one-button entries, tab dot. */
+.hub-tab-dot { position: relative; }
+.hub-tab-dot::after {
+    content: "";
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--color-brand);
+}
+.hub-tut-subtabs { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); }
+.hub-tut-sub {
+    min-height: 44px;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-md);
+    background: var(--panel-nested);
+    color: var(--text-panel);
+    font-weight: var(--fw-semibold);
+    cursor: pointer;
+}
+.hub-tut-sub.active { border-color: var(--color-brand); background: rgba(200, 16, 46, 0.16); }
+.hub-tut-group { margin-bottom: var(--space-3); }
+.hub-tut-page { margin: 0 0 var(--space-2); font-size: 1rem; color: var(--text-panel); }
+.hub-tut-entry {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-3);
+    width: 100%;
+    min-height: 44px;
+    margin-bottom: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-md);
+    background: var(--panel-nested);
+    color: var(--text-panel);
+    text-align: left;
+    cursor: pointer;
+}
+.hub-tut-title { flex: 1 1 10rem; min-width: 0; font-weight: var(--fw-semibold); overflow-wrap: anywhere; }
+.hub-tut-meta { color: var(--text-panel-mute); font-size: 0.8125rem; }
+.hub-tut-tag { color: var(--color-brand); font-size: 0.8125rem; font-weight: var(--fw-semibold); }
+.hub-tut-empty { color: var(--text-panel-mute); }
 
 .hub-tab {
     background: none;
@@ -6365,6 +6413,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
         --hub-ico-work-orders: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22black%22 stroke-width=%221.8%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Crect x=%225%22 y=%223%22 width=%2214%22 height=%2218%22 rx=%222%22/%3E%3Cpath d=%22M9 8h6M9 12h6M9 16h3%22/%3E%3C/svg%3E");
         --hub-ico-graphs: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22black%22 stroke-width=%221.8%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M4 20V4M4 20h16M8 16v-5M13 16V8M18 16v-3%22/%3E%3C/svg%3E");
         --hub-ico-report: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22black%22 stroke-width=%221.8%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h5%22/%3E%3C/svg%3E");
+        --hub-ico-tutorials: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22black%22 stroke-width=%221.8%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M12 4L2 9l10 5 10-5zM6 11.5V16c0 1.5 2.7 3 6 3s6-1.500 6-3v-4.500%22/%3E%3C/svg%3E");
     }
     #user-hub-page .hub-picker .tutorial-slot { border-top: var(--border); padding: var(--space-3); margin: 0; }
     #user-hub-page .hub-picker {
@@ -6437,6 +6486,8 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     #hub-tabs #hub-tab-work-orders::before { -webkit-mask-image: var(--hub-ico-work-orders); mask-image: var(--hub-ico-work-orders); }
     #hub-tabs #hub-tab-graphs::before { -webkit-mask-image: var(--hub-ico-graphs); mask-image: var(--hub-ico-graphs); }
     #hub-tabs #hub-tab-report::before { -webkit-mask-image: var(--hub-ico-report); mask-image: var(--hub-ico-report); }
+    #user-hub-page .hub-picker[data-current="tutorials"] .hub-picker-ico::before { -webkit-mask-image: var(--hub-ico-tutorials); mask-image: var(--hub-ico-tutorials); }
+    #hub-tabs #hub-tab-tutorials::before { -webkit-mask-image: var(--hub-ico-tutorials); mask-image: var(--hub-ico-tutorials); }
     #user-hub-page .hub-tabs { display: none; margin: 0; border-bottom: 0; }
     #user-hub-page .hub-picker.open .hub-tabs {
         display: grid;
@@ -7137,3 +7188,8 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     text-align: center;
     pointer-events: none;
 }
+
+/* Users page tutorial progress (0b T9): row line wraps under the name; profile block is plain text. */
+.users-tut-count { white-space: nowrap; font-size: var(--fs-sm); }
+.users-profile-tut { margin-top: var(--space-4); overflow-wrap: anywhere; }
+.users-profile-tut-list { margin: 0; padding-left: var(--space-4); }
