@@ -32,7 +32,7 @@ const mainNav = document.getElementById("main-nav");
 const pages = document.querySelectorAll(".page");
 
 // Above this many total visible pages, the bar switches from flat buttons to
-// per-group dropdown menus (see `applyRoleVisibility`). Technician (4 pages)
+// per-group dropdown menus (see `applyRoleVisibility`). Technician (5 pages)
 // stays flat; Supervisor (8) and TechFM OA/Admin/Owner (11) compact. Chosen
 // so a role with only a handful of buttons never pays an extra click to
 // reach them.
@@ -229,8 +229,9 @@ export function showPage(pageName) {
   const leaving = SCANNERS_BY_PAGE[activePage];
   if (leaving && activePage !== pageName) leaving.reset();
 
-  // Leaving the page ends a running tutorial (its own same-page reload does not).
-  if (activePage !== pageName) endTutorial({ restore: false });
+  // Leaving the page ends a running tutorial (its own same-page reload does not),
+  // except the page change a starter's forwarded tap just caused (`fromNav`).
+  if (activePage !== pageName) endTutorial({ restore: false, fromNav: true });
 
   // Same page-leave lifecycle as the scanners above. The tip bubble is
   // `position: fixed` and body-parented, so one left open across a page swap
