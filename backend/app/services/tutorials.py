@@ -32,8 +32,13 @@ def list_mine(db: Session, user_id: uuid.UUID) -> list[TutorialProgress]:
     )
 
 
-def record(db: Session, user_id: uuid.UUID, key: str, event: ProgressEvent) -> None:
-    """Record `seen` or `completed` for one key; repeats change nothing."""
+def record(db: Session, user_id: uuid.UUID, key: str, event: ProgressEvent) -> bool:
+    """Record `seen` or `completed` for one key; repeats change nothing.
+
+    True when this call set the timestamp for `event` (a row insert counts for
+    either event). Both writes are conditional, so of two racing devices only
+    one sees True.
+    """
     rules.validate_key(key)
     exists = (
         db.query(TutorialProgress.script_key)
@@ -49,7 +54,7 @@ def record(db: Session, user_id: uuid.UUID, key: str, event: ProgressEvent) -> N
             raise TutorialProgressLimitError("Too many tutorial records.")
     now = datetime.now(timezone.utc)
     done = event == ProgressEvent.completed
-    db.execute(
+    first = db.execute(
         insert(TutorialProgress)
         .values(
             user_id=user_id,
@@ -58,9 +63,10 @@ def record(db: Session, user_id: uuid.UUID, key: str, event: ProgressEvent) -> N
             completed_at=now if done else None,
         )
         .on_conflict_do_nothing(index_elements=["user_id", "script_key"])
-    )
-    if done:
-        db.execute(
+        .returning(TutorialProgress.script_key)
+    ).first() is not None
+    if done and not first:
+        first = db.execute(
             update(TutorialProgress)
             .where(
                 TutorialProgress.user_id == user_id,
@@ -68,8 +74,9 @@ def record(db: Session, user_id: uuid.UUID, key: str, event: ProgressEvent) -> N
                 TutorialProgress.completed_at.is_(None),
             )
             .values(completed_at=now)
-        )
+        ).rowcount == 1
     db.commit()
+    return first
 
 
 def completed_by_user(db: Session) -> dict[str, list[str]]:

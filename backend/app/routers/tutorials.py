@@ -11,7 +11,7 @@ Who may call what:
   `GET /users`: it feeds the "N of M tutorials" counts on the Users page.
 """
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.auth_deps import get_current_user, require_min_role
@@ -49,16 +49,20 @@ def tutorial_progress_users(db: Session = Depends(get_db)):
     return tutorials_service.completed_by_user(db)
 
 
-@router.put("/progress/{key}", status_code=204)
+@router.put("/progress/{key}")
 def record_tutorial_progress(
     key: str,
     payload: ProgressEventRequest,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Idempotent first-write-wins record of `seen` or `completed`."""
+    """Idempotent first-write-wins record of `seen` or `completed`.
+
+    `{first}` is True when this call set the timestamp (the welcome claims
+    its one showing with it).
+    """
     try:
-        tutorials_service.record(db, user.id, key, payload.event)
+        first = tutorials_service.record(db, user.id, key, payload.event)
     except DomainError as exc:
         raise to_http(exc)
-    return Response(status_code=204)
+    return {"first": first}

@@ -62,10 +62,33 @@ def test_seen_then_completed_and_rows_are_private_to_the_caller(db):
         return r1, mid, r2, client.get("/tutorials/progress/me").json()
 
     r1, mid, r2, end = _run(db, a, flow)
-    assert (r1.status_code, r2.status_code) == (204, 204)
+    assert (r1.status_code, r2.status_code) == (200, 200)
+    assert (r1.json(), r2.json()) == ({"first": True}, {"first": True})
     assert mid[0]["key"] == KEY and mid[0]["seen_at"] and mid[0]["completed_at"] is None
     assert end[0]["completed_at"] is not None
     assert _run(db, b, lambda c: c.get("/tutorials/progress/me").json()) == []
+
+
+def test_first_is_true_once_per_event_and_the_second_write_changes_nothing(db):
+    user = _seed_user(db); db.commit()
+    url = f"/tutorials/progress/{KEY}"
+
+    def flow(client):
+        put = lambda ev: client.put(url, json={"event": ev}).json()["first"]
+        a = put("seen")
+        seen_at = client.get("/tutorials/progress/me").json()[0]["seen_at"]
+        out = [a, put("seen"), put("completed"), put("completed"), put("seen")]
+        return out, seen_at, client.get("/tutorials/progress/me").json()[0]["seen_at"]
+
+    out, before, after = _run(db, user, flow)
+    assert out == [True, False, True, False, False]
+    assert before == after
+
+
+def test_completed_on_a_fresh_key_is_first(db):
+    user = _seed_user(db); db.commit()
+    r = _run(db, user, lambda c: c.put("/tutorials/progress/fresh.key", json={"event": "completed"}))
+    assert r.json() == {"first": True}
 
 
 def test_bad_key_bad_event_and_the_501st_key(db):
