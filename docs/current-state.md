@@ -927,8 +927,8 @@ stays here is behavior the code does not state in one place:
 
 ## Frontend Feature Context
 
-Navigation (`views/nav.js::showPage`): four task-domain groups — Inventory,
-Field, People, Review. Every page in `PAGE_ACCESS` belongs to exactly one group
+Navigation (`views/nav.js::showPage`): five task-domain groups — Inventory,
+Field, People, Review, Integration. Every page in `PAGE_ACCESS` belongs to exactly one group
 in `shell-head.html` or it does not appear in the nav; `applyRoleVisibility`
 hides buttons, then empty groups. Icons are inline SVG `stroke="currentColor"`
 (CSP forbids icon fonts). Activating Work Orders, Find Item, or Mass Stage
@@ -940,16 +940,17 @@ Transaction, Team Lead → Work Orders, admin/owner → History; a resumed batch
 overrides it and opens Transaction.
 
 Tutorials ("How this page works" pill, `tutorial.js`):
-- Registry `tutorials/index.js` → per page `tutorials/<page>.js` (data-only `SCRIPTS`) + `<page>.sample.js` (`sample(user)` → `{"GET <path>": body}`). Pages: work-orders, transaction, user-hub, tools, saved-items, mass-stage, history, saved-users, user-requests, create-item, low-stock, admin-review, integrations.
+- Registry `tutorials/index.js` → per page `tutorials/<page>.js` (data-only `SCRIPTS`) + `<page>.sample.js` (`sample(user)` → `{"GET <path>": body}`). Pages: work-orders, transaction, user-hub, tools, saved-items, mass-stage, history, saved-users, user-requests, create-item, low-stock, admin-review, integrations; plus the page-less `starter` entry (below).
 - Sample mode: `api.js::setSampleResponder` answers GETs by path (query ignored); writes go to the server. Sample ids use the reserved prefix `ffffffff-ffff-4fff-8fff-`.
 - Pill goes in `[data-tutorial-slot]`, else the page's first `h2`. Start refuses while typed text is on the page; start and End reload the page (start waits for the reload to land); End fires `tutorial:end`.
 - `open` selectors: a click is skipped when what it reveals is visible; `?` prefix = optional. The last click is judged by the script's `here` selector when it has one; `open` is retried once and waits for late targets to settle. A step whose target is missing or hidden is skipped.
 - `minRole` on a script: the picker, Next and the guard skip scripts above the signed-in role.
+- `starter` (`tutorials/starter.js`: menu, inventory, field, people, review): no sample, no page button, every script `sample: false`, so start reloads nothing and never calls `showPage`. A wait step (`waitTap`, optional `via` + `viaText`; logic in `tutorialWait.js`) lights one real menu button; the cover swallows all input except a tap inside the lit rect, forwarded to that element only (Enter/ArrowRight too; other keys blocked). A role that cannot see `waitTap` skips it and the steps up to the next wait. `expectNav` (3 s) keeps the run alive across the page change a forwarded tap causes; only `showPage`'s `endTutorial({fromNav})` is held back by it, sign-out and 401 still end it.
 - `nav.showPage` to another page and `showLoginScreen` end a tutorial without a reload.
-- `tests/frontend/views/tutorialGuard.test.js` is the rule for new scripts (targets per role, one sentence per box, ≤ 3 per step, ≤ 120 chars, id prefix).
+- `tests/frontend/views/tutorialGuard.test.js` is the rule for new scripts (targets per role, one sentence per box, ≤ 3 per step, ≤ 120 chars, id prefix); `describe("starter scripts")` walks every starter on the real nav per role.
 - Progress: `tutorialProgress.js` caches `GET /tutorials/progress/me` once per sign-in and is cleared on sign-out and any 401; the player sends `seen` on start and `completed` on the last step. `tutorials/catalogue.js` flattens the registry; `tutorials/relevance.js` decides who a script is for from the live role (`PAGE_ACCESS` plus `minRole`).
 - Red dot (`tutorialDots.js`): a page's button is dotted while any script relevant to the signed-in role is not completed; nobody signed in = no dot.
-- `views/hubTutorials.js`: User Hub "Tutorials" tab (To do / Completed, tab dot); tapping plays the script, Replay records nothing. `views/usersTutorials.js`: Users row "N of M tutorials" and a profile list of unfinished ones; totals are computed in the browser from the `users` map.
+- `views/hubTutorials.js`: User Hub "Tutorials" tab (To do / Completed / Starter sub-tabs, tab dot; `setTutorialsSub(name)` picks the opening one); tapping plays the script, Replay records nothing. `views/usersTutorials.js`: Users row "N of M tutorials" and a profile list of unfinished ones; totals are computed in the browser from the `users` map.
 
 Scanner: upload mode posts to `/barcodes/decode`; live mode is vendored ZXing in
 the browser (environment camera, 1280×720 ideal, torch only if the track
