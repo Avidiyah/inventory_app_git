@@ -26,6 +26,7 @@ import { dayTimelineHtml } from "./dayTimeline.js";
 import { formatHm, isoDate, shiftMonday, timeLabel, weekLabel } from "./hubWeek.js";
 import { statusBadge } from "./workOrderPresenters.js";
 import { setProfileOrigin } from "./profileOrigin.js";
+import { tutorialBlockHtml } from "./usersTutorials.js";
 
 function dayLabel(iso) {
   return isoDate(iso).toLocaleDateString([], {
@@ -182,6 +183,7 @@ export function mountUserProfile(container, user, { onBack, week: initialWeek = 
       <div class="user-profile-week-nav"></div>
     </div>
     <div class="user-profile-body"></div>
+    <div class="user-profile-tut users-profile-tut">${tutorialBlockHtml(user)}</div>
   </section>`;
   const body = container.querySelector(".user-profile-body");
   const weekNav = container.querySelector(".user-profile-week-nav");

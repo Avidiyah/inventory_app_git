@@ -36,6 +36,7 @@ import {
 import { assignableRoles, canManage, roleAtLeast, roleLabel } from "../roles.js";
 import { actionMenuHtml, initActionMenus } from "../menus.js";
 import { skeletonTableRows } from "../skeleton.js";
+import { fetchTutorialCounts, tutorialTagHtml } from "./usersTutorials.js";
 
 const createUserBtn = document.getElementById("create-user-btn");
 const createUserMessage = document.getElementById("create-user-message");
@@ -101,6 +102,7 @@ function startFixPolling() {
   fixPollTimer = setInterval(() => {
     if (document.hidden || !usersPage?.classList.contains("active")) return;
     void refreshFixCounts();
+    void fetchTutorialCounts().then(() => { if (!usersTable.hidden) renderUsersTable(); });
   }, FIX_POLL_MS);
 }
 
@@ -120,6 +122,7 @@ async function loadUsersNow() {
       roleAtLeast(getRole(), "supervisor")
         ? apiGetHubAttendanceWeek().catch(() => null)
         : null,
+      fetchTutorialCounts(),
     ]);
     setUsers(users);
     fixCounts = countsFrom(week);
@@ -211,7 +214,7 @@ function renderUsersTable() {
       ? ` <span class="hub-hours-flag hub-hours-flag-review users-fix-count"><span aria-hidden="true">&#9888;</span> ${toFix} day${toFix === 1 ? "" : "s"} to fix</span>`
       : "";
     row.innerHTML = `
-      <td data-label="Name" data-primary>${nameCell}${fixTag}${archivedTag}</td>
+      <td data-label="Name" data-primary>${nameCell}${fixTag}${tutorialTagHtml(user)}${archivedTag}</td>
       <td data-label="Username">${escapeHtml(user.username)}</td>
       <td data-label="Role">${escapeHtml(roleLabel(user.role))}</td>
       <td data-label="Actions">${actions}</td>

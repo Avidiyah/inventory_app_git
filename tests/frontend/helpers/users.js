@@ -32,7 +32,13 @@ export const el = {
 };
 
 export const rows = () => Array.from(el.tbody().querySelectorAll("tr"));
-export const cells = (row) => Array.from(row.querySelectorAll("td")).map((td) => td.textContent);
+// The tutorial count line is asserted in usersTutorials.test.js, so it is
+// left out of the cell text here.
+export const cells = (row) => Array.from(row.querySelectorAll("td")).map((td) => {
+  const copy = td.cloneNode(true);
+  copy.querySelector(".users-tut-count")?.remove();
+  return copy.textContent.replace(/ +$/, "");
+});
 
 // Rows are keyed by the Username column, which is the one cell guaranteed
 // present and unique -- the Name column can read "Name unavailable".
@@ -85,6 +91,7 @@ export async function mountUsers({
     ...handlers,
     http.get("/users/", () => HttpResponse.json(users)),
     http.get("/hub/attendance/week", () => HttpResponse.json(week)),
+    http.get("/tutorials/progress/users", () => HttpResponse.json({})),
   );
   const me = await setTestUser({ role, ...currentUser });
   startRecording();
