@@ -1,74 +1,55 @@
-# Tutorials build — orchestration handoff (2026-11-23)
+# Tutorials build — orchestration handoff (updated 2026-11-23, late)
 
-You are orchestrating the build of in-app tutorials for this app: a button on
-each page darkens the screen, lights one section, and explains it one sentence
-per tap. The design is settled and the user has approved the strategy. Your
-job is to get it built batch by batch, with the user checking each batch.
+You orchestrate the in-app tutorials build. Batches 0a, 0b, 1–4 and 5 (Starter)
+are BUILT and committed on local main (last commit 80259a7). **Nothing is
+pushed.** 0b carries migration `c4e6a8b0d2f3` (applied to the local DB only);
+pushing main deploys it. Never push without asking.
 
 ## Read first
 
-1. Memory `tutorials-workstream.md`: every decision the user made. Settled; do
-   not reopen any of it.
-2. `docs/superpowers/specs/2026-11-23-tutorials-0a-player-design.md` and
-   `docs/superpowers/plans/2026-11-23-tutorials-0a-player.md`, in full.
-3. The other specs and plans (`2026-11-23-tutorials-{0b,1,2,3,4,5-starter,6}-*`) only
-   when you reach that batch.
+1. Memory `tutorials-workstream.md` (every user decision; settled) and
+   `feedback-orchestrate-tutorial-batches.md`.
+2. `docs/current-state.md` → Frontend Feature Context → Tutorials (current truth).
+3. For batch 6: `docs/superpowers/specs/2026-11-23-tutorials-6-welcome-design.md`
+   and `docs/superpowers/plans/2026-11-23-tutorials-6-welcome.md`. Treat the plan
+   as a draft: it predates everything built since; check names against the code.
 
-## What you must know about these documents
+## Where we are
 
-- I wrote the 0a spec. Sonnet agents wrote everything else, and nobody has
-  read those files end to end. Treat every plan as a draft: check its
-  selectors, paths and names against the code before acting on it.
-- Each plan opens with a rule note and a "Spec corrections" table. Both
-  override the spec beneath them.
-- Later plans change the player (a script's lowest role, hidden targets, a
-  fixed button slot, optional opening taps, an end-of-tutorial clean-up). Read
-  the 0b and batch 1 prep tasks before building 0a, and fold in whatever is
-  cheaper to build once.
-- The wording tables predate the one-sentence rule. Split at sentence
-  boundaries; never merge.
-- The 0b plan's Hub tab task carries an added line (sub-tab named "Completed",
-  the tab has its own red dot) that its steps below do not yet reflect.
-- Open risk: User Requests has four tabs, and sample data matches on path
-  only. Check whether the page filters by type itself before batch 3.
-- Nothing is committed. Ask the user whether to commit the documents before
-  you start.
-
-## Order and method
-
-| Batch | How |
+| Item | State |
 | --- | --- |
-| 0a player and work-order pilot | Sequential, by its plan. Stop for the user's in-app check |
-| 0b progress, red dot, Hub tab, Users count | Sequential; carries a migration. Stop for the in-app check |
-| 1 Technician, 2 Team Lead, 3 Office, 4 Admin | Parallel: one Sonnet 5.5 medium agent per page, using the briefs in that batch's plan |
-| 5 Starter | After batch 4. Menu-bar tours, one per menu group, shown in a third "Starter" sub-tab; the person taps the real menu button to move on. Adds a wait-for-tap step and cross-page running to the player; read its spec before building 0a |
-| 6 Welcome | Last. Ends on the Starter sub-tab. The user's greeting is in the welcome spec, 5.5 step 1; use it verbatim |
+| 0a player, 0b progress/dot/Hub tab/Users count | Built |
+| Batches 1–4: 13 pages, 49 scripts | Built; wording approved by the user |
+| Batch 5 Starter: wait-for-tap step, cross-page run, Hub Starter sub-tab, 5 menu tours | Built; awaiting the user's in-app check |
+| Batch 6 Welcome | **Next.** Greeting is in the welcome spec 5.5 step 1, verbatim. Switches on only after every batch is done. Ends on the Starter sub-tab (`setTutorialsSub("starter")` exists) |
+| Full frontend suite | Green (3,045) after the last timeout fix |
+| e2e `backend/tests/e2e/test_starter_tutorial.py` | Written, never run (no Chromium) |
 
-SMR is finished and gets no tutorials (the old SMR batch 5 was deleted).
+Known gaps, deliberately left: a profile opened from the Hub shows an empty
+Tutorials block; the Hub tab dot does not repaint on a role change alone.
 
-For a parallel batch: do the prep task yourself, launch every page agent in
-one message, then register the pages, run the guard test, fix what fails, and
-give the user ONE wording table for the whole batch. Wait for their approval
-before committing.
+## Method (the user's standing preference)
 
-## Rules
+- Orchestrate; do not build inline. Every batch, sequential ones included,
+  goes to Sonnet 5.5 medium agents (never forks), each prompt opening with
+  "Take a deep breath before beginning." Up to 10 at once.
+- Maximise concurrency: split by file ownership, one owner per file, tell
+  each agent which files it may NOT touch. The orchestrator alone edits
+  `tutorial.js` while agents run, and messages any agent whose file it touches.
+- Each agent reports commits, test commands with counts, deviations.
+- Vitest only from PowerShell at `C:\...`. Targeted runs per task; one full run
+  per batch. Explicit `git add` paths, no Co-Authored-By trailer.
+- User reviews wording once per batch as a table (generate it from the script
+  files with a node script into the scratchpad).
 
-- Subagents are Sonnet 5.5 at medium effort, never forks. Each owns exactly
-  its page's two files. You alone edit existing app code and
-  `tutorials/index.js`.
-- Follow the repo `CLAUDE.md`: chat replies short and plain, outcome first.
-- Commit with explicit paths, no Co-Authored-By trailer. Other sessions share
-  this checkout, so never `git add -A`.
-- **Never push without asking.** Pushing main deploys to production.
-- Run Vitest from PowerShell at `C:\...`; it fails from Git Bash. Targeted
-  tests per task.
-- The user checks the running app themselves. Do not start a preview server
-  for them.
-- When something is genuinely the user's call, ask with AskUserQuestion. A
-  recommendation of yours is not accepted until they say so.
+## Lessons that cost time
 
-## Start
-
-Read items 1 and 2, then report in under 200 words: what in the 0a plan
-disagrees with the code or the spec, what you would fold in from the later
-plans, and whether you are ready to build 0a.
+- Guard flakiness was always a race, never the scripts: boot load landing
+  after sample mode, page reload landing after `open` clicks, a second Owner
+  boot. The guard and player now wait (boot 300 ms, reload 400 ms, settle,
+  one `open` retry). Suspect timing first.
+- `open`'s last click is judged by `here` when the script has one; give a
+  script a `here` when its first step is always visible.
+- Targets inside collapsed `<details>` groups never count as visible; light
+  the container instead.
+- Heavy guard tests need long timeouts under full-suite load.
