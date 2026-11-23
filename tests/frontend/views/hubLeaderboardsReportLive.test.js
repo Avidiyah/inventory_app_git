@@ -98,3 +98,21 @@ describe("report", () => {
     expect(queries("/hub/report")).toHaveLength(before);
   });
 });
+
+describe("leaderboards reset", () => {
+  it("a reset and re-render does not stack a second click listener", async () => {
+    await openHub({ role: "admin" });
+    const tab = await import("../../../backend/static/views/hubLeaderboardsTab.js");
+    const panelEl = el.panel("leaderboards");
+    tab.renderLeaderboardsTab(panelEl);
+    await vi.waitFor(() => expect(panelEl.querySelector(".hub-leaderboards-prev")).not.toBeNull());
+    tab.resetLeaderboardsTab(panelEl);
+    tab.renderLeaderboardsTab(panelEl);
+    await vi.waitFor(() => expect(panelEl.querySelector(".hub-leaderboards-prev")).not.toBeNull());
+    await vi.advanceTimersByTimeAsync(10);
+    const before = queries("/hub/performance").length;
+    panelEl.querySelector(".hub-leaderboards-prev").click();
+    await vi.advanceTimersByTimeAsync(50);
+    expect(queries("/hub/performance")).toHaveLength(before + 1);
+  });
+});

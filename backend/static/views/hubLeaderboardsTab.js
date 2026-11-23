@@ -119,6 +119,5 @@ export function resetLeaderboardsTab(panelEl) {
   current = {};
   payload = null;
   requestId += 1;
-  if (panelEl) delete panelEl.dataset.lbBound;
   panelEl?.replaceChildren();
 }
