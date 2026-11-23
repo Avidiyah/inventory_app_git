@@ -55,7 +55,9 @@ export function pageHandlers() {
     http.get("/tools/", () => HttpResponse.json([])),
 
     // enterApp -> loadProgress (tutorial progress cache)
-    http.get("/tutorials/progress/me", () => HttpResponse.json([])),
+    // A seen `welcome` row and a PUT that says "not first": existing suites never see the tour.
+    http.get("/tutorials/progress/me", () => HttpResponse.json([{ key: "welcome", seen_at: "2026-11-01T00:00:00Z", completed_at: null }])),
+    http.put("/tutorials/progress/:key", () => HttpResponse.json({ first: false })),
     http.get("/tutorials/progress/users", () => HttpResponse.json({})),
 
     // user-hub -> loadUserHub

@@ -206,3 +206,41 @@ describe("work-orders sample shapes", () => {
     }
   });
 });
+
+describe("welcome script", () => {
+  const SPEC_STEP_1 = [
+    "Welcome to TechFM.",
+    "TechFM is Technological Facilities Maintenance: our app for work orders, stock, tools and time.",
+    "Each page has its own tutorial available at the top of the page.",
+    "They are also in the Tutorials section, which we're about to navigate to first.",
+  ];
+
+  it("keeps the limits: at most 5 steps, step 1 is the spec text (4 x 120), steps 2-5 at most 3 x 120", () => {
+    const [s] = TUTORIALS.welcome.scripts;
+    expect(TUTORIALS.welcome.standalone).toBe(true);
+    expect(s.steps.length).toBeLessThanOrEqual(5);
+    expect(s.steps[0].target).toBeUndefined();
+    expect(s.steps[0].text).toEqual(SPEC_STEP_1);
+    for (const step of s.steps.slice(1)) {
+      expect(lines(step.text).length).toBeLessThanOrEqual(3);
+      for (const line of lines(step.text)) expect(line.length, line).toBeLessThanOrEqual(120);
+    }
+  });
+
+  it("every target exists on the mounted Hub for each of the five roles (incl. the Hub's How-this-page-works button)", async () => {
+    const [s] = TUTORIALS.welcome.scripts;
+    for (const role of ROLES) {
+      const { nav } = await bootApp({ role });
+      nav.showPage("user-hub");
+      document.getElementById("hub-tab-tutorials").click();
+      for (const step of s.steps) {
+        const sel = step.waitTap || step.target;
+        if (!sel) continue;
+        const el = document.querySelector(sel);
+        expect(el, `${role}: ${sel}`).not.toBeNull();
+        expect(el.closest("[hidden]"), `${role}: ${sel} hidden`).toBeNull();
+        if (step.via) expect(document.querySelector(step.via), `${role}: ${step.via}`).not.toBeNull();
+      }
+    }
+  }, 60000);
+});

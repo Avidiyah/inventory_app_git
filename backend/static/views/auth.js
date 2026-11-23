@@ -20,7 +20,8 @@ import { friendlyError, formatUserName } from "../format.js";
 import { applyRoleVisibility, canAccessPage, landingPageForRole, showPage } from "./nav.js";
 import { roleLabel } from "../roles.js";
 import { loadUsers } from "./users.js";
-import { closeClockInPrompt, maybePromptClockIn } from "./clockInPrompt.js";
+import { closeClockInPrompt } from "./clockInPrompt.js";
+import { runWelcomeThenClockIn } from "./welcome.js";
 import { setHistoryTab } from "./history.js";
 import { resetBatch, tryResumeBatch } from "./transactions.js";
 import { resetToolsView } from "./tools.js";
@@ -164,8 +165,9 @@ async function enterApp(user, { resume = false } = {}) {
   // Not awaited: dots appear a moment late, nothing waits on them.
   void loadProgress();
 
-  // Not awaited: the prompt only appears if the user is off the clock.
-  void maybePromptClockIn(user);
+  // Not awaited: the one-time welcome (plain landings only: not a resumed batch or a
+  // shared work-order link), then the clock-in prompt if the user is off the clock.
+  void runWelcomeThenClockIn(user, { plain: !resumed && deepLinkNumber === null });
 
   // Not awaited: a push subscription is not required for the app to be
   // usable, and iOS can take a moment over the service-worker

@@ -228,3 +228,38 @@ describe("walking the tour", () => {
     expect(events(app.requests)).toEqual([]);
   });
 });
+
+// The real sign-in funnel (auth.js enterApp) runs the welcome, then the prompt.
+describe("enterApp wiring", () => {
+  const due = [http.get("/tutorials/progress/me", () => HttpResponse.json([])),
+    http.put("/tutorials/progress/:key", () => HttpResponse.json({ first: true }))];
+
+  it("a plain sign-in with the welcome due shows the tour, the modal only after it", async () => {
+    const app = await bootApp({ role: "technician", handlers: due });
+    await vi.waitFor(() => expect(overlay()).not.toBeNull());
+    expect(modal()).toBeNull();
+    expect(events(app.requests)).toEqual(["seen"]);
+    document.querySelector('[data-tut-act="end"]').click();
+    await vi.waitFor(() => expect(modal()).not.toBeNull());
+  });
+
+  it("a plain sign-in with it already seen goes straight to the modal", async () => {
+    const app = await bootApp({ role: "technician" }); // default handlers: welcome seen
+    await vi.waitFor(() => expect(modal()).not.toBeNull());
+    expect(overlay()).toBeNull();
+    expect(puts(app.requests)).toEqual([]);
+  });
+
+  it("a shared work-order link skips it with no progress write", async () => {
+    window.history.replaceState({}, "", "/workorder_card/4242");
+    try {
+      const app = await bootApp({ role: "supervisor", handlers: [...due,
+        http.get("/work-orders/", () => HttpResponse.json([]))] });
+      await settle();
+      expect(overlay()).toBeNull();
+      expect(puts(app.requests)).toEqual([]);
+    } finally {
+      window.history.replaceState({}, "", "/");
+    }
+  });
+});
