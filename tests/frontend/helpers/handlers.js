@@ -56,6 +56,7 @@ export function pageHandlers() {
 
     // enterApp -> loadProgress (tutorial progress cache)
     http.get("/tutorials/progress/me", () => HttpResponse.json([])),
+    http.get("/tutorials/progress/users", () => HttpResponse.json({})),
 
     // user-hub -> loadUserHub
     http.get("/hub", () => HttpResponse.json(hubPayload())),

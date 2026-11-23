@@ -22,6 +22,7 @@ const OPEN_WAIT_MS = 3000;
 const POLL_MS = 50;
 const SETTLE_MS = 300;   // visible steps unchanged this long = page has loaded
 const RELOAD_WAIT_MS = 400; // start: the page's own reload lands first
+const BUSY_TEXT = "Finish or end the current batch, then start the tutorial.";
 const REFUSE_TEXT = "Finish or save what you typed, then start the tutorial. It reloads the page.";
 
 // jsdom has no layout, so tests rely on the attribute rules alone; a real
@@ -312,6 +313,9 @@ export async function startTutorial(page, key = null) {
   if (running || !deps) return;
   const entry = deps.tutorials[page];
   if (!entry) return;
+  // A page marks live work (an open scanning batch) with [data-tutorial-busy].
+  const busy = document.querySelector(`#${page}-page [data-tutorial-busy]`);
+  if (busy && !busy.closest("[hidden]")) { messageDialog(BUSY_TEXT); return; }
   if (hasUnsavedText(page)) { messageDialog(REFUSE_TEXT); return; }
   closeTip();
   let script = (key && entry.scripts.find((s) => s.key === key)) || pickScript(entry.scripts);

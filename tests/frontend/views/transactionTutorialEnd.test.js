@@ -1,7 +1,8 @@
 // tutorial:end clears a sample scanning batch (reserved id prefix) and leaves
 // a real batch alone.
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { dismissMessageDialog } from "../helpers/workOrders.js";
 import { workOrderCard } from "../helpers/factories.js";
 import { BATCH_KEY, el, inBatch, restoreTransactions } from "../helpers/transactions.js";
 
@@ -22,5 +23,20 @@ describe("tutorial:end on the transaction page", () => {
     document.dispatchEvent(new CustomEvent("tutorial:end"));
     expect(el.active().hidden).toBe(false);
     expect(sessionStorage.getItem(BATCH_KEY)).not.toBeNull();
+  });
+});
+
+describe("tutorial button during a real batch", () => {
+  it("refuses to start and says why", async () => {
+    await inBatch();
+    const tut = await import("../../../backend/static/tutorial.js");
+    const showPage = vi.fn();
+    tut.installTutorials({ getActivePage: () => "transaction", showPage,
+      tutorials: { transaction: { sample: () => ({}), scripts: [{ key: "transaction.x", title: "X", steps: [{ target: "#scango-active", text: "X." }] }] } } });
+    document.getElementById("app-root").hidden = false; // mountView leaves the shell signed-out
+    await tut.startTutorial("transaction");
+    expect(await dismissMessageDialog()).toMatch(/end the current batch/);
+    expect(showPage).not.toHaveBeenCalled();
+    expect(el.active().hidden).toBe(false);
   });
 });

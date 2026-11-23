@@ -36,7 +36,7 @@ describe("tutorial wiring", () => {
     expect(btns).toHaveLength(1);
     expect(btns[0].textContent).toBe("How this page works");
     expect(btns[0].nextElementSibling).toBeNull();
-    expect(document.querySelector("#history-page .tut-btn")).toBeNull();
+    expect(document.querySelector("#smr-page .tut-btn")).toBeNull();
   });
 
   it("leaving the page ends the tutorial without reloading work orders", async () => {
