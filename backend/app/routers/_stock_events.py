@@ -19,36 +19,20 @@ would close an import ring.
 """
 
 import logging
-import uuid
-from typing import Optional
 
 from fastapi import BackgroundTasks
 from sqlalchemy.orm import Session
 
-from app.domain import realtime as realtime_policy
-from app.logging_config import current_request_id
 from app.services import low_stock as low_stock_service
 from app.services import material_requests as material_requests_service
 from app.services import notifications as notifications_service
-from app.services import realtime as realtime_service
 
 logger = logging.getLogger(__name__)
 
 
-def emit_low_stock_changed(item_id: Optional[uuid.UUID]) -> None:
-    """Invalidate the Low Stock page for one item. Best-effort by contract."""
-    realtime_service.emit(
-        realtime_policy.build_envelope(
-            event_type=realtime_policy.EVENT_ITEM_LOW_STOCK_CHANGED,
-            entity_id=item_id,
-            request_id=current_request_id(),
-        )
-    )
-
-
 def flush_stock_events(db: Session, background: BackgroundTasks) -> None:
     """Drain this request's crossings and stocked facts, push what should be
-    pushed, and invalidate what changed.
+    pushed. The Low Stock page is invalidated by `app/item_events.py`.
 
     Call once, on the success path, after the service returned -- the
     durable write has committed by then, which is what makes swallowing
@@ -59,8 +43,6 @@ def flush_stock_events(db: Session, background: BackgroundTasks) -> None:
         crossings = low_stock_service.drain()
         if crossings:
             notifications_service.notify_item_low_stock(db, background, crossings=crossings)
-            for crossing in crossings:
-                emit_low_stock_changed(crossing.item_id)
     except Exception:  # noqa: BLE001 - best-effort by contract
         logger.exception("low-stock notification failed")
 

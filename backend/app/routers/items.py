@@ -25,7 +25,7 @@ from app.domain import roles
 from app.domain.errors import DomainError
 from app.models import Item, User
 from app.routers._errors import to_http
-from app.routers._stock_events import emit_low_stock_changed, flush_stock_events
+from app.routers._stock_events import flush_stock_events
 from app.schemas.items import (
     ItemBarcodesUpdate,
     ItemCreate,
@@ -107,10 +107,6 @@ def create_item(
             product_link=payload.product_link,
             override_archived=payload.override_archived,
         )
-        # An item can be born below its threshold. That is not a crossing
-        # -- there is no before-state -- so it lists without pushing, but
-        # the page still has to learn about the new row.
-        emit_low_stock_changed(item.id)
         return _item_response(item, user.role)
     except DomainError as exc:
         raise to_http(exc)
@@ -424,8 +420,5 @@ def delete_item(item_id: uuid.UUID, db: Session = Depends(get_db)):
     """Soft-delete (archive) an item. TechFM OA+ only. 404 if unknown."""
     try:
         items_service.delete_item(db, item_id)
-        # Archiving removes the row from the list as surely as a restock
-        # would.
-        emit_low_stock_changed(item_id)
     except DomainError as exc:
         raise to_http(exc)

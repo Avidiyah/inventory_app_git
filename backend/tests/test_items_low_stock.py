@@ -418,9 +418,10 @@ def test_creating_an_item_below_its_threshold_lists_it_without_pushing(db, monke
         or {"sent": 1, "dropped": 0, "failed": 0},
     )
     envelopes = []
-    from app.routers import _stock_events
+    from app import item_events
     monkeypatch.setattr(
-        _stock_events.realtime_service, "emit", lambda e: envelopes.append(e)
+        item_events.realtime_service, "emit",
+        lambda e: e["type"] == "item.low_stock.changed" and envelopes.append(e),
     )
     user = _seed_user(db, "admin")
     db.commit()
@@ -451,9 +452,10 @@ def test_creating_an_item_below_its_threshold_lists_it_without_pushing(db, monke
 
 def test_archiving_a_low_item_invalidates_the_page(db, monkeypatch):
     envelopes = []
-    from app.routers import _stock_events
+    from app import item_events
     monkeypatch.setattr(
-        _stock_events.realtime_service, "emit", lambda e: envelopes.append(e)
+        item_events.realtime_service, "emit",
+        lambda e: e["type"] == "item.low_stock.changed" and envelopes.append(e),
     )
     item = _seed_item(db, quantity="1", threshold=6)
     user = _seed_user(db, "admin")
@@ -468,4 +470,5 @@ def test_archiving_a_low_item_invalidates_the_page(db, monkeypatch):
         del app.dependency_overrides[get_db]
 
     assert response.status_code == 204
-    assert len(envelopes) == 1
+    # The seed commit of a low item emits too; count the archive's own.
+    assert len([e for e in envelopes if e["req"]]) == 1

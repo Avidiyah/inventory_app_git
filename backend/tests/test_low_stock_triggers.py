@@ -17,7 +17,7 @@ from decimal import Decimal
 import pytest
 from fastapi import BackgroundTasks
 
-from app.domain import realtime as realtime_policy
+from app.services import realtime as realtime_service
 from app.models import Item, User
 from app.services import auth as auth_service
 from app.services import low_stock as low_stock_service
@@ -145,12 +145,12 @@ def test_nothing_is_scheduled_when_nobody_holds_the_rank(db, configured):
 # --- the flush helper ---------------------------------------------------
 
 
-def test_flush_drains_pushes_and_invalidates(db, configured, monkeypatch):
+def test_flush_drains_and_pushes_without_emitting(db, configured, monkeypatch):
     from app.routers import _stock_events
 
     envelopes = []
     monkeypatch.setattr(
-        _stock_events.realtime_service, "emit", lambda envelope: envelopes.append(envelope)
+        realtime_service, "emit", lambda envelope: envelopes.append(envelope)
     )
     _seed_user(db, "admin")
     item = _seed_item(db, quantity="5")
@@ -160,23 +160,22 @@ def test_flush_drains_pushes_and_invalidates(db, configured, monkeypatch):
     _stock_events.flush_stock_events(db, background)
 
     assert len(_scheduled(background)) == 1
-    assert len(envelopes) == 1
-    assert envelopes[0]["type"] == realtime_policy.EVENT_ITEM_LOW_STOCK_CHANGED
-    assert envelopes[0]["id"] == str(item.id)
+    # The page's event comes from app/item_events.py on commit, not the drain.
+    assert envelopes == []
     # Drained: a second flush on the same request repeats nothing.
     second = BackgroundTasks()
     _stock_events.flush_stock_events(db, second)
     assert _scheduled(second) == []
 
 
-def test_flush_invalidates_even_when_the_item_left_the_low_set(db, configured, monkeypatch):
-    """A restock has no push but must still drop the row from an open
-    Low Stock page."""
+def test_flush_neither_pushes_nor_emits_when_the_item_left_the_low_set(db, configured, monkeypatch):
+    """A restock has no push; the open Low Stock page hears about it from
+    the commit listener (tests/test_item_events.py)."""
     from app.routers import _stock_events
 
     envelopes = []
     monkeypatch.setattr(
-        _stock_events.realtime_service, "emit", lambda envelope: envelopes.append(envelope)
+        realtime_service, "emit", lambda envelope: envelopes.append(envelope)
     )
     _seed_user(db, "admin")
     item = _seed_item(db, quantity="9")
@@ -186,7 +185,7 @@ def test_flush_invalidates_even_when_the_item_left_the_low_set(db, configured, m
     _stock_events.flush_stock_events(db, background)
 
     assert _scheduled(background) == []
-    assert len(envelopes) == 1
+    assert envelopes == []
 
 
 def test_flush_never_raises_into_a_committed_request(db, monkeypatch):

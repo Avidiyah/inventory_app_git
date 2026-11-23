@@ -18,13 +18,13 @@ from types import SimpleNamespace
 import pytest
 from fastapi import BackgroundTasks
 
-from app.domain import realtime as realtime_policy
 from app.domain import roles
 from app.models import User
 from app.routers import _stock_events
 from app.services import low_stock as low_stock_service
 from app.services import material_requests as material_service
 from app.services import push as push_service
+from app.services import realtime as realtime_service
 
 
 @pytest.fixture(autouse=True)
@@ -59,7 +59,7 @@ def configured(db, monkeypatch):
 def _capture_emits(monkeypatch):
     envelopes = []
     monkeypatch.setattr(
-        _stock_events.realtime_service, "emit", lambda envelope: envelopes.append(envelope)
+        realtime_service, "emit", lambda envelope: envelopes.append(envelope)
     )
     return envelopes
 
@@ -87,8 +87,9 @@ def test_one_flush_drains_both_buffers(db, configured, monkeypatch):
 
     titles = sorted(task.args[1] for task in background.tasks)
     assert titles == ["Low stock", "Material in stock"]
-    # The stocked request's own event comes from app/request_events.py on commit.
-    assert [e["type"] for e in envelopes] == [realtime_policy.EVENT_ITEM_LOW_STOCK_CHANGED]
+    # Events come from the commit listeners (app/item_events.py,
+    # app/request_events.py), never from the drain.
+    assert envelopes == []
     assert low_stock_service.drain() == []
     assert material_service.drain() == []
 

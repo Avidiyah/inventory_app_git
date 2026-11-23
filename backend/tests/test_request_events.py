@@ -33,7 +33,11 @@ def _clean_buffer():
 @pytest.fixture
 def sent(monkeypatch):
     envelopes = []
-    monkeypatch.setattr(request_events.realtime_service, "emit", envelopes.append)
+    # The emit is shared with app/item_events.py (W6); keep this file's wire only.
+    monkeypatch.setattr(
+        request_events.realtime_service, "emit",
+        lambda e: e["type"] == realtime_policy.EVENT_USER_REQUEST_CHANGED and envelopes.append(e),
+    )
     return envelopes
 
 
