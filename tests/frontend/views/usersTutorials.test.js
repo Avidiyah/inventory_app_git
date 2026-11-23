@@ -38,6 +38,16 @@ describe("the row line", () => {
     expect(tag("lead1")).toBe("2 of 4 tutorials");
   });
 
+  it("counts relevant starters in N of M, per role", async () => {
+    const starters = ["menu", "inventory", "field", "people", "review"].map((k, i) => ({
+      page: "starter", key: `starter.${k}`, title: k, minRole: i < 3 ? "technician" : "supervisor" }));
+    const mod = await open({ map: { [tech.id]: ["starter.menu"], [lead.id]: [] } });
+    (await importView("views/usersTutorials.js")).setTutorialEntries(starters);
+    await mod.loadUsers();
+    expect(tag("tech1")).toBe("1 of 3 tutorials");
+    expect(tag("lead1")).toBe("0 of 5 tutorials");
+  });
+
   it("shows 0 of N when the person has no entry", async () => {
     await open({ map: {} });
     expect(tag("tech1")).toBe("0 of 3 tutorials");

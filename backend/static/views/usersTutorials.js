@@ -55,7 +55,7 @@ export function tutorialTagHtml(user) {
     : "";
 }
 
-const pageLabel = (page) =>
+const pageLabel = (page) => page === "starter" ? "Menu" :
   document.querySelector(`.nav-btn[data-page="${CSS.escape(page)}"]`)?.textContent.trim()
   || page.charAt(0).toUpperCase() + page.slice(1).replace(/-/g, " ");
 

@@ -21,8 +21,14 @@ const FIXTURE = {
 };
 const putProgress = () => http.put("/tutorials/progress/:key", () => HttpResponse.json({}));
 
-async function open(role = "technician") {
-  vi.doMock("../../../backend/static/tutorials/index.js", () => ({ TUTORIALS: FIXTURE }));
+const STARTER = { starter: { scripts: [
+  { key: "starter.menu", title: "Using the menu", minRole: "technician", sample: false, steps: [] },
+  { key: "starter.field", title: "Field", minRole: "technician", sample: false, steps: [] },
+  { key: "starter.people", title: "People", minRole: "supervisor", sample: false, steps: [] },
+] } };
+
+async function open(role = "technician", fixture = FIXTURE) {
+  vi.doMock("../../../backend/static/tutorials/index.js", () => ({ TUTORIALS: fixture }));
   const startTutorial = vi.fn();
   vi.doMock("../../../backend/static/tutorial.js", async (orig) => ({ ...(await orig()), startTutorial }));
   const app = await openHub({ role, handlers: [putProgress()] });
@@ -115,6 +121,85 @@ describe("Hub Tutorials tab", () => {
     expect(entries()).toHaveLength(1);
     tp.mark("work-orders.a", "completed");
     expect(entries()).toHaveLength(0);
+  });
+});
+
+describe("Starter sub-tab", () => {
+  const WITH = { ...FIXTURE, ...STARTER };
+  const keys = () => entries().map((e) => e.dataset.tutKey);
+
+  it("has To do, Completed, Starter in order, opens on To do", async () => {
+    await open("supervisor", WITH);
+    await show();
+    expect([...panel().querySelectorAll("[data-tut-sub]")].map((b) => b.dataset.tutSub)).toEqual(["todo", "completed", "starter"]);
+    expect(sub("todo").classList.contains("active")).toBe(true);
+  });
+
+  it("lists only relevant starters in order with New / Started / Done and Replay", async () => {
+    const { tp } = await open("technician", WITH);
+    await show();
+    sub("starter").click();
+    expect(keys()).toEqual(["starter.menu", "starter.field"]);
+    expect(entries()[0].textContent).toContain("New");
+    tp.mark("starter.menu", "seen");
+    expect(entries()[0].textContent).toContain("Started");
+    tp.mark("starter.menu", "completed");
+    expect(entries()[0].textContent).toContain("Done");
+    expect(entries()[0].textContent).toContain("Replay");
+  });
+
+  it("the count is the unfinished number and its span is absent at 0", async () => {
+    const { tp } = await open("supervisor", WITH);
+    await show();
+    expect(sub("starter").textContent).toBe("Starter (3)");
+    for (const k of ["starter.menu", "starter.field", "starter.people"]) tp.mark(k, "completed");
+    expect(sub("starter").textContent).toBe("Starter");
+    expect(sub("starter").querySelector(".hub-tut-count")).toBeNull();
+  });
+
+  it("starters also appear in To do (grouped Menu) and Completed", async () => {
+    const { tp } = await open("technician", WITH);
+    await show();
+    expect([...panel().querySelectorAll(".hub-tut-page")].map((g) => g.textContent)).toContain("Menu");
+    expect(keys()).toContain("starter.field");
+    tp.mark("starter.field", "completed");
+    sub("completed").click();
+    expect(keys()).toEqual(["starter.field"]);
+    expect(panel().querySelector(".hub-tut-page").textContent).toBe("Menu");
+  });
+
+  it("every-tutorial-finished needs the starters finished too; the dot counts them", async () => {
+    const { tp } = await open("technician", WITH);
+    await show();
+    tp.mark("work-orders.a", "completed");
+    expect(panel().textContent).not.toContain("You have finished every tutorial");
+    expect(el.tab("tutorials").classList.contains("hub-tab-dot")).toBe(true);
+    tp.mark("starter.menu", "completed");
+    tp.mark("starter.field", "completed");
+    expect(panel().textContent).toContain("You have finished every tutorial");
+    expect(el.tab("tutorials").classList.contains("hub-tab-dot")).toBe(false);
+  });
+
+  it("a tap starts the starter and never shows a page; entries are single buttons", async () => {
+    const { startTutorial } = await open("technician", WITH);
+    await show();
+    sub("starter").click();
+    for (const e of entries()) expect(e.querySelector("button")).toBeNull();
+    const before = document.querySelector(".page.active")?.id;
+    entries()[1].click();
+    expect(startTutorial).toHaveBeenCalledWith("starter", "starter.field");
+    expect(document.querySelector(".page.active")?.id).toBe(before);
+    expect(document.getElementById("starter-page")).toBeNull();
+    expect(document.querySelector("[data-tut-page=starter]")).not.toBeNull();
+    expect(document.querySelector(".nav-btn[data-page=starter]")).toBeNull();
+  });
+
+  it("setTutorialsSub opens the tab on that sub-tab", async () => {
+    await open("technician", WITH);
+    const hub = await import("../../../backend/static/views/hubTutorials.js");
+    hub.setTutorialsSub("starter");
+    await show();
+    expect(sub("starter").classList.contains("active")).toBe(true);
   });
 });
 
