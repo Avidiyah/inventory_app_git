@@ -162,7 +162,7 @@ function paintTabs(grouped) {
 
 // `reset` is a tab change: the user asked for a different list, so it is a
 // first draw (no glow, nothing held). `background` is a live or own-save
-// reload, which leaves an error or the no-longer-low message on the page.
+// reload, which leaves the no-longer-low message on the page.
 function render({ reset = false, background = false } = {}) {
   const grouped = bucketRows(allRows);
   const chosen = activeBucket;
@@ -192,7 +192,7 @@ function render({ reset = false, background = false } = {}) {
     setMessage(messageEl, NO_LONGER_LOW, "error");
     return;
   }
-  if (background && messageEl.className === "error") return;
+  if (background && messageEl.textContent === NO_LONGER_LOW) return;
   if (!allRows.length) setMessage(messageEl, "Nothing is below its threshold.", "success");
   else if (!rows.length) setMessage(messageEl, EMPTY_TEXT[activeBucket], "success");
   else setMessage(messageEl, "", "");
@@ -207,7 +207,9 @@ async function fetchAndRender(background) {
     allRows = rows;
     render({ background });
   } catch (err) {
-    if (sequence !== loadSequence) return;
+    // A failed live reload is best-effort: keep the list, and whatever is
+    // typed in it, rather than wipe it over a dropped connection.
+    if (background || sequence !== loadSequence) return;
     allRows = [];
     listEl.replaceChildren();
     setMessage(messageEl, friendlyError(err, "Could not load low stock."), "error");

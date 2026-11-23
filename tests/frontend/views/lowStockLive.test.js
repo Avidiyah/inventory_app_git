@@ -313,3 +313,28 @@ describe("own saves", () => {
     expect(cardFor("i1").hasAttribute("data-saving")).toBe(false);
   });
 });
+
+describe("failures", () => {
+  const fail = () => HttpResponse.json({ detail: "" }, { status: 500 });
+
+  it("a failed live update leaves the list, the typed input and the message alone", async () => {
+    const rows = [row()];
+    const { rt } = await open(rows);
+    type(q("i1", ".ls-correct-qty"), "6");
+    server.use(http.get("/items/low-stock", fail));
+    rt.emit("item.low_stock.changed", { id: "i1" });
+    await vi.waitFor(() => expect(listGets()).toHaveLength(1));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(q("i1", ".ls-correct-qty").value).toBe("6");
+    expect(el.message().textContent).toBe("");
+  });
+
+  it("a live update that succeeds clears an earlier load error", async () => {
+    await mountLowStock({ rows: [], handlers: [http.get("/items/low-stock", fail)] });
+    expect(el.message().className).toBe("error");
+    const rt = await connectLowStock();
+    server.use(http.get("/items/low-stock", () => HttpResponse.json([row()])));
+    await live(rt, () => cardFor("i1") !== null);
+    expect(el.message().textContent).toBe("");
+  });
+});
