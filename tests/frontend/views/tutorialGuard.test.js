@@ -4,12 +4,13 @@
 // sample id prefix are checked here too. A UI change that breaks a tutorial
 // fails this file.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { bootApp } from "../helpers/app.js";
 import { restoreBrowserStubs, stubScrollIntoView } from "../helpers/browserStubs.js";
 import { workOrderCard, workOrderDetail } from "../helpers/factories.js";
 import { TUTORIALS } from "../../../backend/static/tutorials/index.js";
-import { ALL_ROLES, ROLE_RANK } from "../../../backend/static/roles.js";
+import { ALL_ROLES, ROLE_RANK, roleAtLeast } from "../../../backend/static/roles.js";
+import { restoreRects, stubRects, walkWaits } from "../helpers/starterWalkWaits.js";
 
 const ROLES = ["technician", "supervisor", "techfm_oa", "admin", "owner"];
 const PREFIX = "ffffffff-ffff-4fff-8fff-";
@@ -93,6 +94,74 @@ describe.each(PAGES)("tutorials for %s", (page) => {
     restoreBrowserStubs();
     const unseen = entry.scripts.flatMap((s) => s.steps.map((st) => st.target)).filter((t) => !seen.has(t));
     expect(unseen, "targets never visible for any role").toEqual([]);
+  }, 60000);
+});
+
+describe("starter scripts", () => {
+  const entry = TUTORIALS.starter;
+  const KEYS = ["starter.menu", "starter.inventory", "starter.field", "starter.people", "starter.review"];
+  const GROUP = { "starter.inventory": "inventory", "starter.field": "field", "starter.people": "people", "starter.review": "review" };
+  const OVERVIEW = ["#main-nav", "#auth-user-indicator", "#logout-btn"];
+  const sentences = (l) => l.split(/[.!?]+(\s|$)/).filter((x) => x && x.trim() && !/^\s*$/.test(x)).length;
+  afterEach(() => restoreRects());
+
+  it("is registered as a page-less entry with sample:false scripts", () => {
+    expect(entry, "starter missing from the index").toBeTruthy();
+    expect(entry.sample).toBeUndefined();
+    expect(entry.scripts.map((s) => s.key)).toEqual(KEYS);
+    for (const s of entry.scripts) {
+      expect(s.sample, s.key).toBe(false);
+      expect(s.open, s.key).toBeUndefined();
+      expect(s.here, s.key).toBeUndefined();
+    }
+  });
+
+  it("keeps the data rules", () => {
+    expect(entry, "starter missing from the index").toBeTruthy();
+    for (const s of entry.scripts) {
+      expect(s.steps.length, s.key).toBeLessThanOrEqual(8);
+      for (const step of s.steps) {
+        if (step.waitTap) {
+          expect(step.waitTap).toMatch(/^\.nav-btn\[data-page="[a-z-]+"\]$/);
+          if (step.via) expect(step.via).toMatch(/^\[data-nav-group="[a-z]+"\] \.nav-group-toggle$/);
+          if (step.via) expect(sentences(step.viaText), `${s.key} viaText`).toBe(1);
+          expect(lines(step.text).length, `${s.key} wait text`).toBe(1);
+          expect(sentences(step.text), `${s.key} wait text`).toBe(1);
+        } else {
+          const page = (step.target.match(/^#([a-z-]+)-page$/) || [])[1];
+          expect(OVERVIEW.includes(step.target) || !!page, `${s.key} target ${step.target}`).toBe(true);
+        }
+        for (const v of [step.text, ...Object.values(step.textFor || {})]) {
+          expect(lines(v).length, s.key).toBeLessThanOrEqual(3);
+          for (const line of lines(v)) {
+            expect(line.length, line).toBeLessThanOrEqual(120);
+            expect(sentences(line), `one sentence: ${line}`).toBe(1);
+          }
+        }
+      }
+    }
+  });
+
+  it("every role from minRole up walks every starter on the real nav", async () => {
+    expect(entry, "starter missing from the index").toBeTruthy();
+    stubScrollIntoView();
+    for (const role of ROLES) {
+      const { nav } = await bootApp({ role });
+      stubRects();
+      for (const s of entry.scripts) {
+        const group = GROUP[s.key];
+        const buttons = group
+          ? [...document.querySelectorAll(`[data-nav-group="${group}"] .nav-btn:not([hidden])`)].map((b) => b.dataset.page).filter((p) => !p.startsWith("smr"))
+          : [];
+        if (s.minRole && !roleAtLeast(role, s.minRole)) {
+          expect(buttons, `${s.key} offered to ${role}`).toEqual([]);
+          continue;
+        }
+        expect(walkWaits(s, role, nav.canAccessPage), `${s.key} as ${role}`).toEqual(group ? buttons : ["saved-items"]);
+      }
+      restoreRects();
+    }
+    restoreBrowserStubs();
   }, 60000);
 });
 
