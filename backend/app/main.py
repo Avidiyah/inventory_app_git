@@ -58,6 +58,7 @@ from app.routers import (
     push,
     realtime,
     tools,
+    tutorials,
     transactions,
     user_requests,
     users,
@@ -342,6 +343,7 @@ app.include_router(push.router)
 # limits. See the module docstring in `app/routers/realtime.py`.
 app.include_router(realtime.router)
 app.include_router(tools.router)
+app.include_router(tutorials.router)
 app.include_router(transactions.router)
 app.include_router(user_requests.router)
 app.include_router(users.router)

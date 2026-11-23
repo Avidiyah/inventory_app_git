@@ -33,6 +33,7 @@ from app.routers import hub as hub_router
 from app.routers import items as items_router
 from app.routers import netfacilities as netfacilities_router
 from app.routers import tools as tools_router
+from app.routers import tutorials as tutorials_router
 from app.routers import users as users_router
 from app.routers import transactions as transactions_router
 from app.routers import user_requests as user_requests_router
@@ -718,3 +719,20 @@ def test_filing_and_cancelling_a_material_request_have_no_static_min_role(endpoi
 def test_smr_route_gates_are_declarative_and_document_403(endpoint_name, expected):
     assert _min_role_for(smr_router, endpoint_name) == expected
     assert 403 in _route(smr_router, endpoint_name).responses
+
+
+@pytest.mark.parametrize(
+    "endpoint_name", ["my_tutorial_progress", "record_tutorial_progress"]
+)
+def test_tutorial_progress_own_routes_have_no_static_min_role(endpoint_name):
+    # Any signed-in user reads and writes their own rows; the caller's id, not a
+    # path or body field, picks the row.
+    assert _min_role_for(tutorials_router, endpoint_name) is None
+
+
+def test_tutorial_progress_users_requires_supervisor_and_documents_its_403():
+    assert (
+        _min_role_for(tutorials_router, "tutorial_progress_users")
+        == roles.ROLE_SUPERVISOR
+    )
+    assert 403 in _route(tutorials_router, "tutorial_progress_users").responses

@@ -310,6 +310,12 @@ CATALOGUE: dict[str, Entry] = {k: Entry(exclude="see EXCLUDED") for k in EXCLUDE
                                                  body=J({"item_id": "{item_id}", "quantity": 1})),
     # --- push ---
     "POST /push/test": Entry(),            # add expect=503 if the container has no VAPID keys (acceptance run decides)
+    # --- tutorials ---
+    "GET /tutorials/progress/me": Entry(),
+    "GET /tutorials/progress/users": Entry(),
+    # No delete partner: writes one dev-DB row (memprobe.sample) for the probe's owner user.
+    "PUT /tutorials/progress/{key}": Entry(path="/tutorials/progress/memprobe.sample",
+                                           body=J({"event": "seen"})),
     # --- tools ---
     "POST /tools/": Entry(body=J({"barcode": "{prefix}-T{seq}", "name": "{prefix} saw"}),
                           cycle=["POST /tools/", "DELETE /tools/{tool_id}"]),
