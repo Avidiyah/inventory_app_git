@@ -1,318 +1,83 @@
 # Design System
 
-The TechFM front-end's visual language: palette, surface types, and the rules
-for picking one, so new UI matches what's already shipped instead of
-reinventing it per-page.
+The TechFM front-end's visual language. Living file: a change that adds a surface type or token, or overturns a rule, updates it in the same commit.
 
-**This file is living.** A change that adds a new surface type, a new token,
-or overturns a rule below updates this file in the same commit.
-
-Sources of truth, in the order to trust them: `backend/static/styles.css`
-`:root` (the actual token values), then this file (the *why* and *when*).
-Don't duplicate hex values here — reference the token name and grep it.
-
----
+Sources of truth: `backend/static/styles.css` `:root` (token values), then this file (the why and when). Don't duplicate hex values here beyond the contrast table.
 
 ## Brand
 
-TechFM (Technological Facilities Maintenance), styled after Belfor Property
-Restoration: **red / black / white**, with gray as the neutral connective
-tissue between them. `--color-brand` (`#C8102E`) is the one red — don't
-introduce a second brand red.
+TechFM, styled after Belfor: **red / black / white**, gray as neutral. `--color-brand` is the one red; no second brand red.
 
-- **Red = primary / brand action** (Sign In, Save, Scan). Not "the delete
-  color" — destructive actions are distinguished by *treatment*
-  (outline/ghost, warning icon, confirmation step), never by hue.
-- **Status accents** (`--status-stock` green, `--status-dispense` amber,
-  `--status-adjust` blue) are a deliberate, narrow exception, kept only on
-  `.type-badge.*` and stock/dispense affordances because inventory direction
-  is operationally meaningful on a jobsite. Everywhere else stays
-  red/black/white/gray.
+- **Red = primary action** (Sign In, Save, Scan), not "delete". Destructive actions differ by treatment (outline/ghost, warning icon, confirm step), never hue.
+- **Status accents** (`--status-stock` green, `--status-dispense` amber, `--status-adjust` blue) live only on `.type-badge.*` and stock/dispense affordances. The SMR27 tiles' stage outlines (red / amber / neutral / green / muted) are the one other exception.
 
 ## The canvas
 
-The app background is dark: `--color-canvas` (`#1C1D20`), set on `body`, with
-the logo ring at 9.5% alpha (`app-bg.png`) bled off the top-right corner. It was
-`--gray-50` until the panels and the page were found to be the same value —
-every screen read as one undifferentiated white sheet, and the black header
-floated on it like an unrelated stripe. Dark gives the white panels a ground
-to sit on and makes the header continuous with the page, which is the same
-dark-field/lifted-panel logic the login screen already used.
+App background is dark: `--color-canvas` on `body`, logo watermark (`app-bg.png`) bled off the top-right. The watermark is `background-attachment: fixed` only under `@media (pointer: fine)`; fixed backgrounds force a repaint per scroll frame on iOS Safari.
 
-**If you put something directly on the canvas, tone it for dark**: light text
-(`--gray-400` or lighter — `--gray-700` and `--color-ink` disappear),
-translucent-white hairlines rather than `--gray-200`, and never `--color-brand`
-as *text* (it's ~2.6:1 on the canvas, under the 4.5:1 minimum — carry the red
-in a rule or underline and keep the label white). The header nav's dark idiom
-in `.nav-btn` is the reference. Better still: put it in a panel.
-
-The watermark is `background-attachment: fixed` only under `@media (pointer:
-fine)`. Fixed backgrounds force a full repaint per scroll frame in iOS Safari,
-which is the device class that can least afford it.
+Anything placed directly on the canvas must be toned for dark: light text (`--gray-400` or lighter), translucent-white hairlines, and never `--color-brand` as text (about 2.6:1). Carry red in a rule or underline. Better: put it in a panel. Reference idiom: `.nav-btn`.
 
 ## Two surface types
 
-The SMR27 audit page (`#smr-page`) is a standard frosted panel; its tiles reuse
-the status-card keycap outline, colored by paper stage with the stage's words on
-the pill: red = material not keyed, amber = needs paper review, neutral = needs
-review, green = ready to invoice, muted = not billed. The amber outline is the second status-accent
-exception to "badge-only" (the SMR outlines already carry red / green).
+### Frosted panel (default)
 
-The app has exactly two ways to present a panel of content. Both are dark and
-translucent; they differ in what they sit on, which changes the arithmetic.
+`--panel-bg` over the canvas, `--glass-blur`, `--panel-border`, `--text-panel` / `--text-panel-mute`, `--shadow-panel`. Every table, form, card, modal. Inputs use `--input-bg` and `--text-panel` too.
 
-### Frosted panel (default — nearly everything)
+**Trap: frost on a dark ground is a light film.** `--glass-bg` is darker than the canvas, so a panel built from it vanishes. Never use `--glass-*` for a panel on the canvas; use the `--panel-*` set (white at low alpha).
 
-`--panel-bg` over the canvas, `--glass-blur`, `--panel-border` hairline,
-`--text-panel` / `--text-panel-mute` text, `--shadow-panel` for lift. This is
-every table, form, card, and modal in the working app.
+Nesting tokens: `--panel-nested` (card in a panel), `--panel-well` (inset fill, zebra row), `--panel-hover`, `--panel-rule` / `--panel-rule-soft` (hairlines).
 
-> **Rule change (owner decision, superseding "don't use dark glass for working
-> UI").** This file previously reserved translucent dark surfaces for brand and
-> photo moments and required flat white panels for the working app, on the
-> grounds that dense inventory data is more legible dark-on-light in jobsite
-> glare. That concern still stands and is worth revisiting if the field reports
-> trouble — but the owner chose the frosted treatment app-wide for visual
-> consistency with the login screen, so frosted is now the default.
-
-**Frost on a dark ground is a *light* film, not a dark one.** This is the trap:
-`--glass-bg` is `rgba(20,20,20,.75)`, which is *darker* than `--color-canvas`.
-Composited over the canvas it lands on ~`#191A1C` — the canvas — and the panel
-vanishes. It works on the login screen only because that sits over a bright
-logo. Never reuse the `--glass-*` tokens for a panel on the canvas; use the
-`--panel-*` set, which is white at low alpha.
-
-Nesting has its own tokens, since each layer composites onto the last:
-`--panel-nested` for a card inside a panel, `--panel-well` for an inset fill or
-zebra row, `--panel-hover`, and `--panel-rule` / `--panel-rule-soft` for
-hairlines. `--border` resolves to `--panel-rule`; `--border-input` stays an
-opaque gray because it is drawn against a white input.
-
-**Rule change (owner decision, superseding "inputs stay white with dark
-text").** This file previously kept `input`/`select`/`textarea` white with
-dark text on every surface — including dark glass — as the one exception to
-the dark-panel default, on the grounds that a form control needs the
-strongest, most conventional legibility available. The owner chose the dark
-frosted treatment for inputs too, app-wide, for visual consistency with the
-rest of the working UI. Inputs now use `--input-bg` (`var(--panel-well)`) and
-`--text-panel`, with `--border-input` moved from an opaque gray to
-`--panel-border` to match. `--color-ink` and `--gray-50` are no longer used
-by inputs or panels; nothing in the app reads them as a background anymore.
-
-Two follow-on details worth knowing when touching this code:
-- `input:-webkit-autofill` needs the box-shadow-inset override in
-  `styles.css` — Chromium/WebKit force a light autofill background that no
-  ordinary `background-color` rule can remove.
-- A native `<select>`'s open dropdown list is OS-rendered and outside CSS's
-  direct reach, so it doesn't pick up `--input-bg`/`--text-panel` the way the
-  closed box does. `color-scheme: dark` on `:root` (`styles.css`) and
-  `select option { background-color / color }` both help, but on some
-  Windows/Chromium builds the browser hands the popup off to a fully
-  OS-drawn combobox that ignores page CSS entirely — confirmed by field
-  testing on 2026-08-20 (screenshot: white system popup despite both rules
-  in place). There is no reliable CSS-only fix for that path.
-
-  The **only** dependable fix is to not use a native `<select>` where the
-  popup must match the theme. That pattern now lives in `static/menus.js`
-  as two shared shapes. The themed dropdowns migrated here use one of them:
-
-  - `actionMenuHtml()` — a fire-and-close command menu (`role="menu"`).
-    The Actions column on Find Item and Tools.
-  - `comboHtml()` — a value picker (`role="listbox"`) that keeps a real
-    `<select>` in the DOM, hidden, holding the value so existing save/read
-    code is untouched. The work-order card's Status and Team Lead fields
-    and the Notes editor's type and boolean fields.
-
-  Both render `.menu-*` classes (`styles.css`, "POPUP MENUS"). The older
-  page-local `.wo-combo-*` copy is gone. Reach for one of these rather than
-  a native `<select>` for any new dropdown; `select option { }` and
-  `color-scheme: dark` remain in the sheet as a fallback for the plain
-  `<select>`s that are left, but they do not reach the OS-drawn path.
-
-  One trap when styling either: every rule has to out-specify the global
-  `button` style, which is a solid brand-red block.
+- `input:-webkit-autofill` needs the inset box-shadow override in `styles.css`; no background rule beats the forced light fill.
+- Native `<select>` popups are OS-drawn and can ignore page CSS. Use `static/menus.js` for any new dropdown: `actionMenuHtml()` (fire-and-close command menu) or `comboHtml()` (value picker, hidden real `<select>` holds the value). Every `.menu-*` rule must out-specify the global `button` style (solid brand red).
 
 ### Dark glass (brand/photo moments only)
 
-Translucent dark panel over a full-bleed photo or brand-art background —
-currently just the login screen. Tokens: `--glass-bg`, `--glass-blur`,
-`--glass-border`, `--glass-shadow`. Example (`#login-section` in
-`styles.css`):
+Translucent dark panel over a full-bleed photo; currently only `#login-section`. Tokens `--glass-bg`, `--glass-blur`, `--glass-border`, `--glass-shadow`. The blur is load-bearing: opacity alone over a busy image is illegible, so never ship `--glass-bg` without `--glass-blur`. The frosted panel blurs for a related reason: it settles the watermark into an even field.
 
-```css
-background-color: var(--glass-bg);
-backdrop-filter: blur(var(--glass-blur));
--webkit-backdrop-filter: blur(var(--glass-blur));
-border: 1px solid var(--glass-border);
-box-shadow: var(--glass-shadow);
-```
-
-**The blur is load-bearing, not decorative.** Opacity alone over a busy image
-leaves text illegible — the backdrop blur is what buys the legibility back at
-low opacity. Don't ship `--glass-bg` without `--glass-blur` beside it. The same
-applies to the frosted panel, for a different reason: the blur settles the
-watermark showing through so text sits on an even field rather than a moving
-edge.
+When a surface disagrees with a global color default, scope the override to that surface's container rather than editing the global rule. For neutral message color on a dark surface, use `:not(.error):not(.success)`; a bare `#id` selector out-specifies `.error`/`.success` and strips the coding.
 
 ## Color on a dark surface
 
-Contrast is measured against the *composited* panel (`#2A2B2D`), not the
-canvas. Three colors could not survive the flip as text and have lifted
-variants; the originals are kept for fills, where white-on-color is unaffected:
+Contrast is measured against the composited panel (`#2A2B2D`). Three colors fail as text and have lifted variants; originals stay for fills (white-on-color is unaffected):
 
 | Used as text | Original | On panel | Lifted variant | On panel |
 |---|---|---|---|---|
 | Brand red | `--color-brand` `#C8102E` | 2.4:1 | `--color-brand-light` `#FF7585` | 5.5:1 |
-| Amber | `--status-dispense` `#D97706` | 3.8:1 (nested) | `--status-dispense-text` `#F5A524` | 5.9:1 |
+| Amber | `--status-dispense` `#D97706` | 3.8:1 | `--status-dispense-text` `#F5A524` | 5.9:1 |
 | Blue | `--status-adjust` `#2563EB` | 2.3:1 | `--status-adjust-text` `#7DA6FF` | 5.1:1 |
 
-`backend/tests/test_menu_parity.py` computes these ratios from the `:root`
-tokens rather than trusting the table above to be re-measured by hand. A
-token that stops clearing 4.5:1 on a panel fails the suite.
-
-`--color-brand-light` is **not a second brand red** — same hue, lifted
-lightness, for red text and outlines only. Solid red fills keep `--color-brand`.
-
-`--color-success` and `--color-error` are only ever text or a left-accent rule,
-never a fill, so those two tokens moved wholesale (`#45D07E`, `#FF7585`) rather
-than gaining variants. The `.type-badge.*` hues are untouched: they are
-backgrounds carrying white text, which the dark canvas does not affect.
+`backend/tests/test_menu_parity.py` computes these from the `:root` tokens; a token under 4.5:1 fails the suite. `--color-brand-light` is the same red lifted, for text and outlines only; solid fills keep `--color-brand`. `--color-success` / `--color-error` are text or left-accent rules only, never fills.
 
 ### Work-order status charts
 
-The User Hub Graphs tab is the sole categorical-color exception. It may reuse
-the seven named `--wo-status-*` lifecycle tokens already used by work-order
-cards. A pie tile shows its total and sits under one shared status key for the
-grid; opened in the pop-up, the pie must have an adjacent text legend with
-status, count, and percentage. Color, hover, and a pointer device are never
-required to read an exact value. Other charts remain single-series or
-text-first unless this policy is deliberately amended.
+The User Hub Graphs tab is the sole categorical-color exception; it may reuse the seven `--wo-status-*` tokens. A pie tile shows its total under one shared status key; in the pop-up the pie needs an adjacent text legend (status, count, percentage). Color, hover, and a pointer are never required to read a value. Other charts stay single-series or text-first unless this policy is amended.
 
-Every Graphs chart is a tile that opens in a pop-up
-(`.modal-overlay.hub-graph-sheet`): full-screen on a phone, a centred panel otherwise, with
-the page behind unable to scroll. Only the red ✕ (or Esc / Back) closes it.
+Each chart is a tile opening a pop-up (`.modal-overlay.hub-graph-sheet`): full-screen on phone, centred panel otherwise, page behind locked. Only the red X (or Esc / Back) closes it.
 
-### Work-order cards: status, priority, actions
+### Work-order cards
 
-- **Status pill** fills from its `--wo-status-*` token (same as the card
-  outline) and always carries a glyph (`views/workOrderGlyphs.js`); text is
-  `--color-ink` on Created / In-Progress, white elsewhere, each ≥ 4.5:1
-  (`tests/frontend/unit/workOrderContrast.test.js`). Never color alone.
-- **Priority tag** is square (`--radius-sm`) so it never reads as a status.
-  Normal / Low / None / Unknown are a neutral outline; only Emergency /
-  Urgent / High are filled, with a warning glyph. Overdue is a static
-  `--color-brand-light` outline tag.
-- **List cards** (`.wo-list`): location heading, room under it, crew · items,
-  then a footer of chips and the WO number. In a list the status pill is a
-  tint of its lifted `--wo-status-text-*` hue, and the number takes the same
-  hue. Routine priority is hidden on the card. Overdue stays an outline, because
-  Assigned shares its red and they must differ by shape. Status-group headings
-  use the same hue.
-- **Action bar** (card page, sticky bottom): one filled primary per state (the
-  lifecycle's next step, `--btn-h`), other workflow buttons `.secondary-btn`,
-  then a ⋯ menu (`.wo-more`) with Admin+ tools (Netfacilities, Archive) and
-  Team Lead+ Edit details.
+Status pills fill from `--wo-status-*`, always carry a glyph (`views/workOrderGlyphs.js`), never color alone, and clear 4.5:1 (`tests/frontend/unit/workOrderContrast.test.js`).
 
-### Text on dark glass
+## Mobile layout
 
-`#login-section` is itself a `<section>`, so it now inherits the frosted
-panel's `color: var(--text-panel)` — which is why the overrides below stopped
-being load-bearing. They were written when the global `label` / `h1` / `h2`
-rules set near-black text for light panels; the global default is light now, so
-the white ones are near-no-ops. `h2`'s `--gray-200` still does something real,
-holding the subtitle a step dimmer than `--text-panel`. All three are kept:
-they cost nothing and keep the login card self-describing if the panel defaults
-move again.
-
-```css
-#login-section label { color: var(--color-white); }
-#login-section h1    { color: var(--color-white); }
-#login-section h2    { color: var(--gray-200); }
-```
-
-The technique still matters even though this instance no longer needs it: when
-a surface disagrees with the global default, **scope the override to that
-surface's container** rather than editing the global rule.
-
-If a shared dynamic-message pattern (`.error`/`.success` classes set via
-`setMessage()`) needs a neutral-state color on a dark surface, scope with
-`:not()` rather than a bare `#id` selector — an ID's specificity otherwise
-silently wins over `.error`/`.success` even when those classes are present,
-which would strip the red/green color coding:
-
-```css
-#login-section #login-message:not(.error):not(.success) { color: var(--gray-200); }
-```
-
-Inputs (`input`, `select`, `textarea`) keep their normal dark `--input-bg` +
-`--text-panel` treatment on *any* surface, glass included — see the "Inputs
-stay white with dark text" rule change above.
+At 600px and below, UserHub Home splits attendance and work-order tracking into separate labeled cards and shows counts in two columns.
 
 ## Field-help tooltips
 
-Use a `?` tooltip for a non-obvious domain rule that a person mainly needs
-while learning the app. Keep a visible `.hint` when the guidance is needed
-every time the control is used, prevents a costly mistake, or is part of the
-normal completion flow. Tooltips supplement labels; they do not replace them.
+A `?` tooltip is for a non-obvious domain rule people need mainly while learning. Keep a visible `.hint` when the guidance is needed every time or prevents a costly mistake. Tooltips supplement labels, never replace them.
 
-Static markup hand-authors a `.tip-btn[data-tip="<registry-key>"]` inside the
-existing label or heading. JS-rendered markup uses
-`tipHtml("<registry-key>")`. When a label already wraps a form control or is
-itself a flex layout, do not add a second interactive descendant: use an
-approved, scoped wrapper that keeps the label and tooltip trigger as siblings.
-Copy belongs in `backend/static/tips.js`, stays plain text, and should fit in
-one to three short sentences. Never put a tooltip trigger inside another
-`<button>` or `<summary>`; move it to the nearest meaningful label or heading,
-use the scoped label wrapper above, or omit it when no valid anchor exists.
+Static markup: `.tip-btn[data-tip="<key>"]` inside the label or heading; JS: `tipHtml("<key>")`. Copy lives in `backend/static/tips.js`, plain text, one to three short sentences. Never nest a trigger inside a `<button>` or `<summary>`, or add a second interactive descendant to a label that wraps a control; use a scoped wrapper keeping label and trigger as siblings, or omit it.
 
 ## Loading states
 
-A DB-backed view shows shape-matched skeleton blocks while its fetch is in
-flight — never bare "Loading…" text. All of the markup comes from
-`backend/static/skeleton.js`; a view calls a helper and never hand-writes
-`.skel-*` HTML, so the look is retuned in one place:
+A DB-backed view shows shape-matched skeletons while its fetch is in flight, never bare "Loading...". Use the helpers in `backend/static/skeleton.js` (`skeletonTableRows`, `skeletonCard`, `skeletonList`); never hand-write `.skel-*` HTML. Colors reuse panel tokens. The pulse is removed outright under `prefers-reduced-motion: reduce`. Each block carries an `.sr-only` "Loading..." and `aria-hidden` bars.
 
-- `skeletonTableRows(colCount, rowCount = 5, { widths })` — table bodies. Pass
-  `widths` so narrow columns (quantity, status, actions) get narrow bars.
-- `skeletonCard({ lines = 3, hasHeader = true })` — one card-shaped block.
-- `skeletonList(itemCount = 4)` — stacked title/subtitle pairs for list panels.
-
-Color reuses the panel tokens rather than adding its own: `--panel-well` at
-rest pulsing to `--panel-hover` over 1.5s, on `--panel-nested` card surfaces.
-The pulse is decoration, not information, so it is removed outright under
-`prefers-reduced-motion: reduce` rather than slowed. Each block carries an
-`.sr-only` "Loading…" and marks its bars `aria-hidden`, preserving the
-announcement the old text placeholder made.
-
-Skeletons are for a *fetch*, not for work: client-side filtering or sorting of
-data already in memory has nothing to mask and gets no skeleton. Transient
-status text beside already-rendered content (`setMessage(el, "Loading…")`)
-stays text.
+Skeletons are for a fetch, not for in-memory filtering or sorting; transient `setMessage(el, "Loading...")` beside rendered content stays text.
 
 ## Brand art assets
 
-Source art (logo lockups, background photography) gets dropped at the repo
-root by the owner as reference/raw material — it is **not served** by the
-app. Only files under `backend/static/` are served; the root copy is
-disposable once the derived asset is generated. When generating a derived
-asset from it:
+Source art dropped at the repo root is raw material, not served; only `backend/static/` is served. Derive with `ffmpeg`:
 
-- Favicon / touch icons: crop tight to the mark's bounding box with a small
-  margin, pad to square on the source's own background color (not a fixed
-  color), then downscale per target (`favicon.ico` browser tab,
-  `icon-180.png` iOS home screen, `icon-512.png` other install surfaces).
-  iOS caches the touch icon at install time — an already-installed user needs
-  to remove and re-add the home-screen icon to see a new one; there's no way
-  to push it remotely.
-- Full-bleed backgrounds (e.g. `login-bg.jpg`): downscale to roughly the
-  largest viewport size actually needed (~1600px) and recompress — source
-  photography lands at multi-MB, which is wasted weight on a login screen.
-- Washed watermarks (`app-bg.png`): bake the opacity into the alpha channel
-  (`colorchannelmixer=aa=0.0945`) and keep the PNG at the source's own
-  resolution — do **not** pre-upscale. Upscaling a smooth shape multiplies the
-  file size roughly tenfold (256px → 28 KB, 1024px → 333 KB) to buy edge
-  detail that is invisible at 7% alpha anyway. Let CSS `background-size` do
-  the enlarging.
-
-`ffmpeg` (already on this machine) handles both: `crop`/`pad` for icon
-framing, `scale` + `-q:v` for background recompression.
+- Favicon / touch icons: crop to the mark with a small margin, pad to square on the source's own background, downscale per target (`favicon.ico`, `icon-180.png`, `icon-512.png`). iOS caches the touch icon at install; users must remove and re-add it to see a change.
+- Full-bleed backgrounds (`login-bg.jpg`): downscale to about 1600px and recompress.
+- Watermarks (`app-bg.png`): bake opacity into alpha (`colorchannelmixer=aa=0.0945`) at the source's own resolution. Do not pre-upscale (about tenfold file size for detail invisible at that alpha); let CSS `background-size` enlarge.
