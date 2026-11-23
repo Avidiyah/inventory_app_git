@@ -14,6 +14,8 @@ import {
 } from "../api.js";
 import { confirmDialog, setMessage } from "../dom.js";
 import { escapeHtml, friendlyError, netfacilitiesWorkOrderUrl } from "../format.js";
+import { keepPlace, morphInto } from "../morph.js";
+import { subscribe } from "../realtime.js";
 import { printSmrBlock } from "./workOrderSmrActions.js";
 import { blockStatusText } from "./workOrderSmrLines.js";
 
@@ -34,6 +36,9 @@ const archiveBtn = $("archive-btn");
 let selectedDetail = null;
 let selectionRequestId = 0;
 let queueRequestId = 0;
+// The count line last written, so a background load can tell it from an
+// action or error message, which it leaves alone.
+let countText = "";
 
 function statusLabel(tile) {
   const lines = tile.lines || {};
@@ -54,6 +59,7 @@ function buildCard(tile) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "wo-card admin-review-card";
+  button.id = `smr-review-card-${tile.id}`;
   button.dataset.id = tile.id;
   button.setAttribute("aria-label", `Review SMR order ${tile.number}`);
   if (selectedDetail?.id === tile.id) button.classList.add("selected");
@@ -65,8 +71,15 @@ function buildCard(tile) {
   return button;
 }
 
-function renderQueue(tiles) {
-  listEl.replaceChildren(...tiles.map(buildCard));
+// Patches the tiles in place: an unchanged tile keeps its node, a new or
+// changed one glows once.
+function renderQueue(tiles, { background = false } = {}) {
+  const tree = document.createElement("div");
+  tree.append(...tiles.map(buildCard));
+  const restore = keepPlace(listEl);
+  morphInto(listEl, tree.childNodes, { flashSelector: ".admin-review-card" });
+  restore();
+  if (background && listMessage.textContent && listMessage.textContent !== countText) return;
   if (tiles.length === 0) {
     setMessage(listMessage, "No SMR orders are ready to invoice.", "success");
   } else {
@@ -76,6 +89,7 @@ function renderQueue(tiles) {
       ""
     );
   }
+  countText = listMessage.textContent;
 }
 
 function setActionsDisabled(disabled) {
@@ -124,15 +138,20 @@ async function selectWorkOrder(workOrderId) {
   }
 }
 
-export async function loadSmrAdminReview() {
+// `background`: a socket signal, not a user action -- no "Loading" line, and
+// a failure changes nothing.
+export async function loadSmrAdminReview({ background = false } = {}) {
   const requestId = ++queueRequestId;
-  setMessage(listMessage, "Loading SMR orders…", "");
+  if (!background) setMessage(listMessage, "Loading SMR orders…", "");
   try {
     const payload = await apiListSmrTiles();
     if (requestId !== queueRequestId) return;
-    renderQueue((payload?.tiles || []).filter((t) => t.stage === "ready" && !t.archived_at));
+    renderQueue(
+      (payload?.tiles || []).filter((t) => t.stage === "ready" && !t.archived_at),
+      { background }
+    );
   } catch (err) {
-    if (requestId !== queueRequestId) return;
+    if (background || requestId !== queueRequestId) return;
     listEl.replaceChildren();
     setMessage(listMessage, friendlyError(err, "Could not load SMR Admin Review."), "error");
   }
@@ -217,4 +236,12 @@ archiveBtn.addEventListener("click", async () => {
     (d) => `WO ${d.number} archived. The block remains available for copying.`,
     "Could not archive that order."
   );
+});
+
+// Every SMR and work-order write sends this event with the order id, and a
+// recovered connection means anything may have changed. Inactive pages need
+// no dirty flag: nav.js loads this queue on entry.
+subscribe("work_order.status.changed", ({ activePage }) => {
+  if (activePage !== "smr-admin-review") return;
+  return loadSmrAdminReview({ background: true });
 });

@@ -7,6 +7,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../helpers/handlers.js";
 import { mountView } from "../helpers/shell.js";
 import { setTestUser } from "../helpers/session.js";
+import { connectFakeRealtime } from "../helpers/realtime.js";
 import { clearRequests, requestFor, requests, startRecording, stopRecording } from "../helpers/requests.js";
 import { answerConfirm, confirmTitle } from "../helpers/dialogs.js";
 import { workOrderDetail } from "../helpers/factories.js";
@@ -176,5 +177,97 @@ describe("actions", () => {
     el("print-btn").click();
     expect(seen).toBe("LINE ONE\nLINE TWO\nLINE THREE");
     expect(document.querySelector(".smr-print-sheet")).toBeNull();
+  });
+});
+
+describe("live queue", () => {
+  const glows = (id) => cardFor(id).classList.contains("just-changed");
+  let realtime = null;
+  afterEach(() => {
+    if (realtime) { realtime.disconnect(); realtime = null; }
+    vi.useRealTimers();
+  });
+  async function connect(page = "smr-admin-review") {
+    realtime = await connectFakeRealtime(page);
+    return realtime;
+  }
+
+  it("a live reload keeps an unchanged tile's DOM node", async () => {
+    const mod = await mount({ tiles: [tile({ id: "a" }), tile({ id: "b" })] });
+    const before = cardFor("a");
+    await mod.loadSmrAdminReview({ background: true });
+    expect(cardFor("a")).toBe(before);
+    expect(before.id).toBe("smr-review-card-a");
+  });
+
+  it("keeps the selected class on the selected tile", async () => {
+    const detail = workOrderDetail({ id: "w1", number: "5001", smr_block: block() });
+    const mod = await mount({ tiles: [tile()], details: [detail] });
+    cardFor("w1").click();
+    await vi.waitFor(() => expect(el("block-section").hidden).toBe(false));
+    await mod.loadSmrAdminReview({ background: true });
+    expect(cardFor("w1").classList.contains("selected")).toBe(true);
+  });
+
+  it("glows a new or changed tile only", async () => {
+    const tiles = [tile({ id: "a", number: "1" }), tile({ id: "b", number: "2" })];
+    const mod = await mount({ tiles });
+    tiles[1] = tile({ id: "b", number: "2", lines: { block_version: 2, block_stale: true } });
+    tiles.push(tile({ id: "c", number: "3" }));
+    await mod.loadSmrAdminReview({ background: true });
+    expect([glows("a"), glows("b"), glows("c")]).toEqual([false, true, true]);
+  });
+
+  it("first load glows nothing", async () => {
+    await mount({ tiles: [tile({ id: "a" }), tile({ id: "b" })] });
+    expect(el("list").querySelector(".just-changed")).toBeNull();
+  });
+
+  it("a background load leaves an action or error message alone", async () => {
+    const mod = await mount({ tiles: [tile({ id: "a" })] });
+    cardFor("a").click();
+    await vi.waitFor(() => expect(el("list-message").className).toBe("error"));
+    const text = el("list-message").textContent;
+    await mod.loadSmrAdminReview({ background: true });
+    expect(el("list-message").textContent).toBe(text);
+  });
+
+  it("reloads the queue on work_order.status.changed while the page is active", async () => {
+    await mount({ tiles: [tile()] });
+    const rt = await connect();
+    rt.emit("work_order.status.changed", { id: "w9" });
+    await vi.waitFor(() => expect(tilesGets()).toHaveLength(1));
+  });
+
+  it("ignores the event on another page", async () => {
+    await mount({ tiles: [tile()] });
+    const rt = await connect("history");
+    rt.emit("work_order.status.changed", { id: "w9" });
+    await settle();
+    expect(requests()).toEqual([]);
+  });
+
+  it("reloads on reconnect", async () => {
+    await mount({ tiles: [tile()] });
+    const rt = await connect();
+    vi.useFakeTimers();
+    rt.reconnect();
+    vi.advanceTimersByTime(1000);
+    rt.ws.last().emitOpen();
+    expect(tilesGets()).toHaveLength(1);
+    await vi.runAllTimersAsync();
+  });
+
+  it('a background load shows no "Loading" line', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    await mount({ tiles: [tile()] });
+    server.use(http.get("/work-orders/smr", async () => { await gate; return HttpResponse.json({ tiles: [tile()] }); }));
+    const rt = await connect();
+    rt.emit("work_order.status.changed", { id: "w9" });
+    await vi.waitFor(() => expect(tilesGets()).toHaveLength(1));
+    expect(el("list-message").textContent).toBe("1 SMR order ready to invoice.");
+    release();
+    await settle();
   });
 });

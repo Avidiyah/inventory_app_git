@@ -573,7 +573,9 @@ describe("realtime", () => {
     const rt = await connect("admin-review");
     rt.emit("work_order.review_queue.changed");
     await vi.waitFor(() => expect(listGets()).toHaveLength(1));
-    await vi.waitFor(() => expect(cardFor(detail.id)).not.toBe(before));
+    await vi.waitFor(() => expect(el.message().textContent).toBe("1 work order waiting for review."));
+    // W6: the tile is patched in place, not rebuilt.
+    expect(cardFor(detail.id)).toBe(before);
 
     expect(cardFor(detail.id).classList.contains("selected")).toBe(true);
     expect(el.section().hidden).toBe(false);
@@ -600,5 +602,46 @@ describe("realtime", () => {
     expect(listGets()).toHaveLength(1);
     await vi.runAllTimersAsync();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("live queue", () => {
+  const glows = (id) => cardFor(id).classList.contains("just-changed");
+
+  it("a live reload keeps an unchanged tile's DOM node", async () => {
+    const { mod } = await mountAdminReview({ cards: [reviewCard({ id: "a" }), reviewCard({ id: "b" })] });
+    const before = cardFor("a");
+    await mod.loadAdminReview({ background: true });
+    expect(cardFor("a")).toBe(before);
+    expect(before.id).toBe("review-card-a");
+  });
+
+  it("keeps the selected class on the selected tile", async () => {
+    const { mod, detail } = await mountSelected();
+    await mod.loadAdminReview({ background: true });
+    expect(cardFor(detail.id).classList.contains("selected")).toBe(true);
+  });
+
+  it("glows a new or changed tile only", async () => {
+    const seeded = [reviewCard({ id: "a", number: "1" }), reviewCard({ id: "b", number: "2" })];
+    const { mod } = await mountAdminReview({ cards: seeded });
+    seeded[1] = reviewCard({ id: "b", number: "2", assigned_to_names: ["Someone Else"] });
+    seeded.push(reviewCard({ id: "c", number: "3" }));
+    await mod.loadAdminReview({ background: true });
+    expect([glows("a"), glows("b"), glows("c")]).toEqual([false, true, true]);
+  });
+
+  it("first load glows nothing", async () => {
+    await mountAdminReview({ cards: [reviewCard({ id: "a" }), reviewCard({ id: "b" })] });
+    expect(el.list().querySelector(".just-changed")).toBeNull();
+  });
+
+  it("a background load leaves an action or error message alone", async () => {
+    const { mod } = await mountAdminReview({ cards: [reviewCard({ id: "a" })] });
+    cardFor("a").click();
+    await vi.waitFor(() => expect(el.message().textContent).toBe("Work order not found."));
+    await mod.loadAdminReview({ background: true });
+    expect(el.message().textContent).toBe("Work order not found.");
+    expect(el.message().className).toBe("error");
   });
 });

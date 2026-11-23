@@ -18,6 +18,7 @@ import {
 import { buildAdminReviewReceipt, isUnpriced } from "../adminReviewReceipt.js";
 import { confirmDialog, setMessage } from "../dom.js";
 import { escapeHtml, friendlyError, netfacilitiesWorkOrderUrl } from "../format.js";
+import { keepPlace, morphInto } from "../morph.js";
 import { subscribe } from "../realtime.js";
 import { showPage } from "./nav.js";
 import { focusMissingPriceRequest } from "./userRequests.js";
@@ -43,6 +44,9 @@ let selectedDetail = null;
 let selectionRequestId = 0;
 let queueRequestId = 0;
 let committedQueueRequestId = 0;
+// The count line last written, so a background load can tell it from an
+// action or error message, which it leaves alone.
+let countText = "";
 
 function assignedNames(card) {
   const names = Array.isArray(card.assigned_to_names)
@@ -66,6 +70,7 @@ function buildCard(card) {
   const unpriced = Boolean(card.has_unpriced_items);
   button.className = `${workOrderCardClass(card)} admin-review-card`;
   if (unpriced) button.classList.add("admin-review-card-unpriced");
+  button.id = `review-card-${card.id}`;
   button.dataset.id = card.id;
   button.setAttribute(
     "aria-label",
@@ -80,9 +85,15 @@ function buildCard(card) {
   return button;
 }
 
-function renderQueue(cards) {
-  listEl.replaceChildren();
-  for (const card of cards) listEl.appendChild(buildCard(card));
+// Patches the tiles in place: an unchanged tile keeps its node, a new or
+// changed one glows once.
+function renderQueue(cards, { background = false } = {}) {
+  const tree = document.createElement("div");
+  for (const card of cards) tree.appendChild(buildCard(card));
+  const restore = keepPlace(listEl);
+  morphInto(listEl, tree.childNodes, { flashSelector: ".admin-review-card" });
+  restore();
+  if (background && listMessage.textContent && listMessage.textContent !== countText) return;
   if (cards.length === 0) {
     setMessage(listMessage, "No work orders are waiting for Admin Review.", "success");
   } else {
@@ -92,6 +103,7 @@ function renderQueue(cards) {
       ""
     );
   }
+  countText = listMessage.textContent;
 }
 
 function unpricedItems(detail) {
@@ -208,7 +220,7 @@ export async function loadAdminReview({ background = false } = {}) {
     // so a slower old request cannot repaint stale queue data.
     if (requestId < committedQueueRequestId) return;
     committedQueueRequestId = requestId;
-    renderQueue(cards || []);
+    renderQueue(cards || [], { background });
   } catch (err) {
     // Automatic refresh is best-effort: keep a usable queue rather than turn a
     // socket-driven failure into visible UI. Foreground loads retain today's
