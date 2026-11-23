@@ -87,7 +87,7 @@ Ending leaves the person on the Hub Home tab as they were. A "Done" on the last 
 
 | # | Target | Title | Text |
 | --- | --- | --- | --- |
-| 1 | none | Welcome | `[GREETING — written by the user]` |
+| 1 | none | Welcome | Three sentences, one per tap (user's text, 2026-11-23): "Welcome to TechFM." / "TechFM is Technological Facilities Maintenance: our app for work orders, stock, tools and time." / "Each page has its own tutorial available at the top of the page." |
 | 2 | `#hub-tab-tutorials` | Tutorials | The Hub has a Tutorials tab. Everything that teaches you the app is kept there. |
 | 3 | Tutorials to-do list (after `open`) | Your to-do list | Tutorials you have not finished are listed here. Tap one to start it. |
 | 4 | Completed sub-tab | Completed | Finished ones move to Completed, so you can run them again any time. |
@@ -137,4 +137,4 @@ If the person ended this welcome early it stays in the to-do list as not complet
 
 ## 11. What the user still owes
 
-The greeting text: up to 480 characters (about 80 words), plain words. Replacing the placeholder in `tutorials/welcome.js` is the switch-on.
+Nothing: the greeting was supplied 2026-11-23 (section 5.5, step 1). It follows the one-sentence-per-tap rule like every other step, so the 480-character allowance is unused.

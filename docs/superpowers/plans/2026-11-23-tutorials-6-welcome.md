@@ -19,7 +19,7 @@
 
 ## Task 1: Obtain the greeting from the user
 
-**Goal:** Text of the greeting, up to 480 characters, plain words. Not invented by the builder.
+**Goal:** DONE 2026-11-23, nothing to ask. The greeting is step 1's three sentences in spec 5.5, one per tap; use them verbatim. Wherever this plan waits on the greeting or lifts the sentence limits for step 1, skip that: step 1 obeys the normal limits.
 **Files:** none yet (lands in T5).
 **Steps:** 1. Ask the user for the text. 2. Do not start T5's constant until supplied; T2–T4 and the T5 wiring proceed with the placeholder `"[GREETING — written by the user]"`, which the guard (T6) rejects.
 **Test:** n/a. Done when the user has pasted the text.

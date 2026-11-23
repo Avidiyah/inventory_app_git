@@ -41,7 +41,7 @@ job is to get it built batch by batch, with the user checking each batch.
 | 0a player and work-order pilot | Sequential, by its plan. Stop for the user's in-app check |
 | 0b progress, red dot, Hub tab, Users count | Sequential; carries a migration. Stop for the in-app check |
 | 1 Technician, 2 Team Lead, 3 Office, 4 Admin | Parallel: one Sonnet 5.5 medium agent per page, using the briefs in that batch's plan |
-| 6 Welcome | Last. Needs the user's greeting text (up to 480 characters). Never write it yourself |
+| 6 Welcome | Last. The user's greeting is in the welcome spec, 5.5 step 1; use it verbatim |
 
 There is no batch 5: SMR is finished and gets no tutorials.
 
