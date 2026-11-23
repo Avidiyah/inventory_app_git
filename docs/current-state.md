@@ -557,6 +557,8 @@ supervisor 1, techfm_oa 2, admin 3, owner 4. "Team Lead+" = rank >= 1.
 | Create/reset/archive/restore/delete user | actor must outrank target |
 | Edit user name + username | self, or actor outranks target |
 | Change a user's role | techfm_oa+ AND actor outranks both the current and the new role (a TechFM OA never touches an Admin/Owner nor hands those roles out) |
+| Tutorial progress: own rows read/write | any authenticated role (writes always target the caller) |
+| `GET /tutorials/progress/users` (completed keys per active user) | Team Lead+ |
 | Work Orders list/get/items | any authenticated user; `mine` / `assigned_to_id` narrow it |
 | Notes, add/remove material, Material/Catalogue request, witness sign-off, Scan / Stock dispense against a work order | Team Lead+ on any; a **Technician only on a work order they are on the crew of** |
 | Begin / Stop Charging | every role **except the Owner** (403), on any visible work order; start adds the caller to the crew |
@@ -645,6 +647,14 @@ curve is pure, in `domain/login_throttle.py`.
 - No expiry or sweep: a row dies only on a 404/410 from the push service
   (`domain/push.py::classify_push_response`) or logout of that device. Archived
   users are filtered at query time, so un-archiving restores their devices.
+
+### `tutorial_progress`
+
+- Primary key `(user_id, script_key)`; keys only (the scripts live in the
+  frontend), `^[a-z0-9][a-z0-9.-]{0,79}$`, at most 500 rows per user.
+- `seen_at` / `completed_at` are first-write-wins and never cleared; replaying
+  a finished script writes nothing. `user_id` cascades on delete; archiving a
+  user keeps the rows.
 
 ### `items`, `item_barcodes`
 
@@ -874,6 +884,10 @@ curve is pure, in `domain/login_throttle.py`.
 Code owns the route table (`app.openapi()`), contracts and error catalog. What
 stays here is behavior the code does not state in one place:
 
+- **Tutorial progress.** `GET /tutorials/progress/me`, `PUT
+  /tutorials/progress/{key}` (body `{event: seen|completed}`, 204, key regex
+  above, first write wins), `GET /tutorials/progress/users` (Team Lead+,
+  `{user_id: [completed keys]}`, active users, row-capped).
 - All routes except `POST /auth/login`, `GET /`, `GET /workorder_card/*`, and
   `GET /healthz` require authentication.
 - **NetFacilities.** Disabled by default; production enables it in both the
@@ -926,12 +940,16 @@ Transaction, Team Lead → Work Orders, admin/owner → History; a resumed batch
 overrides it and opens Transaction.
 
 Tutorials ("How this page works" pill, `tutorial.js`):
-- Registry `tutorials/index.js` → per page `tutorials/<page>.js` (data-only `SCRIPTS`) + `<page>.sample.js` (`sample(user)` → `{"GET <path>": body}`).
+- Registry `tutorials/index.js` → per page `tutorials/<page>.js` (data-only `SCRIPTS`) + `<page>.sample.js` (`sample(user)` → `{"GET <path>": body}`). Pages: work-orders, transaction, user-hub, tools, saved-items, mass-stage, history, saved-users, user-requests, create-item, low-stock, admin-review, integrations.
 - Sample mode: `api.js::setSampleResponder` answers GETs by path (query ignored); writes go to the server. Sample ids use the reserved prefix `ffffffff-ffff-4fff-8fff-`.
-- Pill goes in `[data-tutorial-slot]`, else the page's first `h2`. Start refuses while typed text is on the page; start and End reload the page; End fires `tutorial:end`.
-- `open` selectors: a click is skipped when what it reveals is visible; `?` prefix = optional. A step whose target is missing or hidden is skipped.
+- Pill goes in `[data-tutorial-slot]`, else the page's first `h2`. Start refuses while typed text is on the page; start and End reload the page (start waits for the reload to land); End fires `tutorial:end`.
+- `open` selectors: a click is skipped when what it reveals is visible; `?` prefix = optional. The last click is judged by the script's `here` selector when it has one; `open` is retried once and waits for late targets to settle. A step whose target is missing or hidden is skipped.
+- `minRole` on a script: the picker, Next and the guard skip scripts above the signed-in role.
 - `nav.showPage` to another page and `showLoginScreen` end a tutorial without a reload.
 - `tests/frontend/views/tutorialGuard.test.js` is the rule for new scripts (targets per role, one sentence per box, ≤ 3 per step, ≤ 120 chars, id prefix).
+- Progress: `tutorialProgress.js` caches `GET /tutorials/progress/me` once per sign-in and is cleared on sign-out and any 401; the player sends `seen` on start and `completed` on the last step. `tutorials/catalogue.js` flattens the registry; `tutorials/relevance.js` decides who a script is for from the live role (`PAGE_ACCESS` plus `minRole`).
+- Red dot (`tutorialDots.js`): a page's button is dotted while any script relevant to the signed-in role is not completed; nobody signed in = no dot.
+- `views/hubTutorials.js`: User Hub "Tutorials" tab (To do / Completed, tab dot); tapping plays the script, Replay records nothing. `views/usersTutorials.js`: Users row "N of M tutorials" and a profile list of unfinished ones; totals are computed in the browser from the `users` map.
 
 Scanner: upload mode posts to `/barcodes/decode`; live mode is vendored ZXing in
 the browser (environment camera, 1280×720 ideal, torch only if the track
@@ -1031,6 +1049,7 @@ Guard tests that must be extended with the thing they guard:
 | `test_db_availability_guard.py` | CI: DB-backed tests must not silently skip |
 | `test_realtime_dependency.py` | dependencies: `TestClient` would pass without the WebSocket library installed |
 | `test_push_subscriptions.py` | fan-out tests hide the developer database's real subscriptions inside the rolled-back transaction; keep that, or an enrolled device joins every send under test |
+| `test_tutorial_progress_model.py`, `test_tutorials_service.py`, `test_tutorials_router.py` | progress table, first-write-wins and row cap, the three routes and their gates |
 
 Frontend and E2E:
 
