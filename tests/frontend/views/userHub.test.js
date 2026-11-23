@@ -278,22 +278,22 @@ describe("failure isolation", () => {
 });
 
 describe("crew safety refresh", () => {
-  it("every 60 s refetches personal (+ crew for supervisor+, + admin for techfm_oa+), in the background", async () => {
+  it("every 60 s refetches personal and attendance (+ crew for supervisor+, + admin for techfm_oa+), in the background", async () => {
     await openHub({ role: "admin" });
     clearRequests();
     await vi.advanceTimersByTimeAsync(59999);
     expect(requests()).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(1);
-    await vi.waitFor(() => expect(requests().map((r) => r.url).sort()).toEqual(["/hub", "/hub/admin", "/hub/crew"]));
+    await vi.waitFor(() => expect(requests().map((r) => r.url).sort()).toEqual(["/attendance/me", "/hub", "/hub/admin", "/hub/crew"]));
     await vi.advanceTimersByTimeAsync(60000);
-    await vi.waitFor(() => expect(requests()).toHaveLength(6));
+    await vi.waitFor(() => expect(requests()).toHaveLength(8));
   });
 
-  it("a technician's interval refetches only /hub", async () => {
+  it("a technician's interval refetches only /hub and /attendance/me", async () => {
     await openHub({ role: "technician" });
     clearRequests();
     await vi.advanceTimersByTimeAsync(60000);
-    await vi.waitFor(() => expect(requests().map((r) => r.url)).toEqual(["/hub"]));
+    await vi.waitFor(() => expect(requests().map((r) => r.url).sort()).toEqual(["/attendance/me", "/hub"]));
   });
 
   it("adds graphs only while the Graphs tab is open", async () => {
@@ -364,13 +364,12 @@ describe("clock hand-off", () => {
 });
 
 describe("realtime", () => {
-  it("labor.session.changed on the hub page refreshes crew (+ admin for techfm_oa+) in the background", async () => {
+  it("labor.session.changed on the hub page refreshes personal, crew (+ admin for techfm_oa+) in the background", async () => {
     await openHub({ role: "admin" });
     const { emit } = await connectHub();
     clearRequests();
     emit("labor.session.changed");
-    await vi.waitFor(() => expect(requests().map((r) => r.url).sort()).toEqual(["/hub/admin", "/hub/crew"]));
-    expect(requests().some((r) => r.url === "/hub")).toBe(false);
+    await vi.waitFor(() => expect(requests().map((r) => r.url).sort()).toEqual(["/hub", "/hub/admin", "/hub/crew"]));
   });
 
   it("work_order.status.changed refreshes personal, crew, admin; graphs only while that tab is open", async () => {

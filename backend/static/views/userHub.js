@@ -11,7 +11,7 @@
 
 import { apiGetAttendanceMe, apiGetHub, apiGetHubAdmin, apiGetHubCrew, apiGetHubGraphs, apiGetHubReport } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
-import { subscribe } from "../realtime.js";
+import { connectHubLive, createFeed, startHubLive, stopHubLive } from "./hubLive.js";
 import { roleAtLeast } from "../roles.js";
 import { mountHubClock, startHubClockTicking, stopHubClockTicking } from "./hubClock.js";
 import { mountHubHome } from "./hubHome.js";
@@ -31,16 +31,7 @@ import { mountHubReport, renderReportError, renderReportSkeleton } from "./hubRe
 import { openWorkOrdersFilteredByDistribution } from "./workOrders.js";
 import { showPage } from "./nav.js";
 import { skeletonCard } from "../skeleton.js";
-
-const HUB_PAGE = "user-hub";
-const LABOR_SESSION_CHANGED_EVENT = "labor.session.changed";
-const WORK_ORDER_STATUS_CHANGED_EVENT = "work_order.status.changed";
-const USER_REQUEST_CHANGED_EVENT = "user_request.changed";
-
-// Spec §6.2: while the hub is the active page and the tab is visible, a full
-// crew refetch every 60 seconds -- a safety net for a dropped envelope, on
-// top of (not instead of) the `labor.session.changed` subscription below.
-const CREW_SAFETY_REFRESH_MS = 60000;
+import { syncSectionPicker } from "./hubPicker.js";
 
 const tabButtons = document.querySelectorAll(".hub-tab");
 const tabPanels = {
@@ -68,15 +59,10 @@ let latestCrewPayload = null;
 // open silently empty instead of explaining itself.
 let crewError = null;
 let adminError = null;
-let crewRequestId = 0;
-let crewSafetyTimer = null;
 let latestAdminPayload = null;
-let adminRequestId = 0;
 let latestGraphsPayload = null;
 let graphWeeks = 12;
-let graphRequestId = 0;
 let latestReportPayload = null;
-let reportRequestId = 0;
 // The Monday the Report tab is showing; null is the week in progress. Kept
 // across tab re-entry (the re-fetch is for freshness, not a reset) and
 // cleared with the rest of the report state on a user change.
@@ -104,36 +90,6 @@ function showTab(name) {
   syncSectionPicker(name);
   if (latestPayload) renderActiveTab();
 }
-
-// Phone section picker: one card shows the current section; opening it lists
-// every section the viewer can see. Desktop never shows the toggle.
-const sectionPicker = document.getElementById("hub-picker");
-const sectionToggle = document.getElementById("hub-picker-toggle");
-
-function setPickerOpen(open) {
-  if (!sectionPicker || !sectionToggle) return;
-  sectionPicker.classList.toggle("open", open);
-  sectionToggle.setAttribute("aria-expanded", String(open));
-}
-
-function syncSectionPicker(name) {
-  if (!sectionPicker) return;
-  sectionPicker.dataset.current = name;
-  const btn = document.getElementById(`hub-tab-${name}`);
-  document.getElementById("hub-picker-label").textContent = btn ? btn.textContent : name;
-  setPickerOpen(false);
-}
-
-sectionToggle?.addEventListener("click", () => setPickerOpen(!sectionPicker.classList.contains("open")));
-document.addEventListener("click", (e) => {
-  if (sectionPicker?.classList.contains("open") && !sectionPicker.contains(e.target)) setPickerOpen(false);
-});
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && sectionPicker?.classList.contains("open")) {
-    setPickerOpen(false);
-    sectionToggle.focus();
-  }
-});
 
 function crewMount() {
   return tabPanels.dashboard.querySelector("#hub-crew-mount");
@@ -271,24 +227,10 @@ function renderGraphs() {
 
 // Timesheets is Team Lead+ (they edit hours); Leaderboards, which prices
 // them, stays Admin+.
-function setTimesheetsTabVisible(timesheets, leaderboards) {
-  for (const [button, visible] of [[timesheetsTabButton, timesheets], [leaderboardsTabButton, leaderboards]]) {
-    if (!button) continue;
-    button.hidden = !visible;
-    button.classList.toggle("hidden", !visible);
-  }
-}
-
-function setGraphsTabVisible(visible) {
-  if (!graphsTabButton) return;
-  graphsTabButton.hidden = !visible;
-  graphsTabButton.classList.toggle("hidden", !visible);
-}
-
-function setReportTabVisible(visible) {
-  if (!reportTabButton) return;
-  reportTabButton.hidden = !visible;
-  reportTabButton.classList.toggle("hidden", !visible);
+function setTabVisible(button, visible) {
+  if (!button) return;
+  button.hidden = !visible;
+  button.classList.toggle("hidden", !visible);
 }
 
 function renderReport() {
@@ -302,93 +244,124 @@ function renderReport() {
   });
 }
 
-async function loadReport({ background = false } = {}) {
-  const mount = tabPanels.report;
-  if (!mount || !viewerIsAdmin()) return;
-  const requestId = ++reportRequestId;
-  if (!latestReportPayload && !background) renderReportSkeleton(mount);
-  try {
-    const payload = await apiGetHubReport({ week: reportWeek });
-    if (requestId !== reportRequestId) return;
-    latestReportPayload = payload;
-    if (activeTab === "report") renderReport();
-  } catch (err) {
-    // A refresh over an already-rendered report keeps the last good one on
-    // screen rather than blanking it -- the rule loadGraphs follows.
-    if (requestId !== reportRequestId || background || latestReportPayload) return;
-    renderReportError(mount, err, () => void loadReport());
-  }
-}
-
 function showGraphLoadError(mount, err) {
   const message = escapeHtml(friendlyError(err, "Could not load graphs."));
   mount.innerHTML = `<div class="hub-graphs-load-error"><p class="error">${message}</p><button type="button" class="secondary-btn hub-graphs-retry">Retry</button></div>`;
   mount.querySelector(".hub-graphs-retry")?.addEventListener("click", () => void loadGraphs());
 }
 
-async function loadGraphs({ background = false } = {}) {
-  const mount = tabPanels.graphs;
-  if (!mount || !viewerCanSeeAdminTiles()) return;
-  const requestId = ++graphRequestId;
-  if (!latestGraphsPayload && !background) {
-    mount.innerHTML = hubSkeletonGrid(4);
-  }
-  try {
-    const payload = await apiGetHubGraphs({ weeks: graphWeeks });
-    if (requestId !== graphRequestId) return;
-    latestGraphsPayload = payload;
-    graphWeeks = payload.weeks;
-    if (activeTab === "graphs") renderGraphs();
-  } catch (err) {
-    if (requestId !== graphRequestId || background || latestGraphsPayload) return;
-    showGraphLoadError(mount, err);
-  }
-}
+// One coalesced feed per payload (W7 rule 6). Events, reconnects and the
+// 60 s timer reach them through hubLive.js; tab entries and own actions call
+// them directly. A background failure keeps the last good render; only a
+// foreground one paints an error.
+const isRole = (min) => Boolean(latestPayload) && roleAtLeast(latestPayload.user.role, min);
 
-// `background: true` mirrors `adminReview.js::loadAdminReview` -- a
-// socket-driven or safety-timer refresh keeps the last good board on
-// failure rather than blanking it (spec §10); only the first, foreground
-// fetch shows an inline error.
-async function refreshCrew({ background = false } = {}) {
-  // The mount may not exist yet -- the hub opens on Home, and the Dashboard
-  // body is only built once that tab is active. The fetch still runs, and
-  // `renderCrew` paints it when the tab opens; bailing out here instead
-  // would leave an Admin's Dashboard empty until a manual reload.
-  const mount = crewMount();
-  const requestId = ++crewRequestId;
-  // Foreground first load only: a background refresh keeps the last good
-  // board on screen (same rule the error path below follows).
-  if (mount && !background && !latestCrewPayload) mount.innerHTML = skeletonCard({ lines: 4 });
-  try {
-    const payload = await apiGetHubCrew();
-    if (requestId !== crewRequestId) return;
-    latestCrewPayload = payload;
-    crewError = null;
-    renderCrew();
-  } catch (err) {
-    if (requestId !== crewRequestId || background) return;
+const personalFeed = createFeed(apiGetHub, (payload) => {
+  latestPayload = payload;
+  renderWorkOrdersTabLabel();
+  if (activeTab === "dashboard") mountHubDashboard(tabPanels.dashboard, latestPayload);
+  else if (activeTab === "work-orders") refreshHubWorkOrders();
+  else if (activeTab === "home") renderHome();
+  renderPriorities();
+  renderCrew();
+  renderAdmin();
+}, { when: () => Boolean(latestPayload) });
+
+const attendanceFeed = createFeed(apiGetAttendanceMe, (attendance) => {
+  latestAttendance = attendance;
+  if (activeTab === "home") renderHome();
+}, { when: () => Boolean(latestPayload) });
+
+const crewFeed = createFeed(apiGetHubCrew, (payload) => {
+  latestCrewPayload = payload;
+  crewError = null;
+  renderCrew();
+}, {
+  when: () => isRole("supervisor"),
+  onError: (err, { background }) => {
+    if (background) return;
     crewError = err;
     renderCrew();
-  }
-}
+  },
+});
 
-// Mirrors `refreshCrew` -- same background/foreground error-handling split.
-async function refreshAdmin({ background = false } = {}) {
-  // The Dashboard body may not be mounted yet; `renderAdmin` resolves the
-  // mount when it exists.
-  const requestId = ++adminRequestId;
-  try {
-    const payload = await apiGetHubAdmin();
-    if (requestId !== adminRequestId) return;
-    latestAdminPayload = payload;
-    adminError = null;
-    renderAdmin();
-  } catch (err) {
-    if (requestId !== adminRequestId || background) return;
+const adminFeed = createFeed(apiGetHubAdmin, (payload) => {
+  latestAdminPayload = payload;
+  adminError = null;
+  renderAdmin();
+}, {
+  when: () => viewerCanSeeAdminTiles(),
+  onError: (err, { background }) => {
+    if (background) return;
     adminError = err;
     renderAdmin();
-  }
+  },
+});
+
+// A response for a range the viewer has since changed is dropped; the range
+// change queued its own rerun.
+async function fetchGraphs() {
+  const asked = graphWeeks;
+  const payload = await apiGetHubGraphs({ weeks: asked });
+  return asked === graphWeeks ? payload : null;
 }
+
+const graphsFeed = createFeed(fetchGraphs, (payload) => {
+  if (!payload) return;
+  latestGraphsPayload = payload;
+  graphWeeks = payload.weeks;
+  if (activeTab === "graphs") renderGraphs();
+}, {
+  when: () => viewerCanSeeAdminTiles() && activeTab === "graphs",
+  onError: (err, { background }) => {
+    if (background || latestGraphsPayload) return;
+    showGraphLoadError(tabPanels.graphs, err);
+  },
+});
+
+// A refresh over an already-rendered report keeps the last good one.
+const reportFeed = createFeed(() => apiGetHubReport({ week: reportWeek }), (payload) => {
+  latestReportPayload = payload;
+  if (activeTab === "report") renderReport();
+}, {
+  when: () => viewerIsAdmin() && activeTab === "report",
+  onError: (err, { background }) => {
+    if (background || latestReportPayload) return;
+    renderReportError(tabPanels.report, err, () => void loadReport());
+  },
+});
+
+// The crew mount may not exist yet (the hub opens on Home); the fetch still
+// runs and `renderCrew` paints it when Dashboard opens.
+function refreshCrew() {
+  const mount = crewMount();
+  if (mount && !latestCrewPayload) mount.innerHTML = skeletonCard({ lines: 4 });
+  return crewFeed.run();
+}
+
+function loadGraphs({ background = false } = {}) {
+  if (!latestGraphsPayload && !background && viewerCanSeeAdminTiles()) tabPanels.graphs.innerHTML = hubSkeletonGrid(4);
+  return graphsFeed.run({ background });
+}
+
+function loadReport({ background = false } = {}) {
+  if (!latestReportPayload && !background && viewerIsAdmin()) renderReportSkeleton(tabPanels.report);
+  return reportFeed.run({ background });
+}
+
+connectHubLive({
+  personal: personalFeed,
+  attendance: attendanceFeed,
+  crew: crewFeed,
+  admin: adminFeed,
+  graphs: graphsFeed,
+  // Closed weeks are frozen records (spec rule 7): only the week in progress
+  // follows events.
+  report: { run: (opts) => (reportWeek === null ? reportFeed.run(opts) : Promise.resolve()) },
+  // The Timesheets tab owns its `attendance.changed` subscription and its own
+  // request guards; the timer and reconnect reach it here.
+  timesheets: { run: () => { if (activeTab === "timesheets") refreshTimesheetsLive(tabPanels.timesheets); return Promise.resolve(); } },
+});
 
 // The count on the "My Work Orders" tab, rendered from whatever payload is
 // current. Called on every path that replaces `latestPayload` -- the initial
@@ -413,46 +386,6 @@ function renderWorkOrdersTabLabel() {
     : `My Work Orders (${latestPayload.mine_total})`;
 }
 
-// Mirrors refreshCrew/refreshAdmin -- background-only, keeps the last good
-// numbers on failure. Every role gets this: a plain Technician has no other
-// periodic refresh, and the Priorities card is the one thing on their
-// Dashboard that needs to stay live without a manual reload.
-async function refreshPersonal({ background = false } = {}) {
-  try {
-    const payload = await apiGetHub();
-    latestPayload = payload;
-    renderWorkOrdersTabLabel();
-    if (activeTab === "dashboard") mountHubDashboard(tabPanels.dashboard, latestPayload);
-    else if (activeTab === "work-orders") refreshHubWorkOrders();
-    renderPriorities();
-    renderCrew();
-    renderAdmin();
-  } catch (err) {
-    if (background) return;
-  }
-}
-
-function stopCrewSafetyRefresh() {
-  if (crewSafetyTimer !== null) {
-    clearInterval(crewSafetyTimer);
-    crewSafetyTimer = null;
-  }
-}
-
-function startCrewSafetyRefresh() {
-  stopCrewSafetyRefresh();
-  crewSafetyTimer = setInterval(() => {
-    if (document.hidden) return;
-    void refreshPersonal({ background: true });
-    if (roleAtLeast(latestPayload?.user.role, "supervisor")) void refreshCrew({ background: true });
-    if (viewerCanSeeAdminTiles()) void refreshAdmin({ background: true });
-    if (activeTab === "graphs" && viewerCanSeeAdminTiles()) void loadGraphs({ background: true });
-    // The Timesheets tab's roster rides the hub's existing safety timer
-    // rather than starting a second one.
-    if (activeTab === "timesheets") refreshTimesheetsLive(tabPanels.timesheets);
-  }, CREW_SAFETY_REFRESH_MS);
-}
-
 tabButtons.forEach((btn) => {
   btn.addEventListener("click", () => {
     showTab(btn.dataset.hubTab);
@@ -469,6 +402,8 @@ export function openHubTab(name) { showTab(name); }
 
 export async function loadUserHub() {
   let payload;
+  // A page entry is visible: lift a suspension left by a hide on another page.
+  startHubClockTicking();
   // First entry only: Home is empty until the payload lands, so it gets
   // structure to look at. On a return visit the previous render is still
   // mounted and is better than a skeleton. Safe to overwrite: the clock
@@ -493,16 +428,16 @@ export async function loadUserHub() {
   if (userChanged || !canViewSupervisorTabs) {
     latestCrewPayload = null;
     crewError = null;
-    crewRequestId += 1;
+    crewFeed.reset();
   }
   if (userChanged || !canViewTimesheets) resetTimesheetsTab(tabPanels.timesheets);
   if (userChanged || !canViewLeaderboards) resetLeaderboardsTab(tabPanels.leaderboards);
   if (userChanged || !canViewAdminTiles) {
     latestAdminPayload = null;
     adminError = null;
-    adminRequestId += 1;
+    adminFeed.reset();
     latestGraphsPayload = null;
-    graphRequestId += 1;
+    graphsFeed.reset();
     graphWeeks = 12;
     destroyHubGraphs();
     tabPanels.graphs.replaceChildren();
@@ -511,11 +446,13 @@ export async function loadUserHub() {
   // renders the previous Admin's report for one frame.
   if (userChanged || !canViewReport) {
     latestReportPayload = null;
-    reportRequestId += 1;
+    reportFeed.reset();
     reportWeek = null;
     tabPanels.report.replaceChildren();
   }
   if (userChanged) {
+    personalFeed.reset();
+    attendanceFeed.reset();
     activeTab = "home";
     latestAttendance = null;
   }
@@ -525,9 +462,10 @@ export async function loadUserHub() {
   if (!canViewReport && activeTab === "report") activeTab = "home";
   loadedUserId = nextUserId;
   latestPayload = payload;
-  setTimesheetsTabVisible(canViewTimesheets, canViewLeaderboards);
-  setGraphsTabVisible(canViewAdminTiles);
-  setReportTabVisible(canViewReport);
+  setTabVisible(timesheetsTabButton, canViewTimesheets);
+  setTabVisible(leaderboardsTabButton, canViewLeaderboards);
+  setTabVisible(graphsTabButton, canViewAdminTiles);
+  setTabVisible(reportTabButton, canViewReport);
   renderWorkOrdersTabLabel();
   // Every role has a shift, Admin included. A failure is not fatal to the
   // page: hubHome renders a retry inside the punch card and the work-order
@@ -542,10 +480,10 @@ export async function loadUserHub() {
   if (canViewSupervisorTabs) {
     await refreshCrew();
   }
-  startCrewSafetyRefresh();
+  startHubLive();
 
   if (canViewAdminTiles) {
-    await refreshAdmin();
+    await adminFeed.run();
   }
 }
 
@@ -557,45 +495,15 @@ export async function refreshUserHub() {
   await loadUserHub();
 }
 
-// A crew member's clock started or stopped -- always `id: null` (a
-// membership change to the board, not one card's field), so any event or a
-// reconnect (missed events while the socket was down) means "refetch."
-// Background: this is a socket signal, not a user action.
-subscribe(LABOR_SESSION_CHANGED_EVENT, ({ activePage }) => {
-  if (activePage !== HUB_PAGE) return;
-  void refreshCrew({ background: true });
-  if (viewerCanSeeAdminTiles()) void refreshAdmin({ background: true });
-});
-
-subscribe(WORK_ORDER_STATUS_CHANGED_EVENT, ({ activePage, reason }) => {
-  if (activePage !== HUB_PAGE) return;
-  void refreshPersonal({ background: true });
-  if (roleAtLeast(latestPayload?.user.role, "supervisor")) void refreshCrew({ background: true });
-  if (viewerCanSeeAdminTiles()) {
-    void refreshAdmin({ background: true });
-    if (activeTab === "graphs" || reason === "reconnect") {
-      void loadGraphs({ background: true });
-    }
-  }
-});
-
-// A request was stocked, added, cancelled, or reopened: the Dashboard's
-// "Requested material in stock" rows come from the personal payload, so
-// refetch it. Background: a socket signal, not a user action.
-subscribe(USER_REQUEST_CHANGED_EVENT, ({ activePage }) => {
-  if (activePage !== HUB_PAGE) return;
-  void refreshPersonal({ background: true });
-});
-
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     stopHubClockTicking();
     stopHubRosterTicking();
-    stopCrewSafetyRefresh();
+    stopHubLive();
     return;
   }
   if (!document.getElementById("user-hub-page").classList.contains("active")) return;
   startHubClockTicking();
   startHubRosterTicking();
-  if (latestPayload) startCrewSafetyRefresh();
+  if (latestPayload) startHubLive();
 });

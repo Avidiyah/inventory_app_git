@@ -28,6 +28,7 @@ let container = null;
 let payload = null;
 let skewMs = 0; // server_now - Date.now() at fetch time
 let tickHandle = null;
+let suspended = false;
 let refreshCallback = null; // set by mountHubClock's `onChanged` option
 
 function nowWithSkew() {
@@ -144,6 +145,8 @@ function stopTicking() {
 
 function startTicking() {
   stopTicking();
+  // A live repaint can land after the hide; the show restarts the tick.
+  if (suspended) return;
   tickHandle = setInterval(tick, 1000);
 }
 
@@ -204,6 +207,7 @@ export function mountHubClock(mountEl, newPayload, { onChanged } = {}) {
 // browser tab, so this is called from the same visibilitychange listener
 // pattern nav.js already uses for camera scanners -- see Task 4 Step 3.
 export function stopHubClockTicking() {
+  suspended = true;
   stopTicking();
 }
 
@@ -212,5 +216,6 @@ export function stopHubClockTicking() {
 // elapsed from `started_at` + skew on its own, so restarting the interval is
 // enough to snap the figure back to correct -- no fetch needed.
 export function startHubClockTicking() {
+  suspended = false;
   if (container) startTicking();
 }
