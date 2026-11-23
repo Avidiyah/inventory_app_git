@@ -53,7 +53,7 @@ describe.each(PAGES)("tutorials for %s", (page) => {
           expect(lines(v).length, `${s.key} ${step.target}`).toBeLessThanOrEqual(3);
           for (const line of lines(v)) {
             expect(line.length, line).toBeLessThanOrEqual(120);
-            expect(line.split(/[.!?]+(?=\s+[A-Z0-9"]|\s*$)/).filter(Boolean).length, `one sentence: ${line}`).toBe(1);
+            expect(line.replace(/\b[ap]\.m\./gi, "am").split(/[.!?]+(?=\s+[A-Z0-9"]|\s*$)/).filter(Boolean).length, `one sentence: ${line}`).toBe(1);
           }
         }
       }
@@ -65,19 +65,24 @@ describe.each(PAGES)("tutorials for %s", (page) => {
     const tut0 = await import("../../../backend/static/tutorial.js");
     void tut0;
     const seen = new Set();
-    const { nav: nav0 } = await bootApp({ role: "owner" });
-    const roles = nav0.PAGE_ACCESS[page];
+    // One boot per role. The Owner boot also yields PAGE_ACCESS and is reused:
+    // a second back-to-back Owner boot races the first one's late responses.
+    const first = await bootApp({ role: "owner", page });
+    const roles = first.nav.PAGE_ACCESS[page];
     for (const role of roles) {
-      const { nav, currentUser } = await bootApp({ role, page });
+      const { nav, currentUser } = role === "owner" ? first : await bootApp({ role, page });
       const tut = await import("../../../backend/static/tutorial.js");
       const api = await import("../../../backend/static/api.js");
       const body = entry.sample(currentUser);
       expect(sampleIds(body, currentUser.id).filter((id) => !id.startsWith(PREFIX))).toEqual([]);
+      // Let the boot's own page load land first, or it overwrites the sample render.
+      await new Promise((r) => setTimeout(r, 300));
       api.setSampleResponder(tut.makeResponder(body));
       const { roleAtLeast } = await import("../../../backend/static/roles.js");
       for (const script of entry.scripts) {
         if (script.minRole && !roleAtLeast(role, script.minRole)) continue;
         nav.showPage(page);
+        await new Promise((r) => setTimeout(r, 400)); // let the page reload land
         const reached = await tut.runOpen(script, role);
         const visible = tut.visibleSteps(script, role);
         expect(reached && visible.length > 0, `${script.key} has no visible step for ${role}`).toBe(true);

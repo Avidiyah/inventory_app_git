@@ -33,21 +33,35 @@ export function sample(user) {
     id: P + "00000000020" + (i + 1), item_id: P + id, item_name: name, item_barcode: barcode,
     item_quantity: "19", quantity: "1", mode: "dispense", unit_price: price, billable_quantity: null,
   }));
+  const lead = { id: P + "000000220001", name: "Wren Alder" };
+  const tobin = { id: P + "000000220003", name: "Tobin Marsh" };
   const one = card("000000000001", "SAMPLE-1", "in_progress",
-    { assigned_to_ids: [user.id], assigned_to_names: [viewerName], item_count: 3 });
+    { assigned_to_ids: [user.id, tobin.id], assigned_to_names: [viewerName, tobin.name], item_count: 3,
+      supervisor_id: lead.id, supervisor_name: lead.name });
   const two = card("000000000002", "SAMPLE-2", "created",
     { description: "Hallway light is out", service_type: "Electrical", location: "Hallway" });
+  const three = card("000000000003", "SAMPLE-3", "ready_to_complete",
+    { description: "Bathroom fan is noisy", service_type: "Electrical", location: "Bathroom",
+      assigned_to_ids: [tobin.id], assigned_to_names: [tobin.name],
+      supervisor_id: lead.id, supervisor_name: lead.name });
   return {
-    "GET /work-orders/": [one, two],
+    "GET /work-orders/": [one, two, three],
     [`GET /work-orders/${one.id}`]: detail(one, {
       notes: "Shut-off valve under the sink is stiff.\nNew trap fitted; check for drips tomorrow.",
-      items: lines, materials_total: "16.05", labor_minutes: 150, labor_billed_minutes: 150, labor_total: "156.25",
+      items: lines, materials_total: "16.05", labor_minutes: 930, labor_billed_minutes: 930, labor_total: "968.75",
       labor: [{ id: P + "000000000301", technician_id: user.id, technician_name: viewerName, minutes: 150,
-        session_window: null, auto_closed: false, hand_entered: false, week_open: true, recorded_by_self: false }],
+        session_window: null, auto_closed: false, hand_entered: false, week_open: true, recorded_by_self: false },
+      { id: P + "000000220005", technician_id: tobin.id, technician_name: tobin.name, minutes: 720,
+        session_window: "Nov 20, 6:00 AM - 6:00 PM", auto_closed: true, hand_entered: false, week_open: true,
+        recorded_by_self: false },
+      { id: P + "000000220006", technician_id: tobin.id, technician_name: tobin.name, minutes: 60,
+        session_window: null, auto_closed: false, hand_entered: true, week_open: true, recorded_by_self: false }],
     }),
     [`GET /work-orders/${two.id}`]: detail(two),
+    [`GET /work-orders/${three.id}`]: detail(three),
     [`GET /work-orders/${one.id}/requests`]: [],
     [`GET /work-orders/${two.id}/requests`]: [],
+    [`GET /work-orders/${three.id}/requests`]: [],
     "GET /work-orders/filter-options": {
       service_types: ["Electrical", "Plumbing"], priorities: ["Normal", "Urgent"], supervisors: [], communities: ["Sample Village"],
     },
@@ -57,6 +71,14 @@ export function sample(user) {
         last_name: user.last_name, role: user.role, created_at: user.created_at },
       { id: P + "000000000401", username: "sample.tech", full_name: "Sam Sample", first_name: "Sam",
         last_name: "Sample", role: "technician", created_at: "2026-11-01T12:00:00Z" },
+      { id: lead.id, username: "wren.alder", full_name: lead.name, first_name: "Wren",
+        last_name: "Alder", role: "supervisor", created_at: "2026-11-01T12:00:00Z" },
+      { id: P + "000000220002", username: "ila.brandt", full_name: "Ila Brandt", first_name: "Ila",
+        last_name: "Brandt", role: "admin", created_at: "2026-11-01T12:00:00Z" },
+      { id: tobin.id, username: "tobin.marsh", full_name: tobin.name, first_name: "Tobin",
+        last_name: "Marsh", role: "technician", created_at: "2026-11-01T12:00:00Z" },
+      { id: P + "000000220004", username: "odell.rusk", full_name: "Odell Rusk", first_name: "Odell",
+        last_name: "Rusk", role: "technician", created_at: "2026-11-01T12:00:00Z" },
     ],
   };
 }

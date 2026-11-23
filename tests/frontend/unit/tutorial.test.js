@@ -210,7 +210,7 @@ describe("session", () => {
 
     vi.useFakeTimers();
     const never = tut.runOpen({ key: "demo.n", title: "N", open: ["#nope"], steps: [{ target: "#zz", text: "z" }] }, "owner");
-    await vi.advanceTimersByTimeAsync(3100);
+    await vi.advanceTimersByTimeAsync(7000);
     await expect(never).resolves.toBe(false);
     vi.useRealTimers();
   });
@@ -249,7 +249,7 @@ describe("session", () => {
     vi.useFakeTimers();
     install({ demo: { sample: () => ({}), scripts: [{ key: "demo.none", title: "N", steps: [{ target: "#zz", text: "z" }] }] } });
     const started = tut.startTutorial("demo");
-    await vi.advanceTimersByTimeAsync(3100);
+    await vi.advanceTimersByTimeAsync(7000);
     await started;
     vi.useRealTimers();
     expect(overlay()).toBeNull();

@@ -2,7 +2,25 @@
 
 const OPEN_CARD = 'details.wo-card[data-number="SAMPLE-1"] [data-peek-open]';
 
+const OPEN_SAMPLE_3 = 'details.wo-card[data-number="SAMPLE-3"]';
+
 export const SCRIPTS = [
+  {
+    key: "work-orders.list.find",
+    title: "Finding a work order",
+    steps: [
+      { target: "#work-orders-scope", title: "Whose jobs",
+        text: ["My Work Orders shows the jobs you are on.", "All Work Orders shows every job."] },
+      { target: "#work-orders-sort", title: "Sort", text: "Sort by scheduled date, newest or oldest first." },
+      { target: "#work-orders-search", title: "Search", text: "Type a number, location or task to narrow the list." },
+      { target: "#work-orders-filters-btn", title: "Advanced search",
+        text: "Advanced search adds filters: status, service type, priority, Team Lead, community and scheduled date." },
+      { target: "#wo-export-btn", title: "Export",
+        text: "Exports every work order that matches your filters, not only the ones on screen." },
+      { target: "#work-orders-list", title: "A card",
+        text: ["Each card is one job.", "Tap its header to open it."] },
+    ],
+  },
   {
     key: "work-orders.card.details",
     title: "Details",
@@ -51,6 +69,58 @@ export const SCRIPTS = [
       { target: "#wo-sec-labor .wo-labor-list", title: "Labor", text: "Hours charged to this job, person by person." },
       { target: "#wo-add-labor", title: "Add hours", text: "Key hours in by hand for anyone on the crew.",
         textFor: { technician: "Add or fix your own hours by hand this week." } },
+    ],
+  },
+  {
+    key: "work-orders.card.routing",
+    title: "Crew and routing",
+    minRole: "supervisor",
+    here: "#wo-edit-card[open]",
+    open: [OPEN_CARD, '.wo-tab[data-wo-tab="details"]', "#wo-edit-card > summary"],
+    steps: [
+      { target: "#wo-edit-card .wo-edit-location", title: "Imported details",
+        text: "You can also correct the imported details here, such as location and schedule date." },
+      { target: ".wo-supervisor-combo", title: "Team Lead",
+        text: ["The routed Team Lead oversees this job.", "Pick a different one if it moves to someone else."] },
+      { target: ".wo-edit-technicians", title: "Crew",
+        text: ["More than one person can be assigned.", "Search by name to add someone, and Remove takes them off the crew."] },
+      { target: ".wo-edit-status-field", title: "Status",
+        text: ["Start work, roll back to an earlier step, or place the job On-Hold.",
+          "Ready to Complete and Review are not offered here."] },
+      { target: '[data-action="save-details"]', title: "Save",
+        text: ["Nothing changes until you tap Save details.", "Cancel keeps the job as it was."] },
+    ],
+  },
+  {
+    key: "work-orders.card.keying-hours",
+    title: "Keying hours",
+    open: [OPEN_CARD, '.wo-tab[data-wo-tab="labor"]'],
+    steps: [
+      { target: ".wo-labor-actions", title: "Fix a row",
+        text: ["Change a row's hours and tap Update, or Remove it.", "You can fix anyone's row."] },
+      { target: "#wo-add-labor .wo-labor-technician", title: "Whose hours",
+        text: ["Pick whose hours these are.", "The list shows the crew, and you are added if you are not on it."],
+        textFor: { technician: ["This is you.", "A worker keys only their own hours."] } },
+      { target: "#wo-add-labor", title: "Add labor",
+        text: ["Enter the actual hours and tap Add labor, only to correct a missed clock-in.",
+          "Billing rounds the combined time up to the next 30 minutes."] },
+      { target: ".wo-labor-auto-stopped", title: "Auto-stopped",
+        text: ["Auto-stopped means a clock ran past 12 hours and was closed at the cap as an estimate.",
+          "Review it before billing."] },
+    ],
+  },
+  {
+    key: "work-orders.card.approve",
+    title: "Approving finished work",
+    minRole: "supervisor",
+    open: ['?[data-action="back-to-work-orders"]', `${OPEN_SAMPLE_3} > summary`, `${OPEN_SAMPLE_3} [data-peek-open]`],
+    steps: [
+      { target: "#wo-act-complete-wo", title: "Approve",
+        text: ["Ready to Complete means a technician says the job is done and is waiting on a Team Lead.",
+          "Approve agrees; the job becomes Completed, which the billing queue reads."] },
+      { target: "#wo-act-send-back-wo", title: "Send Back",
+        text: "Send Back puts the job back to In-Progress so the crew finishes it." },
+      { target: ".wo-more-btn", title: "More", text: "Less common actions live behind this button, including Edit details." },
     ],
   },
 ];

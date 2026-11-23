@@ -21,6 +21,7 @@ const PAD = 6;           // px of light around the lit target
 const OPEN_WAIT_MS = 3000;
 const POLL_MS = 50;
 const SETTLE_MS = 300;   // visible steps unchanged this long = page has loaded
+const RELOAD_WAIT_MS = 400; // start: the page's own reload lands first
 const REFUSE_TEXT = "Finish or save what you typed, then start the tutorial. It reloads the page.";
 
 // jsdom has no layout, so tests rely on the attribute rules alone; a real
@@ -260,7 +261,13 @@ function waitFor(fn, ms) {
 // it reveals is already visible (an open section is never toggled shut); a
 // leading `?` marks a selector optional (absent = skipped at once). Resolves
 // false when the tab never appears.
+// A late re-render can wipe the clicks (a list reload landing after them), so
+// a failed open is tried once more.
 export async function runOpen(script, role = getCurrentUser()?.role) {
+  return (await openOnce(script, role)) || (await openOnce(script, role));
+}
+
+async function openOnce(script, role) {
   const sels = script.open || [];
   const firstTargetVisible = () => visibleSteps(script, role).length > 0;
   for (let i = 0; i < sels.length; i += 1) {
@@ -312,6 +319,8 @@ export async function startTutorial(page, key = null) {
   if (entry.sample) {
     setSampleResponder(makeResponder(entry.sample(getCurrentUser())));
     deps.showPage(page);
+    // The reload is async: let it land before `open` clicks anything stale.
+    await new Promise((r) => setTimeout(r, RELOAD_WAIT_MS));
   }
   const role = getCurrentUser()?.role;
   while (running && script) {

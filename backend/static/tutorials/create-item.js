@@ -1,0 +1,48 @@
+// Create Item page tutorials (Item and Tool tabs). Data only: the player is tutorial.js.
+
+export const SCRIPTS = [
+  {
+    key: "create-item.add.item",
+    title: "Add Item",
+    here: '.sub-nav-btn[data-feature="item"].active',
+    open: ['.sub-nav-btn[data-feature="item"]'],
+    steps: [
+      { target: "#barcode", title: "Barcode",
+        text: ["The label number workers will scan.", "Type it in, or use Scan beside it."] },
+      { target: "#item-scan-toggle-btn", title: "Scan",
+        text: "Scan opens the camera on this device so you can read the label instead of typing it." },
+      { target: "#name", title: "Item Name", text: "The name workers will see in search results." },
+      { target: "#location", title: "Location",
+        text: ["Where the item physically sits, as workers would describe it.",
+               "It shows on search results so nobody has to ask."] },
+      { target: "#quantity", title: "Starting Quantity",
+        text: ["How many are on the shelf now.", "A wrong count is fixed later with Correct Count, never by re-adding."] },
+      { target: "#price", title: "Price",
+        text: ["Optional here, but material with no price cannot bill.",
+               "Using it unpriced on a work order raises a missing-price request."] },
+      { target: "#product-link", title: "Product Link",
+        text: ["Where the item is bought.", "With the price, it is what closes a missing-price request."] },
+      { target: "#create-item-btn", title: "Save Item",
+        text: ["Save Item adds it to the catalogue.", "Nothing is saved until you tap it."] },
+    ],
+  },
+  {
+    key: "create-item.add.tool",
+    title: "Add Tool",
+    here: '.sub-nav-btn[data-feature="tool"].active',
+    open: ['.sub-nav-btn[data-feature="tool"]'],
+    steps: [
+      { target: "#tool-barcode", title: "Tool barcode",
+        text: ["The label used to find this tool for checkout, return, and inventory.",
+               "It must be unique among active tools."] },
+      { target: "#tool-scan-toggle-btn", title: "Scan",
+        text: "Scan opens the camera so you can read the label instead of typing it." },
+      { target: "#tool-name", title: "Tool Name", text: "The name people will see when they pick this tool." },
+      { target: "#tool-quantity", title: "Quantity",
+        text: ["Use 1 for a single serialized tool.",
+               "Use a higher count for an unserialized batch tracked as a pool."] },
+      { target: "#create-tool-btn", title: "Save Tool",
+        text: ["Save Tool adds it to Tool Inventory.", "Archiving a tool later frees its barcode for reuse."] },
+    ],
+  },
+];
