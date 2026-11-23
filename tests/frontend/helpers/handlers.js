@@ -54,6 +54,9 @@ export function pageHandlers() {
     http.get("/mass-stages/", () => HttpResponse.json([])),
     http.get("/tools/", () => HttpResponse.json([])),
 
+    // enterApp -> loadProgress (tutorial progress cache)
+    http.get("/tutorials/progress/me", () => HttpResponse.json([])),
+
     // user-hub -> loadUserHub
     http.get("/hub", () => HttpResponse.json(hubPayload())),
     // loadUserHub also fetches the caller's own punch for the Home tab.

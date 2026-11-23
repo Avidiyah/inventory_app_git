@@ -34,6 +34,7 @@ import {
 } from "./workOrders.js";
 import { peekPendingResumeNumber } from "../workOrderDrafts.js";
 import { endTutorial } from "../tutorial.js";
+import { clearProgress, loadProgress } from "../tutorialProgress.js";
 
 const loginScreen = document.getElementById("login-screen");
 const appRoot = document.getElementById("app-root");
@@ -73,6 +74,7 @@ function showLoginScreen({ expired = false } = {}) {
   // they were typing into to a page they have to go find again.
   if (expired && wasInApp) captureHeldEditorForResume();
   setCurrentUser(null);
+  clearProgress(); // covers sign-out and the 401 handler
   resetToolsView();
   clearProfileOrigin();
   resetPushView();
@@ -158,6 +160,9 @@ async function enterApp(user, { resume = false } = {}) {
     showPage(resumed ? "transaction" : landingPageForRole(user.role));
   }
   connectRealtime();
+
+  // Not awaited: dots appear a moment late, nothing waits on them.
+  void loadProgress();
 
   // Not awaited: the prompt only appears if the user is off the clock.
   void maybePromptClockIn(user);
