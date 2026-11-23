@@ -433,3 +433,11 @@ class PersonNotProfilableError(DomainError):
 class TimeEditForbiddenError(DomainError):
     """A worker tried to change time that is not theirs, or is in a closed
     week. Maps to 403."""
+
+
+class InvalidTutorialKeyError(DomainError):
+    """A tutorial progress key is not a legal script key. Maps to 400."""
+
+
+class TutorialProgressLimitError(DomainError):
+    """A person already holds the maximum number of progress rows. Maps to 400."""

@@ -30,8 +30,10 @@ import pytest
 
 from app.domain import list_limits
 from app.models import Item, MassStage, Tool, User
+from app.schemas.tutorials import ProgressEvent
 from app.services import auth
 from app.services import items as items_service
+from app.services import tutorials as tutorials_service
 from app.services import mass_staging as stages_service
 from app.services import tools as tools_service
 from app.services import users as users_service
@@ -151,6 +153,18 @@ def test_mass_stages_are_capped_and_reported(db, ceiling_of_one, caplog):
 
     assert len(rows) == 1
     assert "mass_stages" in _truncation_lists(caplog)
+
+
+def test_tutorial_progress_users_are_capped_and_reported(db, ceiling_of_one, caplog):
+    caplog.set_level(logging.WARNING)
+    _seed_users(db, 2)
+    for user in db.query(User).filter(User.username.like("cap-%")).all():
+        tutorials_service.record(db, user.id, "cap.key", ProgressEvent.completed)
+
+    result = tutorials_service.completed_by_user(db)
+
+    assert sum(len(keys) for keys in result.values()) == 1
+    assert "tutorial progress" in _truncation_lists(caplog)
 
 
 # --------------------------------------------------------------------------
