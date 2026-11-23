@@ -22,6 +22,7 @@ import { loadTools, toolsScanner, toolScanWidget } from "./tools.js";
 import { txnScanner } from "./scan.js";
 import { itemsScanner, itemScanWidget } from "./items.js";
 import { closeTip } from "../tooltip.js";
+import { endTutorial } from "../tutorial.js";
 import { clearProfileOrigin } from "./profileOrigin.js";
 
 const navButtons = document.querySelectorAll(".nav-btn");
@@ -227,6 +228,9 @@ export function showPage(pageName) {
   // page's permission state. reset() also calls stopLive() internally.
   const leaving = SCANNERS_BY_PAGE[activePage];
   if (leaving && activePage !== pageName) leaving.reset();
+
+  // Leaving the page ends a running tutorial (its own same-page reload does not).
+  if (activePage !== pageName) endTutorial({ restore: false });
 
   // Same page-leave lifecycle as the scanners above. The tip bubble is
   // `position: fixed` and body-parented, so one left open across a page swap

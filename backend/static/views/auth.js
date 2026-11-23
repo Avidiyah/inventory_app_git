@@ -33,6 +33,7 @@ import {
   soloNumberFromPath,
 } from "./workOrders.js";
 import { peekPendingResumeNumber } from "../workOrderDrafts.js";
+import { endTutorial } from "../tutorial.js";
 
 const loginScreen = document.getElementById("login-screen");
 const appRoot = document.getElementById("app-root");
@@ -61,6 +62,7 @@ function setPasswordVisible(visible) {
 // timeout when the app was actually open -- a 401 during the initial boot check
 // (apiMe) is just "not signed in yet", not an expiry, and must stay quiet.
 function showLoginScreen({ expired = false } = {}) {
+  endTutorial({ restore: false });
   disconnectRealtime();
   closeClockInPrompt();
   const wasInApp = !appRoot.hidden;
