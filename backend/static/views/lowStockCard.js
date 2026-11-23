@@ -98,6 +98,21 @@ function collectAltBarcodes(card, messageEl) {
   return codes;
 }
 
+// Make a saved section clean, so the next live update reaches it: every
+// field's default becomes its value and the barcode block is the server's
+// again.
+function settle(card, selector) {
+  const section = card.querySelector(selector);
+  for (const field of section.querySelectorAll("input")) field.defaultValue = field.value;
+  for (const el of section.querySelectorAll("[data-touched]")) delete el.dataset.touched;
+}
+
+// Reload after an own save. `data-saving` (set before the request) keeps a
+// save that removes its own card from reading as "no longer low".
+function reloadAfterSave(card) {
+  loadLowStock({ background: true }).finally(() => { delete card.dataset.saving; });
+}
+
 async function saveItem(card) {
   const messageEl = card.querySelector(".low-stock-edit-message");
   setMessage(messageEl, "", "");
@@ -116,6 +131,7 @@ async function saveItem(card) {
   const codes = collectAltBarcodes(card, messageEl);
   if (codes === null) return;
 
+  card.dataset.saving = "";
   try {
     await saveItemCore(
       card.dataset.id,
@@ -133,8 +149,10 @@ async function saveItem(card) {
       }
     );
     setMessage(messageEl, "Item saved.", "success");
-    loadLowStock({ background: true });
+    settle(card, ".low-stock-edit");
+    reloadAfterSave(card);
   } catch (err) {
+    delete card.dataset.saving;
     if (err && err.cancelled) {
       setMessage(messageEl, "", "");
       return;
@@ -163,13 +181,15 @@ async function saveCorrection(card) {
     return;
   }
 
+  card.dataset.saving = "";
   try {
     await apiCreateCorrection({ itemId: card.dataset.id, newQuantity, reason });
-    // A correction that clears the threshold removes this card entirely, so
-    // say what happened before the reload takes the message with it.
     setMessage(messageEl, "Count corrected.", "success");
-    loadLowStock({ background: true });
+    card.querySelector(".ls-correct-reason").value = "";
+    settle(card, ".low-stock-correction");
+    reloadAfterSave(card);
   } catch (err) {
+    delete card.dataset.saving;
     setMessage(messageEl, friendlyError(err, "Could not save the correction. Try again."), "error");
   }
 }

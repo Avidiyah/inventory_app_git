@@ -5,6 +5,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
+import { server } from "../helpers/handlers.js";
 import { lowStockItem } from "../helpers/factories.js";
 import {
   LOW_STOCK_NOW, actionBtn, cardFor, cards, clearRequests, connectLowStock, editMessage, el,
@@ -210,5 +211,105 @@ describe("patch in place", () => {
     actionBtn(cardFor("i2"), "add-barcode").click();
     expect(cardFor("i2").querySelectorAll(".ls-barcode-row")).toHaveLength(1);
     expect(editMessage(cardFor("i2")).textContent).toBe("");
+  });
+});
+
+describe("own saves", () => {
+  const ok = (body = {}) => () => HttpResponse.json(body);
+  const fail = () => HttpResponse.json({ detail: "" }, { status: 500 });
+
+  it("a just-saved item takes a later live change", async () => {
+    const rows = [row()];
+    const { rt } = await open(rows);
+    server.use(http.patch("/items/i1", ok(row({ name: "A" }))));
+    type(q("i1", ".ls-name"), "A");
+    rows[0] = row({ name: "A" });
+    actionBtn(cardFor("i1"), "save-item").click();
+    await vi.waitFor(() => expect(listGets()).toHaveLength(1));
+    await vi.waitFor(() => expect(q("i1", ".low-stock-title").textContent).toBe("A"));
+    rows[0] = row({ name: "B" });
+    await live(rt, () => q("i1", ".low-stock-title").textContent === "B");
+    expect(q("i1", ".ls-name").value).toBe("B");
+  });
+
+  it("a just-saved item's touched barcode block takes a later live change", async () => {
+    const rows = [row({ barcodes: ["ALT1"] })];
+    const { rt } = await open(rows);
+    server.use(http.patch("/items/i1", ok(row())), http.put("/items/i1/barcodes", ok({})), http.patch("/items/i1/barcodes", ok({})));
+    actionBtn(cardFor("i1"), "add-barcode").click();
+    actionBtn(cardFor("i1"), "save-item").click();
+    await vi.waitFor(() => expect(editMessage(cardFor("i1")).textContent).toBe("Item saved."));
+    await vi.waitFor(() => expect(listGets()).toHaveLength(1));
+    rows[0] = row({ quantity: "2", barcodes: ["ALT1", "ALT2"] });
+    await live(rt, () => countText("i1") === "2 on hand");
+    expect(Array.from(cardFor("i1").querySelectorAll(".ls-alt-barcode")).map((i) => i.value)).toEqual(["ALT1", "ALT2"]);
+  });
+
+  it("a just-saved threshold takes a later live change", async () => {
+    const rows = [row({ low_stock_threshold: 5 })];
+    const { rt } = await open(rows);
+    server.use(http.patch("/items/i1/low-stock-threshold", ok(row())));
+    const input = thresholdInput(cardFor("i1"));
+    input.focus();
+    input.value = "7";
+    rows[0] = row({ low_stock_threshold: 7 });
+    input.blur();
+    await vi.waitFor(() => expect(rowMessage(cardFor("i1")).textContent).toBe("Saved."));
+    await vi.waitFor(() => expect(listGets()).toHaveLength(1));
+    rows[0] = row({ low_stock_threshold: 9, quantity: "2" });
+    await live(rt, () => countText("i1") === "2 on hand");
+    expect(thresholdInput(cardFor("i1")).value).toBe("9");
+  });
+
+  it('a saved correction empties the reason and keeps "Count corrected."', async () => {
+    const rows = [row()];
+    await open(rows);
+    server.use(http.post("/transactions/adjust", ok()));
+    type(q("i1", ".ls-correct-qty"), "3");
+    type(q("i1", ".ls-correct-reason"), "recount");
+    rows[0] = row({ quantity: "3" });
+    actionBtn(cardFor("i1"), "save-correction").click();
+    await vi.waitFor(() => expect(countText("i1")).toBe("3 on hand"));
+    expect(q("i1", ".ls-correct-reason").value).toBe("");
+    expect(editMessage(cardFor("i1")).textContent).toBe("Count corrected.");
+    expect(cardFor("i1").hasAttribute("data-saving")).toBe(false);
+  });
+
+  it("saving one section keeps the other section's typed values", async () => {
+    const rows = [row()];
+    await open(rows);
+    server.use(http.patch("/items/i1", ok(row())));
+    type(q("i1", ".ls-correct-qty"), "9");
+    type(q("i1", ".ls-name"), "A");
+    rows[0] = row({ name: "A" });
+    actionBtn(cardFor("i1"), "save-item").click();
+    await vi.waitFor(() => expect(q("i1", ".low-stock-title").textContent).toBe("A"));
+    expect(q("i1", ".ls-correct-qty").value).toBe("9");
+  });
+
+  it('a save that removes its own card shows no "no longer low" message', async () => {
+    const rows = [row(), row({ id: "i2", name: "Tee" })];
+    await open(rows);
+    server.use(http.post("/transactions/adjust", ok()));
+    type(q("i1", ".ls-name"), "half typed");
+    type(q("i1", ".ls-correct-qty"), "50");
+    type(q("i1", ".ls-correct-reason"), "delivery");
+    rows.splice(0, 1);
+    actionBtn(cardFor("i1"), "save-correction").click();
+    await vi.waitFor(() => expect(cardFor("i1")).toBeNull());
+    expect(el.message().textContent).toBe("");
+  });
+
+  it("a failed save leaves the fields typed", async () => {
+    const rows = [row()];
+    await open(rows);
+    server.use(http.post("/transactions/adjust", fail));
+    type(q("i1", ".ls-correct-qty"), "3");
+    type(q("i1", ".ls-correct-reason"), "recount");
+    actionBtn(cardFor("i1"), "save-correction").click();
+    await vi.waitFor(() => expect(editMessage(cardFor("i1")).textContent).not.toBe(""));
+    expect(q("i1", ".ls-correct-qty").value).toBe("3");
+    expect(q("i1", ".ls-correct-reason").value).toBe("recount");
+    expect(cardFor("i1").hasAttribute("data-saving")).toBe(false);
   });
 });

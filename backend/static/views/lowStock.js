@@ -59,7 +59,9 @@ let loadSequence = 0;
 
 // Live events coalesce: one background fetch at a time, one rerun queued
 // behind it, so a bulk stock write costs two fetches rather than hundreds.
-let loading = false;
+// `pending` settles when the queue behind it has drained, so a save that
+// awaits its reload waits for the paint that includes its write.
+let pending = null;
 let rerun = false;
 
 function quantityText(value) {
@@ -196,38 +198,36 @@ function render({ reset = false, background = false } = {}) {
   else setMessage(messageEl, "", "");
 }
 
-export async function loadLowStock({ background = false } = {}) {
-  if (!listEl) return;
-  if (background) {
-    if (loading) {
-      rerun = true;
-      return;
-    }
-    loading = true;
-  }
+async function fetchAndRender(background) {
   const sequence = ++loadSequence;
   if (!background) setMessage(messageEl, "Loading low stock...", "");
   try {
     const rows = await apiListLowStock();
-    if (sequence === loadSequence) {
-      allRows = rows;
-      render({ background });
-    }
+    if (sequence !== loadSequence) return;
+    allRows = rows;
+    render({ background });
   } catch (err) {
-    if (sequence === loadSequence) {
-      allRows = [];
-      listEl.replaceChildren();
-      setMessage(messageEl, friendlyError(err, "Could not load low stock."), "error");
-    }
-  } finally {
-    if (background) {
-      loading = false;
-      if (rerun) {
-        rerun = false;
-        await loadLowStock({ background: true });
-      }
-    }
+    if (sequence !== loadSequence) return;
+    allRows = [];
+    listEl.replaceChildren();
+    setMessage(messageEl, friendlyError(err, "Could not load low stock."), "error");
   }
+}
+
+export function loadLowStock({ background = false } = {}) {
+  if (!listEl) return Promise.resolve();
+  if (!background) return fetchAndRender(false);
+  if (pending) {
+    rerun = true;
+    return pending;
+  }
+  pending = (async () => {
+    do {
+      rerun = false;
+      await fetchAndRender(true);
+    } while (rerun);
+  })().finally(() => { pending = null; });
+  return pending;
 }
 
 // Commit on blur and on Enter, not on every keystroke: a threshold typed
@@ -247,6 +247,8 @@ async function commitThreshold(input) {
   if (String(value) === previous) return;
 
   input.disabled = true;
+  // The card's own save may remove it; that is not "someone else".
+  card.dataset.saving = "";
   try {
     await apiSetLowStockThreshold(card.dataset.id, value);
     input.defaultValue = String(value);
@@ -254,8 +256,9 @@ async function commitThreshold(input) {
     // The row may no longer belong on the page -- a lowered threshold can
     // clear the condition entirely -- so reload rather than trusting the
     // card that is on screen.
-    loadLowStock({ background: true });
+    loadLowStock({ background: true }).finally(() => { delete card.dataset.saving; });
   } catch (err) {
+    delete card.dataset.saving;
     input.value = previous;
     setMessage(rowMessage, friendlyError(err, "Could not save that threshold."), "error");
   } finally {
