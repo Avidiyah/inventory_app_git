@@ -15,6 +15,8 @@ import { getCurrentUser } from "./state.js";
 import { roleAtLeast } from "./roles.js";
 import { mark } from "./tutorialProgress.js";
 import { closeTip } from "./tooltip.js";
+import { WAIT_MS, blockKeys, clearExpectNav, expectNav, forwardTap, isExpectingNav, isWaitStep,
+  resolveWait, roleVisible } from "./tutorialWait.js";
 
 const GAP = 12;          // px between target and box, and from the screen edge
 const PAD = 6;           // px of light around the lit target
@@ -34,6 +36,7 @@ let installed = false;
 let running = null;      // { page, restore } while a tutorial is up
 let run = null;          // the step run in progress (runSteps)
 let nodes = null;
+let unblockKeys = null;
 
 // --- visibility and step selection ------------------------------------------
 
@@ -58,11 +61,21 @@ export function sentences(step, role) {
   return Array.isArray(v) ? v : [v];
 }
 
+// A wait step is kept when its role can see `waitTap`; if not, it and the steps
+// up to the next wait (they describe the page it opens) are dropped. Steps
+// after a kept wait are not judged now: their page is not open yet.
 export function visibleSteps(script, role) {
-  return script.steps
-    .map((step) => ({ step, el: document.querySelector(step.target) }))
-    .filter(({ el }) => isVisible(el))
-    .map(({ step }) => ({ step, lines: sentences(step, role) }));
+  const out = [];
+  let skipping = false, afterWait = false;
+  for (const step of script.steps) {
+    if (isWaitStep(step)) {
+      skipping = !roleVisible(document.querySelector(step.waitTap));
+      afterWait = !skipping;
+      if (skipping) continue;
+    } else if (skipping || (!afterWait && !isVisible(document.querySelector(step.target)))) continue;
+    out.push({ step, lines: sentences(step, role) });
+  }
+  return out;
 }
 
 // The last script for this role, in file order, whose `here` matches the
@@ -114,14 +127,15 @@ function ensureNodes() {
   const q = (c) => overlay.querySelector(c);
   nodes = { overlay, spot: q(".tut-spot"), box: q(".tut-box"), title: q(".tut-title"), text: q(".tut-text"),
     count: q(".tut-count"), actions: q(".tut-actions"), pill: q(".tut-pill") };
-  document.addEventListener("keydown", onKey, true);
+  unblockKeys = blockKeys(onKey);
   window.addEventListener("resize", place);
   window.addEventListener("scroll", place, { capture: true, passive: true });
   return nodes;
 }
 
 function teardown() {
-  document.removeEventListener("keydown", onKey, true);
+  unblockKeys?.();
+  unblockKeys = null;
   window.removeEventListener("resize", place);
   window.removeEventListener("scroll", place, { capture: true });
   nodes?.overlay.remove();
@@ -137,9 +151,15 @@ function button(act, label) {
   return b;
 }
 
+// The element the current step lights (a wait step's is re-resolved each time).
+function litEl() {
+  const { step } = run.list[run.i];
+  return isWaitStep(step) ? resolveWait(step).el : document.querySelector(step.target);
+}
+
 function place() {
   if (!run || !nodes) return;
-  const el = document.querySelector(run.list[run.i].step.target);
+  const el = litEl();
   if (!el) return; // vanished mid-refresh: keep the last position
   const r = el.getBoundingClientRect();
   const vw = window.innerWidth, vh = window.innerHeight;
@@ -158,13 +178,15 @@ function place() {
 
 function render({ scroll = false } = {}) {
   const { list, i, s } = run;
-  const { step, lines } = list[i];
+  const { step } = list[i];
+  const wait = isWaitStep(step);
+  const lines = wait ? [run.kind === "via" && step.viaText ? step.viaText : list[i].lines[0]] : list[i].lines;
   const last = i === list.length - 1;
   nodes.title.textContent = step.title || "";
   nodes.text.textContent = lines[s];
   nodes.count.textContent = `${i + 1} of ${list.length}`;
   nodes.actions.replaceChildren();
-  if (i > 0) nodes.actions.appendChild(button("back", "Back"));
+  if (i > 0 && !isWaitStep(list[i - 1].step)) nodes.actions.appendChild(button("back", "Back"));
   if (last && s === lines.length - 1) {
     if (run.next) nodes.actions.appendChild(button("next", `Next: ${run.next.title}`));
     nodes.actions.appendChild(button("done", "Done"));
@@ -173,14 +195,16 @@ function render({ scroll = false } = {}) {
   }
   nodes.box.hidden = run.boxHidden;
   nodes.pill.hidden = !run.boxHidden;
-  if (scroll) document.querySelector(step.target)?.scrollIntoView?.({ block: "center" });
+  if (scroll && !wait) document.querySelector(step.target)?.scrollIntoView?.({ block: "center" });
   place();
   requestAnimationFrame(place);
   if (!run.boxHidden) (nodes.actions.querySelector("button") || nodes.box).focus();
 }
 
 function show(i) {
-  Object.assign(run, { i, s: 0, boxHidden: false });
+  const step = run.list[i].step;
+  Object.assign(run, { i, s: 0, boxHidden: false, pending: 0, idle: Date.now(),
+    kind: isWaitStep(step) ? resolveWait(step).kind : null });
   // Reaching the last visible step is finishing (0b spec 5.3); End early never does.
   if (i === run.list.length - 1 && run.key) mark(run.key, "completed");
   render({ scroll: true });
@@ -188,8 +212,9 @@ function show(i) {
 
 // One tap: next sentence, else hide the box, else next step. The last step's
 // box stays up until Next, Done or End.
-function tap() {
+function tap(event) {
   if (!run) return;
+  if (isWaitStep(run.list[run.i].step)) { forward(event); return; }
   const { list, i, s } = run;
   if (s < list[i].lines.length - 1) { run.s += 1; render(); return; }
   if (i === list.length - 1) return;
@@ -197,16 +222,45 @@ function tap() {
   show(i + 1);
 }
 
+// A wait step: the person's tap (or Enter) goes to the lit control only.
+function forward(event) {
+  const el = litEl();
+  if (run.pending || !el) return;
+  const page = run.kind === "tap"; // waitTap itself: the page may change under us
+  const hit = forwardTap(event, el, PAD, () => { if (page) { run.pending = Date.now(); expectNav(); } });
+  if (hit && !page) tickWait(); // the opener was tapped: light waitTap now
+}
+
+// Every POLL_MS on scripts with a wait step: after waitTap, show the next
+// step once its target is up (else end quietly after WAIT_MS); on a wait step,
+// follow the lit control (via -> waitTap) and end quietly when none shows.
+function tickWait() {
+  if (!run) return;
+  const nxt = run.list[run.i + 1];
+  if (run.pending) {
+    if (!nxt) finish({ result: "done" });
+    else if (isWaitStep(nxt.step) || isVisible(document.querySelector(nxt.step.target))) { clearExpectNav(); show(run.i + 1); }
+    else if (Date.now() - run.pending >= WAIT_MS) finish({ result: "end" });
+    return;
+  }
+  if (!isWaitStep(run.list[run.i].step)) return;
+  const { kind } = resolveWait(run.list[run.i].step);
+  if (kind !== run.kind) { run.kind = kind; render(); } else place();
+  if (kind === "tap" || kind === "via") run.idle = Date.now();
+  else if (Date.now() - run.idle >= WAIT_MS) finish({ result: "end" });
+}
+
 function finish(result) {
   const r = run;
   run = null;
+  if (r) { clearInterval(r.timer); clearExpectNav(); }
   r?.resolve(result);
 }
 
 function onOverlayClick(event) {
   event.stopPropagation();
   const act = event.target.closest?.("[data-tut-act]")?.dataset.tutAct;
-  if (!act) { tap(); return; }
+  if (!act) { tap(event); return; }
   if (act === "back") show(run.i - 1);
   else if (act === "next") finish({ result: "next", script: run.next });
   else finish({ result: act }); // "done" | "end"
@@ -241,6 +295,7 @@ export function runSteps(script, role, { scripts = [script] } = {}) {
     run = { list, i: 0, s: 0, boxHidden: false, resolve, key: script.key, next: nextScript(scripts, script, role) };
     if (script.key) mark(script.key, "seen");
     show(0);
+    if (list.some(({ step }) => isWaitStep(step))) run.timer = setInterval(tickWait, POLL_MS);
   });
 }
 
@@ -314,9 +369,11 @@ export async function startTutorial(page, key = null) {
   const entry = deps.tutorials[page];
   if (!entry) return;
   // A page marks live work (an open scanning batch) with [data-tutorial-busy].
-  const busy = document.querySelector(`#${page}-page [data-tutorial-busy]`);
+  // An entry with no sample (the starter tours) reloads nothing and blocks all
+  // input, so neither refusal applies to it.
+  const busy = entry.sample && document.querySelector(`#${page}-page [data-tutorial-busy]`);
   if (busy && !busy.closest("[hidden]")) { messageDialog(BUSY_TEXT); return; }
-  if (hasUnsavedText(page)) { messageDialog(REFUSE_TEXT); return; }
+  if (entry.sample && hasUnsavedText(page)) { messageDialog(REFUSE_TEXT); return; }
   closeTip();
   let script = (key && entry.scripts.find((s) => s.key === key)) || pickScript(entry.scripts);
   running = { page, restore: Boolean(entry.sample) };
@@ -337,7 +394,9 @@ export async function startTutorial(page, key = null) {
 
 // Ends the tutorial by any route. `restore: false` when the caller is already
 // leaving the page (nav, sign-out), so real data is not reloaded behind it.
-export function endTutorial({ restore = true } = {}) {
+// `fromNav` (showPage): ignored while a forwarded tap's page change is awaited.
+export function endTutorial({ restore = true, fromNav = false } = {}) {
+  if (fromNav && isExpectingNav()) return;
   if (!running) return;
   const r = running;
   running = null;

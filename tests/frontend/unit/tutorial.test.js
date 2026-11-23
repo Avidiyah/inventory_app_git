@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../helpers/handlers.js";
-import { mountView } from "../helpers/shell.js";
+import { importView, mountView } from "../helpers/shell.js";
+import { stubClientRects } from "../helpers/starterWalk.js";
 import { setTestUser } from "../helpers/session.js";
 import { restoreBrowserStubs, stubScrollIntoView } from "../helpers/browserStubs.js";
 import { dismissMessageDialog } from "../helpers/workOrders.js";
@@ -422,5 +423,204 @@ describe("startTutorial by key", () => {
     ];
     expect(tut.pickScript(scripts, "technician").key).toBe("x.a");
     expect(tut.pickScript(scripts, "admin").key).toBe("x.b");
+  });
+});
+
+describe("wait steps", () => {
+  let wait, t1, t2, other, seen;
+  const spot = () => document.querySelector(".tut-spot");
+  const clickAt = (el) => {
+    const r = el.getBoundingClientRect();
+    overlay().dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true,
+      clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }));
+  };
+  const W = () => ({ key: "demo.wait", title: "W", steps: [
+    { waitTap: "#t2", via: "#t1", viaText: "Open it.", text: "Tap two." },
+    { target: "#b", title: "After", text: "After." },
+    { target: "#c", title: "Last", text: "Last." }] });
+
+  beforeEach(async () => {
+    vi.useFakeTimers();
+    stubClientRects();
+    wait = await importView("tutorialWait.js");
+    document.getElementById("host").insertAdjacentHTML("beforeend",
+      '<button id="t1" type="button">t1</button><button id="t2" type="button">t2</button><button id="other" type="button">o</button>');
+    [t1, t2, other] = ["t1", "t2", "other"].map((id) => document.getElementById(id));
+    const mine = (seen = []);
+    document.addEventListener("click", (e) => mine.push(e.target));
+  });
+  // runSteps alone never sets `running`, so endTutorial would be a no-op: Esc
+  // finishes the run, which silences this instance's document listeners.
+  afterEach(() => { key("Escape"); tut.endTutorial({ restore: false }); vi.useRealTimers(); });
+
+  it("keeps the box up, no pill, and the first tap does not hide it", () => {
+    tut.runSteps(W(), "owner");
+    expect(text()).toBe("Tap two.");
+    expect(box().hidden).toBe(false);
+    expect(pill().hidden).toBe(true);
+    tap();
+    expect(box().hidden).toBe(false);
+    expect(count()).toBe("1 of 3");
+  });
+
+  it("forwards a tap inside the lit rectangle once; outside does nothing", () => {
+    const spy = vi.fn();
+    t2.addEventListener("click", spy);
+    tut.runSteps(W(), "owner");
+    clickAt(other);
+    expect(spy).not.toHaveBeenCalled();
+    expect(seen).toEqual([]);
+    expect(count()).toBe("1 of 3");
+    clickAt(t2);
+    expect(spy).toHaveBeenCalledOnce();
+    expect(seen).toEqual([t2]); // the overlay tap itself never reached document
+  });
+
+  it.each(["Enter", "ArrowRight"])("%s acts as the lit tap", (k) => {
+    const spy = vi.fn();
+    t2.addEventListener("click", spy);
+    tut.runSteps(W(), "owner");
+    key(k);
+    expect(spy).toHaveBeenCalledOnce();
+  });
+
+  it("blocks every other key, and keyup of Enter and Space, so a focused button never fires", () => {
+    const onOther = vi.fn();
+    other.addEventListener("click", onOther);
+    other.addEventListener("keydown", onOther);
+    other.addEventListener("keyup", onOther);
+    tut.runSteps(W(), "owner");
+    other.focus();
+    for (const [type, k] of [["keydown", "x"], ["keydown", " "], ["keyup", "Enter"], ["keyup", " "]]) {
+      const e = new KeyboardEvent(type, { key: k, bubbles: true, cancelable: true });
+      other.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(true);
+    }
+    expect(onOther).not.toHaveBeenCalled();
+  });
+
+  it("lights via while waitTap has no box, forwards to via, then lights waitTap", () => {
+    let open = false;
+    t2.getClientRects = () => (open ? [{}] : []);
+    t1.addEventListener("click", () => { open = true; });
+    const spy2 = vi.fn();
+    t2.addEventListener("click", spy2);
+    tut.runSteps(W(), "owner");
+    expect(text()).toBe("Open it.");
+    expect(spot().style.top).toBe(`${t1.getBoundingClientRect().top - 6}px`);
+    clickAt(t1);
+    expect(spy2).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(50);
+    expect(text()).toBe("Tap two.");
+    expect(spot().style.top).toBe(`${t2.getBoundingClientRect().top - 6}px`);
+    clickAt(t2);
+    expect(spy2).toHaveBeenCalledOnce();
+  });
+
+  it("C1: a role-hidden waitTap skips it and the steps up to the next wait", () => {
+    const s = { key: "demo.c1", title: "C", steps: [
+      { target: "#a", text: "A." }, { waitTap: "#e", text: "Hidden." },
+      { target: "#b", text: "B." }, { target: "#c", text: "C." },
+      { waitTap: "#t1", text: "One." }, { target: "#under", text: "U." }] };
+    expect(tut.visibleSteps(s, "owner").map((v) => v.step.target ?? v.step.waitTap))
+      .toEqual(["#a", "#t1", "#under"]);
+  });
+
+  it("C1: a role-visible waitTap with no box anywhere ends quietly after 3 s", async () => {
+    t2.getClientRects = () => [];
+    const noVia = W();
+    delete noVia.steps[0].via;
+    const done = tut.runSteps(noVia, "owner");
+    vi.advanceTimersByTime(2900);
+    expect(overlay()).not.toBeNull();
+    vi.advanceTimersByTime(200);
+    await expect(done).resolves.toEqual({ result: "end" });
+    expect((await import("../../../backend/static/tutorialProgress.js")).isDone("demo.wait")).toBe(false);
+  });
+
+  it("Esc and End end without completing; no Back on the first step after a wait", async () => {
+    const tp = await import("../../../backend/static/tutorialProgress.js");
+    let done = tut.runSteps(W(), "owner");
+    key("Escape");
+    await expect(done).resolves.toEqual({ result: "end" });
+    done = tut.runSteps(W(), "owner");
+    act("end").click();
+    await expect(done).resolves.toEqual({ result: "end" });
+    expect(tp.isDone("demo.wait")).toBe(false);
+
+    tut.runSteps(W(), "owner");
+    clickAt(t2);
+    vi.advanceTimersByTime(50);
+    expect(text()).toBe("After.");
+    expect(act("back")).toBeNull();
+    tap(); tap();
+    expect(text()).toBe("Last.");
+    expect(act("back")).not.toBeNull();
+  });
+
+  it("a text list and a textFor list give one sentence per tap", () => {
+    tut.runSteps({ key: "demo.l", title: "L", steps: [
+      { target: "#a", text: "X.", textFor: { owner: ["One.", "Two."] } },
+      { target: "#b", text: ["P.", "Q."] }] }, "owner");
+    expect(text()).toBe("One.");
+    tap();
+    expect(text()).toBe("Two.");
+    tap(); tap();
+    expect(text()).toBe("P.");
+    tap();
+    expect(text()).toBe("Q.");
+  });
+
+  it("expectNav is set by a forwarded page tap and clears when the next step shows", () => {
+    tut.runSteps(W(), "owner");
+    expect(wait.isExpectingNav()).toBe(false);
+    clickAt(t2);
+    expect(wait.isExpectingNav()).toBe(true);
+    vi.advanceTimersByTime(50);
+    expect(text()).toBe("After.");
+    expect(wait.isExpectingNav()).toBe(false);
+  });
+
+  it("no next target within 3 s ends quietly, expectNav cleared, never completed", async () => {
+    const tp = await import("../../../backend/static/tutorialProgress.js");
+    const done = tut.runSteps({ key: "demo.gone", title: "G", steps: [
+      { waitTap: "#t2", text: "Tap." }, { target: "#zz", text: "Never." }] }, "owner");
+    clickAt(t2);
+    expect(wait.isExpectingNav()).toBe(true);
+    vi.advanceTimersByTime(3100);
+    await expect(done).resolves.toEqual({ result: "end" });
+    expect(wait.isExpectingNav()).toBe(false);
+    expect(tp.isDone("demo.gone")).toBe(false);
+  });
+
+  it("endTutorial from nav is ignored while expecting", () => {
+    tut.runSteps(W(), "owner");
+    clickAt(t2);
+    tut.endTutorial({ restore: false, fromNav: true });
+    expect(overlay()).not.toBeNull();
+  });
+});
+
+describe("starter entry (no sample)", () => {
+  beforeEach(async () => { await setTestUser({ role: "technician" }); });
+
+  it("sets no responder, skips showPage, refusals and the restore", async () => {
+    const api = await import("../../../backend/static/api.js");
+    const { confirmOverlay } = await import("../helpers/dialogs.js");
+    const showPage = vi.fn();
+    document.getElementById("host").insertAdjacentHTML("afterbegin",
+      '<section id="demo-page"><h2>D</h2><textarea id="note"></textarea><div data-tutorial-busy></div></section>');
+    document.getElementById("note").value = "typed words";
+    tut.installTutorials({ getActivePage: () => "demo", showPage,
+      tutorials: { demo: { scripts: [{ key: "demo.s", title: "S", sample: false, steps: [{ target: "#a", text: "A." }] }] } } });
+    server.use(http.get("/work-orders/", () => HttpResponse.json(["server"])));
+    const started = tut.startTutorial("demo", "demo.s");
+    await vi.waitFor(() => expect(text()).toBe("A."));
+    expect(confirmOverlay().hidden).toBe(true);
+    await expect(api.apiListWorkOrders()).resolves.toEqual(["server"]);
+    act("done").click();
+    await started;
+    expect(showPage).not.toHaveBeenCalled();
+    expect(document.getElementById("note").value).toBe("typed words");
   });
 });
