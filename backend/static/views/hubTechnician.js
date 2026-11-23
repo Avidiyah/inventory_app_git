@@ -9,6 +9,7 @@ import { mountWorkOrderList, focusWorkOrderNumber } from "./workOrders.js";
 import { showPage } from "./nav.js";
 import { roleAtLeast } from "../roles.js";
 import { hourLabelsHtml } from "./dayTimeline.js";
+import { liveId, patchHub } from "./hubPatch.js";
 
 // Mirrors `domain.labor_day.DISPLAY_ANCHOR_HOUR` -- the timeline strip's
 // axis starts here unless work began earlier. A *display* anchor only,
@@ -17,7 +18,7 @@ const DISPLAY_ANCHOR_HOUR = 8;
 
 function tileHtml(label, value, sub) {
   return `
-    <section class="hub-tile">
+    <section class="hub-tile" id="${liveId("hub-dash-tile", label)}">
       <p class="hub-tile-label">${escapeHtml(label)}</p>
       <p class="hub-tile-value">${escapeHtml(String(value))}</p>
       ${sub ? `<p class="hub-tile-sub">${escapeHtml(sub)}</p>` : ""}
@@ -140,7 +141,7 @@ function stockedRequestsHtml(stockedRequests) {
   if (!stockedRequests || !stockedRequests.length) return "";
   const rows = stockedRequests
     .map(
-      (row) => `<li class="hub-stocked-request">
+      (row) => `<li class="hub-stocked-request" id="${liveId("hub-stocked", `${row.work_order_number}-${row.item_name}`)}">
         <span class="hub-stocked-item">${escapeHtml(row.item_name)}</span>
         <button type="button" class="hub-link-btn hub-stocked-wo" data-number="${escapeHtml(row.work_order_number)}">${escapeHtml(row.work_order_number)}</button>
         <span class="hint">requested ${escapeHtml(row.quantity)}${row.stocked_at ? ` · stocked ${escapeHtml(new Date(row.stocked_at).toLocaleString())}` : ""}</span>
@@ -154,9 +155,11 @@ function stockedRequestsHtml(stockedRequests) {
     </section>`;
 }
 
+const DASH_SUB_MOUNTS = "#hub-priorities-mount, #hub-admin-mount, #hub-crew-mount";
+
 export function mountHubDashboard(container, payload) {
   const isAdminPlus = roleAtLeast(payload.user.role, "techfm_oa");
-  container.innerHTML =
+  patchHub(container,
     stockedRequestsHtml(payload.stocked_requests) +
     `<div id="hub-priorities-mount"></div>` +
     countsHtml(payload.counts) +
@@ -168,19 +171,24 @@ export function mountHubDashboard(container, payload) {
     // #hub-crew-mount is populated when the viewer is a routed supervisor
     // (D16), any role.
     `<div id="hub-admin-mount"></div>` +
-    `<div id="hub-crew-mount"></div>`;
+    `<div id="hub-crew-mount"></div>`,
+    // The sub-mounts are painted by their own modules (rule 2).
+    { flashSelector: ".hub-tile[id], .hub-stocked-request[id]", skipSelector: DASH_SUB_MOUNTS });
   container.querySelectorAll(".hub-timeline-block").forEach((block) => {
     block.style.left = `${block.dataset.left}%`;
     block.style.width = `${block.dataset.width}%`;
   });
   // Same hand-off as mountHubWorkOrders: focus first so the pending number
   // is armed before the page loader runs.
-  container.querySelectorAll(".hub-stocked-wo").forEach((btn) => {
-    btn.addEventListener("click", () => {
+  if (!container.dataset.stockedBound) {
+    container.dataset.stockedBound = "true";
+    container.addEventListener("click", (event) => {
+      const btn = event.target.closest(".hub-stocked-wo");
+      if (!btn) return;
       focusWorkOrderNumber(btn.dataset.number);
       showPage("work-orders");
     });
-  });
+  }
 }
 
 // Capped so an Admin/Owner's company-wide call (P4 Tab 3, unscoped by

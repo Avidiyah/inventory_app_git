@@ -9,10 +9,11 @@ import { escapeHtml, formatHm, formatMoney } from "../format.js";
 import { tipHtml } from "../tooltip.js";
 import { showPage } from "./nav.js";
 import { openWorkOrdersFilteredByStatus } from "./workOrders.js";
+import { liveId, patchHub } from "./hubPatch.js";
 
 function tileHtml(label, value) {
   return `
-    <section class="hub-tile">
+    <section class="hub-tile" id="${liveId("hub-admin-tile", label)}">
       <p class="hub-tile-label">${escapeHtml(label)}</p>
       <p class="hub-tile-value">${escapeHtml(value)}</p>
     </section>`;
@@ -33,7 +34,7 @@ function onClockRowHtml(entry) {
     ? ` <span class="hub-attention-icon" aria-hidden="true">⚠ ${escapeHtml(FLAG_LABELS[entry.flag] || entry.flag.replace(/_/g, " "))}</span>`
     : "";
   return `
-    <li class="hub-onclock-row">
+    <li class="hub-onclock-row" id="${liveId("hub-onclock", `${entry.technician_name}-${entry.work_order_number}`)}">
       <span class="hub-onclock-name">${escapeHtml(entry.technician_name)}</span>
       <span class="hub-onclock-subject">${escapeHtml(subject)}</span>
       <span class="hub-onclock-elapsed">${escapeHtml(formatHm(entry.elapsed_minutes))}${flag}</span>
@@ -71,7 +72,7 @@ function pipelineTileHtml(status, label, count) {
       ? ` <span class="hub-attention-icon" aria-hidden="true">⚠</span>`
       : "";
   return `
-    <button type="button" class="hub-tile hub-tile-pipeline-item" data-status="${escapeHtml(status)}">
+    <button type="button" class="hub-tile hub-tile-pipeline-item" id="${liveId("hub-admin-pipeline", status)}" data-status="${escapeHtml(status)}">
       <p class="hub-tile-label">${escapeHtml(label)}${flag}</p>
       <p class="hub-tile-value">${escapeHtml(String(count))}</p>
     </button>`;
@@ -108,7 +109,7 @@ function exceptionsHtml(exceptions) {
   const rows = EXCEPTION_ROWS.map(([key, label, showOpenSuffix]) => {
     const count = exceptions[key];
     const value = showOpenSuffix ? `${count} open` : String(count);
-    return `<li class="hub-exceptions-row"><span>${escapeHtml(label)}</span><span class="hub-pill${count ? " hub-pill-on" : ""}">${escapeHtml(value)}</span></li>`;
+    return `<li class="hub-exceptions-row" id="${liveId("hub-exception", key)}"><span>${escapeHtml(label)}</span><span class="hub-pill${count ? " hub-pill-on" : ""}">${escapeHtml(value)}</span></li>`;
   }).join("");
   return `
     <section class="hub-exceptions">
@@ -153,7 +154,7 @@ function billingHtml(billing) {
 }
 
 export function mountHubAdminSummary(container, payload) {
-  container.innerHTML = `
+  patchHub(container, `
     <div class="hub-dash-card hub-dash-crew">
       <h3 class="hub-dash-title">Crew time today</h3>
       ${onClockHtml(payload.on_the_clock)}
@@ -166,7 +167,7 @@ export function mountHubAdminSummary(container, payload) {
     <div class="hub-exceptions-billing-grid">
       ${exceptionsHtml(payload.exceptions)}
       ${billingHtml(payload.billing)}
-    </div>`;
+    </div>`, { flashSelector: ".hub-tile[id], .hub-onclock-row[id], .hub-exceptions-row[id]" });
 
   container.querySelectorAll(".hub-bar-seg").forEach((seg) => {
     seg.style.flexGrow = seg.dataset.grow;

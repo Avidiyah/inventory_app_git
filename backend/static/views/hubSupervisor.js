@@ -15,10 +15,11 @@
 
 import { escapeHtml, formatHm } from "../format.js";
 import { tipHtml } from "../tooltip.js";
+import { liveId, patchHub } from "./hubPatch.js";
 
 function tileHtml(label, value, sub) {
   return `
-    <section class="hub-tile">
+    <section class="hub-tile" id="${liveId("hub-crew-tile", label)}">
       <p class="hub-tile-label">${escapeHtml(label)}</p>
       <p class="hub-tile-value">${escapeHtml(String(value))}</p>
       ${sub ? `<p class="hub-tile-sub">${escapeHtml(sub)}</p>` : ""}
@@ -54,7 +55,7 @@ function attentionHtml(attention) {
   const rows = attention
     .map(
       (item) =>
-        `<li class="hub-attention-row"><span class="hub-attention-icon" aria-hidden="true">⚠</span><span>${escapeHtml(item.subject)} — ${escapeHtml(item.detail)}</span></li>`
+        `<li class="hub-attention-row" id="${liveId("hub-attention", `${item.subject}-${item.kind}`)}"><span class="hub-attention-icon" aria-hidden="true">⚠</span><span>${escapeHtml(item.subject)} — ${escapeHtml(item.detail)}</span></li>`
     )
     .join("");
   return `
@@ -104,7 +105,7 @@ function technicianCardHtml(tech, serverNow) {
     : `<p class="hub-crew-subject">Last worked ${escapeHtml(lastWorkedText(tech.last_worked))}</p>`;
 
   return `
-    <article class="hub-crew-card${onClock ? " hub-crew-card-on" : ""}">
+    <article class="hub-crew-card${onClock ? " hub-crew-card-on" : ""}" id="${liveId("hub-crew", tech.user.id)}">
       <p class="hub-crew-status">
         <span class="hub-crew-dot${onClock ? " hub-crew-dot-on" : ""}" aria-hidden="true"></span>
         <span class="hub-crew-name">${escapeHtml(name)}</span>
@@ -135,5 +136,6 @@ function crewHtml(payload) {
 }
 
 export function mountHubCrew(container, payload, { isAdminPlus = false } = {}) {
-  container.innerHTML = rollUpsHtml(payload, { isAdminPlus }) + attentionHtml(payload.attention) + crewHtml(payload);
+  patchHub(container, rollUpsHtml(payload, { isAdminPlus }) + attentionHtml(payload.attention) + crewHtml(payload),
+    { flashSelector: ".hub-tile[id], .hub-crew-card[id], .hub-attention-row[id]" });
 }

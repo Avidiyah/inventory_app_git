@@ -11,10 +11,11 @@
 import { escapeHtml } from "../format.js";
 import { roleAtLeast } from "../roles.js";
 import { tipHtml } from "../tooltip.js";
+import { liveId, patchHub } from "./hubPatch.js";
 
 function tileHtml(label, value, sub) {
   return `
-    <section class="hub-tile">
+    <section class="hub-tile" id="${liveId("hub-priorities-tile", label)}">
       <p class="hub-tile-label">${escapeHtml(label)}</p>
       <p class="hub-tile-value">${escapeHtml(String(value))}</p>
       ${sub ? `<p class="hub-tile-sub">${escapeHtml(sub)}</p>` : ""}
@@ -42,23 +43,23 @@ export function mountHubPriorities(container, { role, personal, crew, admin } = 
     // Admin/Owner/TechFM OA may also be routed as a supervisor on some work
     // orders, but the card's promise for this role tier is company-wide.
     if (!admin) {
-      container.innerHTML = "";
+      patchHub(container, "");
       return;
     }
     body = scopedHtml(admin, "company-wide");
   } else if (isSupervisor) {
     if (!crew) {
-      container.innerHTML = "";
+      patchHub(container, "");
       return;
     }
     body = scopedHtml(crew, "your crew");
   } else {
     if (!personal) {
-      container.innerHTML = "";
+      patchHub(container, "");
       return;
     }
     body = `<div class="hub-tile-grid">${tileHtml("High priority — assigned to you", personal.assigned, "")}</div>`;
   }
 
-  container.innerHTML = `<section class="hub-priorities"><p class="hub-tile-label">Priorities${tipHtml("hub.priorities")}</p>${body}</section>`;
+  patchHub(container, `<section class="hub-priorities"><p class="hub-tile-label">Priorities${tipHtml("hub.priorities")}</p>${body}</section>`, { flashSelector: ".hub-tile[id]" });
 }

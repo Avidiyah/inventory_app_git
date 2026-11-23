@@ -9,6 +9,11 @@ import { isDirty, keepPlace, morphInto } from "../morph.js";
 
 const ALWAYS_SKIP = ".punch-editor, [data-live-skip]";
 
+// A stable element id for a patched row or tile: `liveId("hub-crew", userId)`.
+export function liveId(prefix, key) {
+  return `${prefix}-${String(key).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+}
+
 export function patchHub(mount, html, { flashSelector = null, flashKey, skipSelector = null } = {}) {
   const fresh = document.createElement("div");
   fresh.innerHTML = html;
