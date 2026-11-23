@@ -255,4 +255,10 @@ export const ENDPOINTS = [
   { fn: "apiPushUnsubscribe", args: ["https://push/e"], method: "POST", url: "/push/unsubscribe",
     body: { endpoint: "https://push/e" } },
   { fn: "apiPushTest", args: [], method: "POST", url: "/push/test" },
+
+  // --- Tutorial progress ---
+  { fn: "apiGetTutorialProgress", args: [], url: "/tutorials/progress/me" },
+  { fn: "apiSetTutorialProgress", args: ["k.a", "completed"], method: "PUT",
+    url: "/tutorials/progress/k.a", body: { event: "completed" } },
+  { fn: "apiGetTutorialProgressUsers", args: [], url: "/tutorials/progress/users" },
 ];

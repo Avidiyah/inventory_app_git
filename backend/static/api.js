@@ -1025,6 +1025,21 @@ export async function apiPushTest() {
   }));
 }
 
+// --- Tutorial progress -------------------------------------------
+export async function apiGetTutorialProgress() {
+  return parseResponse(await rawFetch("/tutorials/progress/me", { credentials: "include" }));
+}
+
+// `event` is "seen" or "completed"; 204 resolves to null.
+export async function apiSetTutorialProgress(key, event) {
+  return jsonRequest(`/tutorials/progress/${encodeURIComponent(key)}`, "PUT", { event });
+}
+
+// Supervisor and above: { "<user id>": [completed keys] }.
+export async function apiGetTutorialProgressUsers() {
+  return parseResponse(await rawFetch("/tutorials/progress/users", { credentials: "include" }));
+}
+
 // Weekly export (TechFM OA+): POST records a new window and returns it;
 // GET /latest re-downloads the last one unchanged.
 async function xlsxDownload(url, method) {
