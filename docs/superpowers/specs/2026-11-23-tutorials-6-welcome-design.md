@@ -1,5 +1,7 @@
 # Tutorials 6 — the one-time welcome
 
+> **Added 2026-11-23 for the Starter batch (overrides anything below):** The welcome's last step opens the Tutorials tab on the STARTER sub-tab and leaves the person there (user's pick, 2026-11-23). Batch 5 (Starter) is built before this batch.
+
 > **Rule added by the user 2026-11-23 (overrides anything below):** every box shows ONE simple sentence. A step that needs more is written as a list of sentences (`text: ["...", "..."]`, at most 3, each at most 120 characters) and the player gives each sentence its own tap on the same lit section. Wording tables that hold two sentences in one step are split at the sentence boundary, never merged into a longer sentence. Use plain words a new hire would use; one idea per sentence. See 0a spec 5.2 and 5.4.
 
 Date: 2026-11-23 · Status: awaiting approval · Budget: ≤ 1,200 words · Builds on 0a (player) and 0b (progress record, Tutorials tab)

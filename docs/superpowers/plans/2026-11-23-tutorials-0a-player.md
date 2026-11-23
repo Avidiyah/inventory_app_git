@@ -1,5 +1,7 @@
 # Tutorials 0a — Player, Button, Sample Data, Guard, Work-Order Pilot Implementation Plan
 
+> **Added 2026-11-23 for the Starter batch (overrides anything below):** T2-T5 must also carry the Starter batch's player needs (starter spec 5.1 and section 10 item 6): the extra script fields, the `expectNav` wait-for-tap step, `sample: false` scripts that run with no sample and no reload, layout-based visibility, and a guard loop that skips entries without a sample. Build them with 0a if cheaper than retrofitting in batch 5.
+
 > **Rule added by the user 2026-11-23 (overrides anything below):** every box shows ONE simple sentence. A step that needs more is written as a list of sentences (`text: ["...", "..."]`, at most 3, each at most 120 characters) and the player gives each sentence its own tap on the same lit section. Wording tables that hold two sentences in one step are split at the sentence boundary, never merged into a longer sentence. Use plain words a new hire would use; one idea per sentence. See 0a spec 5.2 and 5.4.
 
 **Goal:** Ship the shared tutorial player, the page button, the sample-data switch in `api.js`, one guard test, and four work-order-card scripts.

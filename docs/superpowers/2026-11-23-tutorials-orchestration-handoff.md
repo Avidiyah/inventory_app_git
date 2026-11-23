@@ -11,7 +11,7 @@ job is to get it built batch by batch, with the user checking each batch.
    not reopen any of it.
 2. `docs/superpowers/specs/2026-11-23-tutorials-0a-player-design.md` and
    `docs/superpowers/plans/2026-11-23-tutorials-0a-player.md`, in full.
-3. The other specs and plans (`2026-11-23-tutorials-{0b,1,2,3,4,6}-*`) only
+3. The other specs and plans (`2026-11-23-tutorials-{0b,1,2,3,4,5-starter,6}-*`) only
    when you reach that batch.
 
 ## What you must know about these documents
@@ -41,9 +41,10 @@ job is to get it built batch by batch, with the user checking each batch.
 | 0a player and work-order pilot | Sequential, by its plan. Stop for the user's in-app check |
 | 0b progress, red dot, Hub tab, Users count | Sequential; carries a migration. Stop for the in-app check |
 | 1 Technician, 2 Team Lead, 3 Office, 4 Admin | Parallel: one Sonnet 5.5 medium agent per page, using the briefs in that batch's plan |
-| 6 Welcome | Last. The user's greeting is in the welcome spec, 5.5 step 1; use it verbatim |
+| 5 Starter | After batch 4. Menu-bar tours, one per menu group, shown in a third "Starter" sub-tab; the person taps the real menu button to move on. Adds a wait-for-tap step and cross-page running to the player; read its spec before building 0a |
+| 6 Welcome | Last. Ends on the Starter sub-tab. The user's greeting is in the welcome spec, 5.5 step 1; use it verbatim |
 
-There is no batch 5: SMR is finished and gets no tutorials.
+SMR is finished and gets no tutorials (the old SMR batch 5 was deleted).
 
 For a parallel batch: do the prep task yourself, launch every page agent in
 one message, then register the pages, run the guard test, fix what fails, and

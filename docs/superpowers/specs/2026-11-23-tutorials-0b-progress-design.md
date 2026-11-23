@@ -1,5 +1,7 @@
 # Tutorials 0b — progress record, red dot, Hub Tutorials tab, Users-page count
 
+> **Added 2026-11-23 for the Starter batch (overrides anything below):** The Tutorials tab has THREE sub-tabs: To do, Completed, Starter (the sketch's "Done" is "Completed"). A starter script has no page: its audience is its `minRole`, and it is exempt from the page-minimum guard line (5.4). Page-button dots count page-button scripts only; starters feed the Tutorials-tab dot and the Users-page counts (5.5). See starter spec section 10.
+
 > **Rule added by the user 2026-11-23 (overrides anything below):** every box shows ONE simple sentence. A step that needs more is written as a list of sentences (`text: ["...", "..."]`, at most 3, each at most 120 characters) and the player gives each sentence its own tap on the same lit section. Wording tables that hold two sentences in one step are split at the sentence boundary, never merged into a longer sentence. Use plain words a new hire would use; one idea per sentence. See 0a spec 5.2 and 5.4.
 
 Date: 2026-11-23 · Status: awaiting approval · Budget: ≤ 1,800 words

@@ -1,5 +1,7 @@
 # Tutorials 0b — Progress Record Implementation Plan
 
+> **Added 2026-11-23 for the Starter batch (overrides anything below):** For the Starter batch (starter spec section 10 item 3): `relevant()` and `catalogue()` must accept a page absent from `PAGE_ACCESS` when the script sets `minRole`, and `startTutorial(page, key)` must work for the page name "starter" without calling `showPage`. The Hub tab is built so a third sub-tab can be added.
+
 > **Rule added by the user 2026-11-23 (overrides anything below):** every box shows ONE simple sentence. A step that needs more is written as a list of sentences (`text: ["...", "..."]`, at most 3, each at most 120 characters) and the player gives each sentence its own tap on the same lit section. Wording tables that hold two sentences in one step are split at the sentence boundary, never merged into a longer sentence. Use plain words a new hire would use; one idea per sentence. See 0a spec 5.2 and 5.4.
 
 **Goal:** A per-person tutorial progress record, a red dot on page buttons, a Hub Tutorials tab, and a completed-count on the Users page.
