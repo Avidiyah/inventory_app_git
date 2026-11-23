@@ -645,3 +645,129 @@ describe("live queue", () => {
     expect(el.message().className).toBe("error");
   });
 });
+
+describe("live detail", () => {
+  const CHANGED = "This order was changed by someone else. The receipt is up to date.";
+  const READY = "Receipt ready — select all and copy.";
+  const detailGets = (id) => requests().filter((r) => r.method === "GET" && r.url === `/work-orders/${id}`);
+
+  it("refreshes the receipt when the selected order's materials change", async () => {
+    const { detail } = await mountSelected();
+    const rt = await connect();
+    detail.items = [priced(), priced({ item_id: "extra", item_name: "Extra part" })];
+    rt.emit("work_order.status.changed", { id: detail.id });
+    await vi.waitFor(() => expect(el.output().value).toBe(buildAdminReviewReceipt(detail).text));
+    expect(el.receiptMessage().textContent).toBe(CHANGED);
+  });
+
+  it("does not focus, select or open the price picker on a live refresh", async () => {
+    const { detail } = await mountSelected();
+    const rt = await connect();
+    el.reopen().focus();
+    detail.items = [unpriced()];
+    rt.emit("work_order.status.changed", { id: detail.id });
+    await vi.waitFor(() => expect(el.close().disabled).toBe(true));
+    expect(el.receiptMessage().textContent).toBe(CHANGED);
+    expect(document.activeElement).toBe(el.reopen());
+    expect(el.picker().hidden).toBe(true);
+    expect(el.output().hidden).toBe(true);
+  });
+
+  it("an unchanged order shows no note", async () => {
+    const { detail } = await mountSelected();
+    const rt = await connect();
+    rt.emit("work_order.status.changed", { id: detail.id });
+    await vi.waitFor(() => expect(detailGets(detail.id)).toHaveLength(1));
+    await settle();
+    await settle();
+    expect(el.receiptMessage().textContent).toBe(READY);
+    expect(detailGets(detail.id)).toHaveLength(1);
+  });
+
+  it("an event for another order leaves the receipt alone", async () => {
+    const { detail } = await mountSelected();
+    const rt = await connect();
+    rt.emit("work_order.status.changed", { id: "someone-else" });
+    await settle();
+    expect(detailGets(detail.id)).toHaveLength(0);
+    expect(el.receiptMessage().textContent).toBe(READY);
+  });
+
+  it("the review-queue event refreshes the open receipt too", async () => {
+    const { detail } = await mountSelected();
+    const rt = await connect();
+    detail.items = [priced(), priced({ item_id: "extra", item_name: "Extra part" })];
+    rt.emit("work_order.review_queue.changed", { id: detail.id });
+    await vi.waitFor(() => expect(el.receiptMessage().textContent).toBe(CHANGED));
+  });
+
+  it("marks the order gone when it left Review", async () => {
+    const { detail } = await mountSelected({ number: "5001" });
+    const text = el.output().value;
+    const rt = await connect();
+    detail.status = "in_progress";
+    rt.emit("work_order.status.changed", { id: detail.id });
+    await vi.waitFor(() => expect(el.receiptMessage().textContent).toBe(
+      "WO 5001 was closed or sent back by someone else. The receipt remains for reference."));
+    expect(el.output().value).toBe(text);
+    expect(el.reopen().disabled).toBe(true);
+    expect(el.close().disabled).toBe(true);
+  });
+
+  it("own Archive shows its own message", async () => {
+    const { detail } = await mountSelected({
+      number: "4242",
+      handlers: [http.post("/work-orders/:id/archive", () => HttpResponse.json({}))],
+    });
+    const rt = await connect();
+    el.close().click();
+    await answerConfirm(true);
+    const own = "WO 4242 closed. The receipt remains available for copying.";
+    await vi.waitFor(() => expect(el.receiptMessage().textContent).toBe(own));
+    clearRequests();
+    detail.status = "in_progress";
+    rt.emit("work_order.status.changed", { id: detail.id });
+    await settle();
+    await settle();
+    expect(el.receiptMessage().textContent).toBe(own);
+    expect(detailGets(detail.id)).toHaveLength(0);
+  });
+
+  it("a tile tapped during the refresh wins", async () => {
+    const a = reviewDetail({ id: "a", number: "1", items: [priced()] });
+    const b = reviewDetail({ id: "b", number: "2", items: [priced()] });
+    const gate = deferred();
+    let held = false;
+    await mountAdminReview({
+      cards: [reviewCard({ id: "a", number: "1" }), reviewCard({ id: "b", number: "2" })],
+      details: [a, b],
+      handlers: [http.get("/work-orders/a", async () => {
+        if (!held) return HttpResponse.json(a);
+        await gate.promise;
+        return HttpResponse.json({ ...a, items: [priced(), priced({ item_id: "x", item_name: "Late" })] });
+      })],
+    });
+    await select("a");
+    const rt = await connect();
+    held = true;
+    rt.emit("work_order.status.changed", { id: "a" });
+    await select("b");
+    gate.resolve();
+    await settle();
+    await settle();
+    expect(el.title().textContent).toBe("WO 2 Receipt");
+    expect(el.output().value).toBe(buildAdminReviewReceipt(b).text);
+    expect(el.receiptMessage().textContent).toBe(READY);
+  });
+
+  it("refreshes on reconnect", async () => {
+    const { detail } = await mountSelected();
+    const rt = await connect();
+    vi.useFakeTimers();
+    rt.reconnect();
+    vi.advanceTimersByTime(1000);
+    rt.ws.last().emitOpen();
+    expect(detailGets(detail.id)).toHaveLength(1);
+    await vi.runAllTimersAsync();
+  });
+});

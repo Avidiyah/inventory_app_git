@@ -21,10 +21,12 @@ import { escapeHtml, friendlyError, netfacilitiesWorkOrderUrl } from "../format.
 import { keepPlace, morphInto } from "../morph.js";
 import { subscribe } from "../realtime.js";
 import { showPage } from "./nav.js";
+import { coalesce, concerns, refreshSelected } from "./reviewLiveDetail.js";
 import { focusMissingPriceRequest } from "./userRequests.js";
 import { workOrderCardClass } from "./workOrders.js";
 
 const REVIEW_QUEUE_CHANGED_EVENT = "work_order.review_queue.changed";
+const STATUS_CHANGED_EVENT = "work_order.status.changed";
 const ADMIN_REVIEW_PAGE = "admin-review";
 
 const listEl = document.getElementById("admin-review-list");
@@ -47,6 +49,11 @@ let committedQueueRequestId = 0;
 // The count line last written, so a background load can tell it from an
 // action or error message, which it leaves alone.
 let countText = "";
+// An own Reopen or Close is running: its message must be the last one written.
+let acting = false;
+// The shown order has left Review (own action or someone else's); the receipt
+// stays for reference and is no longer refreshed.
+let detached = false;
 
 function assignedNames(card) {
   const names = Array.isArray(card.assigned_to_names)
@@ -162,10 +169,13 @@ async function openUnpricedPicker(detail, items) {
   showPage("user-requests");
 }
 
-function renderReceipt(detail) {
+// The receipt text, title and buttons for `detail`. No message, focus,
+// selection or picker: a live refresh uses this alone.
+function paintReceipt(detail) {
   const { text, missingPrices } = buildAdminReviewReceipt(detail);
   const unpriced = unpricedItems(detail);
   selectedDetail = detail;
+  detached = false;
   receiptTitle.textContent = `WO ${detail.number} Receipt`;
   // An unpriced receipt is not billable, so it is never offered for copying.
   receiptOutput.hidden = unpriced.length > 0;
@@ -176,6 +186,11 @@ function renderReceipt(detail) {
   listEl.querySelectorAll(".admin-review-card").forEach((card) => {
     card.classList.toggle("selected", card.dataset.id === detail.id);
   });
+  return { missingPrices, unpriced };
+}
+
+function renderReceipt(detail) {
+  const { missingPrices, unpriced } = paintReceipt(detail);
 
   if (missingPrices.length) {
     setMessage(
@@ -193,6 +208,39 @@ function renderReceipt(detail) {
   receiptOutput.scrollLeft = 0;
   receiptOutput.scrollTop = 0;
 }
+
+function receiptSignature(detail) {
+  const { text, missingPrices } = buildAdminReviewReceipt(detail);
+  return [detail.number, text, ...missingPrices].join("\n");
+}
+
+// A live event named the selected order: refetch it and, only if what is
+// shown differs, repaint and say so. A tile the user taps meanwhile wins.
+const refreshOpenReceipt = coalesce(() => {
+  const startId = selectionRequestId;
+  let shown = null;
+  return refreshSelected({
+    getSelected: () => (shown = acting || detached ? null : selectedDetail),
+    fetchDetail: apiGetWorkOrder,
+    isStale: () => acting || selectionRequestId !== startId || selectedDetail !== shown,
+    inQueue: (detail) => detail.status === "review",
+    signature: receiptSignature,
+    repaint: (detail) => {
+      paintReceipt(detail);
+      setMessage(receiptMessage, "This order was changed by someone else. The receipt is up to date.", "");
+    },
+    markGone: () => {
+      detached = true;
+      reopenBtn.disabled = true;
+      closeBtn.disabled = true;
+      setMessage(
+        receiptMessage,
+        `WO ${shown.number} was closed or sent back by someone else. The receipt remains for reference.`,
+        "error"
+      );
+    },
+  });
+});
 
 async function selectWorkOrder(workOrderId) {
   const requestId = ++selectionRequestId;
@@ -251,8 +299,10 @@ reopenBtn.addEventListener("click", async () => {
 
   reopenBtn.disabled = true;
   closeBtn.disabled = true;
+  acting = true;
   try {
     await apiUpdateWorkOrder(selectedDetail.id, { status: "in_progress" });
+    detached = true;
     await loadAdminReview();
     setMessage(
       receiptMessage,
@@ -263,6 +313,8 @@ reopenBtn.addEventListener("click", async () => {
     reopenBtn.disabled = false;
     closeBtn.disabled = unpricedItems(selectedDetail).length > 0;
     setMessage(receiptMessage, friendlyError(err, "Could not return that work order."), "error");
+  } finally {
+    acting = false;
   }
 });
 
@@ -274,8 +326,10 @@ closeBtn.addEventListener("click", async () => {
 
   reopenBtn.disabled = true;
   closeBtn.disabled = true;
+  acting = true;
   try {
     await apiArchiveWorkOrder(selectedDetail.id);
+    detached = true;
     await loadAdminReview();
     setMessage(
       receiptMessage,
@@ -286,14 +340,23 @@ closeBtn.addEventListener("click", async () => {
     reopenBtn.disabled = false;
     closeBtn.disabled = false;
     setMessage(receiptMessage, friendlyError(err, "Could not close that work order."), "error");
+  } finally {
+    acting = false;
   }
 });
 
 // Both a matching invalidation and a recovered connection mean the queue may
-// be stale. Admin Review is explicitly UX-6-safe to refresh: rebuilding its
-// cards preserves selectedDetail and never touches the open receipt. Inactive
-// pages need no dirty flag because nav.js already loads this queue on entry.
-subscribe(REVIEW_QUEUE_CHANGED_EVENT, ({ activePage }) => {
-  if (activePage !== ADMIN_REVIEW_PAGE) return;
+// be stale; the tiles patch in place. Inactive pages need no dirty flag
+// because nav.js already loads this queue on entry.
+subscribe(REVIEW_QUEUE_CHANGED_EVENT, (notification) => {
+  if (notification.activePage !== ADMIN_REVIEW_PAGE) return;
+  if (concerns(notification, selectedDetail)) refreshOpenReceipt();
   return loadAdminReview({ background: true });
+});
+
+// Material, labor and billing changes do not move the queue but do change
+// the receipt, so the open one listens for its own order.
+subscribe(STATUS_CHANGED_EVENT, (notification) => {
+  if (notification.activePage !== ADMIN_REVIEW_PAGE) return;
+  if (concerns(notification, selectedDetail)) return refreshOpenReceipt();
 });

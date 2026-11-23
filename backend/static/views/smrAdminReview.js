@@ -16,6 +16,7 @@ import { confirmDialog, setMessage } from "../dom.js";
 import { escapeHtml, friendlyError, netfacilitiesWorkOrderUrl } from "../format.js";
 import { keepPlace, morphInto } from "../morph.js";
 import { subscribe } from "../realtime.js";
+import { coalesce, concerns, refreshSelected } from "./reviewLiveDetail.js";
 import { printSmrBlock } from "./workOrderSmrActions.js";
 import { blockStatusText } from "./workOrderSmrLines.js";
 
@@ -39,6 +40,11 @@ let queueRequestId = 0;
 // The count line last written, so a background load can tell it from an
 // action or error message, which it leaves alone.
 let countText = "";
+// An own action is running: its message must be the last one written.
+let acting = false;
+// The shown order has left Ready to invoice (own action or someone else's);
+// the block stays for reference and is no longer refreshed.
+let detached = false;
 
 function statusLabel(tile) {
   const lines = tile.lines || {};
@@ -98,8 +104,11 @@ function setActionsDisabled(disabled) {
   }
 }
 
-function renderBlock(detail) {
+// The block text, status line and buttons for `detail`. No message: a live
+// refresh uses this alone.
+function paintBlock(detail) {
   selectedDetail = detail;
+  detached = false;
   const block = detail.smr_block;
   const usable = Boolean(block?.text) && !block.stale;
   blockTitle.textContent = `WO ${detail.number} Correction Block`;
@@ -115,6 +124,11 @@ function renderBlock(detail) {
   listEl.querySelectorAll(".admin-review-card").forEach((card) => {
     card.classList.toggle("selected", card.dataset.id === detail.id);
   });
+}
+
+function renderBlock(detail) {
+  paintBlock(detail);
+  const block = detail.smr_block;
   if (!block) {
     setMessage(blockMessage, "This order has no correction block yet. Regenerate it before invoicing.", "error");
   } else if (block.stale) {
@@ -123,6 +137,39 @@ function renderBlock(detail) {
     setMessage(blockMessage, "Block ready — print it or select all and copy.", "success");
   }
 }
+
+function blockSignature(detail) {
+  const block = detail.smr_block;
+  return [detail.number, block?.text || "", blockStatusText(block), block?.pasted_at || ""].join("\n");
+}
+
+// A live event named the selected order: refetch it and, only if what is
+// shown differs, repaint and say so. A tile the user taps meanwhile wins.
+const refreshOpenBlock = coalesce(() => {
+  const startId = selectionRequestId;
+  let shown = null;
+  return refreshSelected({
+    getSelected: () => (shown = acting || detached ? null : selectedDetail),
+    fetchDetail: apiGetWorkOrder,
+    isStale: () => acting || selectionRequestId !== startId || selectedDetail !== shown,
+    // The same stage rule the tile filter reads; an archived order is a 404.
+    inQueue: (detail) => detail.smr_stage === "ready",
+    signature: blockSignature,
+    repaint: (detail) => {
+      paintBlock(detail);
+      setMessage(blockMessage, "This order was changed by someone else. The block is up to date.", "");
+    },
+    markGone: () => {
+      detached = true;
+      setActionsDisabled(true);
+      setMessage(
+        blockMessage,
+        `WO ${shown.number} was closed or sent back by someone else. The block remains for reference.`,
+        "error"
+      );
+    },
+  });
+});
 
 async function selectWorkOrder(workOrderId) {
   const requestId = ++selectionRequestId;
@@ -162,13 +209,17 @@ export async function loadSmrAdminReview({ background = false } = {}) {
 async function runAction(action, done, failure) {
   const detail = selectedDetail;
   setActionsDisabled(true);
+  acting = true;
   try {
     await action(detail);
+    detached = true;
     await loadSmrAdminReview();
     setMessage(blockMessage, done(detail), "success");
   } catch (err) {
     setActionsDisabled(false);
     setMessage(blockMessage, friendlyError(err, failure), "error");
+  } finally {
+    acting = false;
   }
 }
 
@@ -191,6 +242,7 @@ printBtn.addEventListener("click", () => {
 async function changeBlock(action, failure) {
   const detail = selectedDetail;
   setActionsDisabled(true);
+  acting = true;
   try {
     await action(detail);
     await loadSmrAdminReview();
@@ -198,6 +250,8 @@ async function changeBlock(action, failure) {
   } catch (err) {
     setActionsDisabled(false);
     setMessage(blockMessage, friendlyError(err, failure), "error");
+  } finally {
+    acting = false;
   }
 }
 
@@ -241,7 +295,8 @@ archiveBtn.addEventListener("click", async () => {
 // Every SMR and work-order write sends this event with the order id, and a
 // recovered connection means anything may have changed. Inactive pages need
 // no dirty flag: nav.js loads this queue on entry.
-subscribe("work_order.status.changed", ({ activePage }) => {
-  if (activePage !== "smr-admin-review") return;
+subscribe("work_order.status.changed", (notification) => {
+  if (notification.activePage !== "smr-admin-review") return;
+  if (concerns(notification, selectedDetail)) refreshOpenBlock();
   return loadSmrAdminReview({ background: true });
 });

@@ -271,3 +271,128 @@ describe("live queue", () => {
     await settle();
   });
 });
+
+describe("live detail", () => {
+  const CHANGED = "This order was changed by someone else. The block is up to date.";
+  const READY = "Block ready — print it or select all and copy.";
+  const ACTIONS = ["regenerate-btn", "print-btn", "pasted-btn", "not-ready-btn", "archive-btn"];
+  const detailGets = () => requests().filter((r) => r.method === "GET" && r.url === "/work-orders/w1");
+  let realtime = null;
+  afterEach(() => {
+    if (realtime) { realtime.disconnect(); realtime = null; }
+    vi.useRealTimers();
+  });
+  async function open(overrides = {}, handlers = []) {
+    const detail = await mountSelected({ smr_stage: "ready", ...overrides }, handlers);
+    realtime = await connectFakeRealtime("smr-admin-review");
+    return { detail, rt: realtime };
+  }
+
+  it("refreshes the block and status when labor changes", async () => {
+    const { detail, rt } = await open();
+    const focused = document.activeElement;
+    detail.smr_block = block({ stale: true });
+    rt.emit("work_order.status.changed", { id: "w1" });
+    await vi.waitFor(() => expect(el("block-message").textContent).toBe(CHANGED));
+    expect(el("block-status").textContent).toBe("v2 · not yet pasted · lines changed since v2");
+    expect(el("regenerate-btn").hidden).toBe(false);
+    expect(document.activeElement).toBe(focused);
+  });
+
+  it("refreshes the block text", async () => {
+    const { detail, rt } = await open();
+    detail.smr_block = block({ version: 3, text: "NEW LINE" });
+    rt.emit("work_order.status.changed", { id: "w1" });
+    await vi.waitFor(() => expect(el("block-output").value).toBe("NEW LINE"));
+    expect(el("block-message").textContent).toBe(CHANGED);
+  });
+
+  it("an unchanged order shows no note", async () => {
+    const { rt } = await open();
+    rt.emit("work_order.status.changed", { id: "w1" });
+    await vi.waitFor(() => expect(detailGets()).toHaveLength(1));
+    await settle();
+    await settle();
+    expect(el("block-message").textContent).toBe(READY);
+    expect(detailGets()).toHaveLength(1);
+  });
+
+  it("an event for another order leaves the block alone", async () => {
+    const { rt } = await open();
+    rt.emit("work_order.status.changed", { id: "someone-else" });
+    await vi.waitFor(() => expect(tilesGets()).toHaveLength(1));
+    await settle();
+    expect(detailGets()).toHaveLength(0);
+    expect(el("block-message").textContent).toBe(READY);
+  });
+
+  it.each([
+    ["no longer ready", (detail) => { detail.smr_stage = "review"; }],
+    ["archived", () => server.use(http.get("/work-orders/w1", () => HttpResponse.json({ detail: "" }, { status: 404 })))],
+  ])("marks the order gone when it is %s", async (_, change) => {
+    const { detail, rt } = await open();
+    change(detail);
+    rt.emit("work_order.status.changed", { id: "w1" });
+    await vi.waitFor(() => expect(el("block-message").textContent).toBe(
+      "WO 5001 was closed or sent back by someone else. The block remains for reference."));
+    expect(ACTIONS.map((id) => el(id).disabled)).toEqual([true, true, true, true, true]);
+    expect(el("block-output").value).toBe("LINE ONE\nLINE TWO\nLINE THREE");
+  });
+
+  it("own Archive shows its own message", async () => {
+    const { detail, rt } = await open({}, [
+      http.post("/work-orders/:id/archive", () => new HttpResponse(null, { status: 204 })),
+    ]);
+    el("archive-btn").click();
+    await answerConfirm(true);
+    const own = "WO 5001 archived. The block remains available for copying.";
+    await vi.waitFor(() => expect(el("block-message").textContent).toBe(own));
+    clearRequests();
+    detail.smr_stage = "review";
+    rt.emit("work_order.status.changed", { id: "w1" });
+    await vi.waitFor(() => expect(tilesGets()).toHaveLength(1));
+    await settle();
+    await settle();
+    expect(el("block-message").textContent).toBe(own);
+    expect(detailGets()).toHaveLength(0);
+  });
+
+  it("a tile tapped during the refresh wins", async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    let held = false;
+    const a = workOrderDetail({ id: "w1", number: "5001", smr_stage: "ready", smr_block: block() });
+    const b = workOrderDetail({ id: "w2", number: "5002", smr_stage: "ready", smr_block: block({ text: "OTHER" }) });
+    await mount({
+      tiles: [tile(), tile({ id: "w2", number: "5002" })],
+      details: [a, b],
+      handlers: [http.get("/work-orders/w1", async () => {
+        if (!held) return HttpResponse.json(a);
+        await gate;
+        return HttpResponse.json({ ...a, smr_block: block({ text: "LATE" }) });
+      })],
+    });
+    cardFor("w1").click();
+    await vi.waitFor(() => expect(el("block-section").hidden).toBe(false));
+    realtime = await connectFakeRealtime("smr-admin-review");
+    held = true;
+    realtime.emit("work_order.status.changed", { id: "w1" });
+    cardFor("w2").click();
+    await vi.waitFor(() => expect(el("block-output").value).toBe("OTHER"));
+    release();
+    await settle();
+    await settle();
+    expect(el("block-title").textContent).toBe("WO 5002 Correction Block");
+    expect(el("block-output").value).toBe("OTHER");
+  });
+
+  it("refreshes on reconnect", async () => {
+    const { rt } = await open();
+    vi.useFakeTimers();
+    rt.reconnect();
+    vi.advanceTimersByTime(1000);
+    rt.ws.last().emitOpen();
+    expect(detailGets()).toHaveLength(1);
+    await vi.runAllTimersAsync();
+  });
+});
