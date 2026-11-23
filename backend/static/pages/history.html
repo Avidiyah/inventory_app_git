@@ -10,7 +10,7 @@
                  survives the work order being archived. When the number typed
                  here names an ARCHIVED work order, views/history.js offers to
                  restore it (Supervisor+) -- see #history-wo-message. -->
-            <div class="filter-row">
+            <div class="filter-row" id="history-wo-row">
                 <label for="history-wo-filter">Filter by Work Order<button type="button" class="tip-btn" data-tip="history.wo-filter">?</button></label>
                 <input type="text" id="history-wo-filter" placeholder="Filter by work order number">
                 <button id="history-wo-clear-btn" type="button" class="secondary-btn">Clear</button>
@@ -20,7 +20,7 @@
             <!-- Date-range overlay filter: also visible on every sub-tab and
                  combines via AND. Either side may be left blank for an open
                  range; the To date is included in full. -->
-            <div class="filter-row">
+            <div class="filter-row" id="history-date-row">
                 <label for="history-date-from">From<button type="button" class="tip-btn" data-tip="history.date-range">?</button></label>
                 <input type="date" id="history-date-from">
                 <label for="history-date-to">To</label>

@@ -43,6 +43,7 @@ describe.each(PAGES)("tutorials for %s", (page) => {
       expect(typeof s.title).toBe("string");
       expect(s.steps.length).toBeLessThanOrEqual(8);
       if (s.here !== undefined) expect(typeof s.here).toBe("string");
+      if (s.minRole !== undefined) expect(ROLES).toContain(s.minRole);
       for (const o of s.open || []) expect(typeof o).toBe("string");
       for (const step of s.steps) {
         const values = [step.text, ...Object.values(step.textFor || {})];
@@ -72,7 +73,9 @@ describe.each(PAGES)("tutorials for %s", (page) => {
       const body = entry.sample(currentUser);
       expect(sampleIds(body, currentUser.id).filter((id) => !id.startsWith(PREFIX))).toEqual([]);
       api.setSampleResponder(tut.makeResponder(body));
+      const { roleAtLeast } = await import("../../../backend/static/roles.js");
       for (const script of entry.scripts) {
+        if (script.minRole && !roleAtLeast(role, script.minRole)) continue;
         nav.showPage(page);
         const reached = await tut.runOpen(script, role);
         const visible = tut.visibleSteps(script, role);

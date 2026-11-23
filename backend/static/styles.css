@@ -2336,6 +2336,14 @@ tr.archived-user {
     margin-bottom: var(--space-4);
 }
 
+/* Tutorial pill slot (tutorial.js puts the button here). On the Hub it ends
+   the tab row, wrapping to its own line rather than scrolling sideways. */
+.tutorial-slot:empty { display: none; }
+.tutorial-slot { margin-bottom: var(--space-3); }
+.tutorial-slot .tut-btn { margin-left: 0; }
+#hub-picker { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-3); }
+#hub-picker .hub-tabs { flex: 1 1 auto; min-width: 0; }
+
 .hub-tab {
     background: none;
     border: none;
@@ -6358,7 +6366,9 @@ details[open] > .wo-summary::before { content: "\25BE"; }
         --hub-ico-graphs: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22black%22 stroke-width=%221.8%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M4 20V4M4 20h16M8 16v-5M13 16V8M18 16v-3%22/%3E%3C/svg%3E");
         --hub-ico-report: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22black%22 stroke-width=%221.8%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h5%22/%3E%3C/svg%3E");
     }
+    #user-hub-page .hub-picker .tutorial-slot { border-top: var(--border); padding: var(--space-3); margin: 0; }
     #user-hub-page .hub-picker {
+        display: block;
         background: var(--panel-bg);
         border: 1px solid var(--panel-border);
         border-radius: var(--radius-md);

@@ -12,6 +12,7 @@
 import { setSampleResponder } from "./api.js";
 import { messageDialog } from "./dom.js";
 import { getCurrentUser } from "./state.js";
+import { roleAtLeast } from "./roles.js";
 import { closeTip } from "./tooltip.js";
 
 const GAP = 12;          // px between target and box, and from the screen edge
@@ -67,10 +68,12 @@ export function pickScript(scripts) {
   return pick;
 }
 
-// A later script whose tab is reachable now (its last `open` selector exists).
-function nextScript(scripts, current) {
+// A later script for this role whose tab is reachable now (its last `open`
+// selector exists).
+function nextScript(scripts, current, role) {
   const later = scripts.slice(scripts.indexOf(current) + 1);
-  return later.find((s) => s.open?.length && document.querySelector(strip(s.open[s.open.length - 1]))) || null;
+  return later.find((s) => (!s.minRole || roleAtLeast(role, s.minRole)) &&
+    s.open?.length && document.querySelector(strip(s.open[s.open.length - 1]))) || null;
 }
 
 // --- placement (pure) -------------------------------------------------------
@@ -227,7 +230,7 @@ export function runSteps(script, role, { scripts = [script] } = {}) {
   if (!list.length) return Promise.resolve({ result: "empty" });
   ensureNodes();
   return new Promise((resolve) => {
-    run = { list, i: 0, s: 0, boxHidden: false, resolve, next: nextScript(scripts, script) };
+    run = { list, i: 0, s: 0, boxHidden: false, resolve, next: nextScript(scripts, script, role) };
     show(0);
   });
 }

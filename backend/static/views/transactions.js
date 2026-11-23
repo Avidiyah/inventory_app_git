@@ -670,6 +670,15 @@ export function resetBatch({ keepSaved = false } = {}) {
   showScanGoState();
 }
 
+// A tutorial's sample batch (reserved id prefix) must not outlive it; a real
+// batch is never touched. The item list is refetched either way.
+document.addEventListener("tutorial:end", () => {
+  searchItemsLoaded = false;
+  if (!String(batchWorkOrder?.id || "").startsWith("ffffffff-ffff-4fff-8fff-")) return;
+  resetScanUi?.();
+  resetBatch();
+});
+
 // Resume a batch that was active before a reload/tab-eviction/phone sleep,
 // after tryResumeBatch has confirmed both ownership and that the work order
 // is still one the gate would offer. Mirrors startBatchFor but restores the

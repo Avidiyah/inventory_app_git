@@ -310,3 +310,22 @@ describe("page button", () => {
     expect(btns[0].textContent).toBe("How this page works");
   });
 });
+
+describe("minRole and Next", () => {
+  it("skips a later script above the person's role", () => {
+    document.getElementById("host").insertAdjacentHTML("beforeend", '<button id="tb">b</button><button id="tc">c</button>');
+    const a = { key: "demo.a", title: "A", steps: [{ target: "#a", text: "A." }] };
+    const b = { key: "demo.b", title: "B", minRole: "supervisor", open: ["#tb"], steps: [{ target: "#b", text: "B." }] };
+    const c = { key: "demo.c", title: "C", open: ["#tc"], steps: [{ target: "#c", text: "C." }] };
+    tut.runSteps(a, "technician", { scripts: [a, b] });
+    expect(act("next")).toBeNull();
+    tut.endTutorial({ restore: false });
+    act("done")?.click();
+    tut.runSteps(a, "technician", { scripts: [a, b, c] });
+    expect(act("next").textContent).toBe("Next: C");
+    act("done").click();
+    tut.runSteps(a, "supervisor", { scripts: [a, b, c] });
+    expect(act("next").textContent).toBe("Next: B");
+    act("done").click();
+  });
+});

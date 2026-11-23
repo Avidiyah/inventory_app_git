@@ -224,7 +224,7 @@ export const TIPS = {
   // --- Add user (pages/saved-users.html) ---------------------------------
   "user.role": {
     label: "Role",
-    text: "Technicians see every job but write only to ones they are on (Begin Charging puts them on the crew) and scan the ones assigned to them; Team Leads run the board and approve finished work. TechFM OA handles imports, exports, and the request queues, and Admin and Owner add billing review and full account management. You can only create roles at or below your own.",
+    text: "Technicians see every job but write only to ones they are on (Begin Charging puts them on the crew) and scan the ones assigned to them; Team Leads run the board and approve finished work. TechFM OA handles imports, exports, and the request queues, and Admin and Owner add billing review and full account management. You can only create roles below your own.",
   },
   "user.lifecycle": {
     label: "User lifecycle",
