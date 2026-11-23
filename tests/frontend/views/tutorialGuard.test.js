@@ -9,6 +9,7 @@ import { bootApp } from "../helpers/app.js";
 import { restoreBrowserStubs, stubScrollIntoView } from "../helpers/browserStubs.js";
 import { workOrderCard, workOrderDetail } from "../helpers/factories.js";
 import { TUTORIALS } from "../../../backend/static/tutorials/index.js";
+import { ALL_ROLES, ROLE_RANK } from "../../../backend/static/roles.js";
 
 const ROLES = ["technician", "supervisor", "techfm_oa", "admin", "owner"];
 const PREFIX = "ffffffff-ffff-4fff-8fff-";
@@ -52,7 +53,7 @@ describe.each(PAGES)("tutorials for %s", (page) => {
           expect(lines(v).length, `${s.key} ${step.target}`).toBeLessThanOrEqual(3);
           for (const line of lines(v)) {
             expect(line.length, line).toBeLessThanOrEqual(120);
-            expect(line.split(/[.!?]+(?:\s|$)/).filter(Boolean).length, `one sentence: ${line}`).toBe(1);
+            expect(line.split(/[.!?]+(?=\s+[A-Z0-9"]|\s*$)/).filter(Boolean).length, `one sentence: ${line}`).toBe(1);
           }
         }
       }
@@ -88,6 +89,36 @@ describe.each(PAGES)("tutorials for %s", (page) => {
     const unseen = entry.scripts.flatMap((s) => s.steps.map((st) => st.target)).filter((t) => !seen.has(t));
     expect(unseen, "targets never visible for any role").toEqual([]);
   }, 60000);
+});
+
+describe("catalogue rules across all pages", () => {
+  it("minRole is not below the page minimum; a starter (no page) is exempt", async () => {
+    const { nav } = await bootApp({ role: "owner" });
+    const { pageMinRole } = await import("../../../backend/static/tutorials/relevance.js");
+    const PAGE_ACCESS = nav.PAGE_ACCESS;
+    for (const [page, { scripts }] of Object.entries(TUTORIALS)) {
+      for (const s of scripts) {
+        if (!s.minRole || !PAGE_ACCESS[page]) continue;
+        expect(ROLE_RANK[s.minRole], `${s.key} minRole below the page minimum`).toBeGreaterThanOrEqual(ROLE_RANK[pageMinRole(page)]);
+      }
+    }
+  });
+  it("PAGE_ACCESS lists a contiguous top slice of the roles", async () => {
+    const { nav } = await bootApp({ role: "owner" });
+    for (const [page, roles] of Object.entries(nav.PAGE_ACCESS)) {
+      expect(roles, page).toEqual(ALL_ROLES.slice(0, roles.length));
+    }
+  });
+  it("keys are unique across pages and fit the server key rule", () => {
+    const seen = new Set();
+    for (const { scripts } of Object.values(TUTORIALS)) {
+      for (const { key } of scripts) {
+        expect(key).toMatch(/^[a-z0-9][a-z0-9.-]{0,79}$/);
+        expect(seen.has(key), `duplicate key ${key}`).toBe(false);
+        seen.add(key);
+      }
+    }
+  });
 });
 
 describe("work-orders sample shapes", () => {
