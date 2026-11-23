@@ -25,7 +25,7 @@ import { mountHubCrew } from "./hubSupervisor.js";
 import { mountHubAdminSummary } from "./hubAdmin.js";
 import { startHubRosterTicking, stopHubRosterTicking } from "./hubAttendanceRoster.js";
 import { refreshTimesheetsLive, renderTimesheetsTab, resetTimesheetsTab } from "./hubTimesheetsTab.js";
-import { renderLeaderboardsTab, resetLeaderboardsTab } from "./hubLeaderboardsTab.js";
+import { refreshLeaderboardsLive, renderLeaderboardsTab, resetLeaderboardsTab } from "./hubLeaderboardsTab.js";
 import { destroyHubGraphs, mountHubGraphs } from "./hubGraphs.js";
 import { mountHubReport, renderReportError, renderReportSkeleton } from "./hubReport.js";
 import { openWorkOrdersFilteredByDistribution } from "./workOrders.js";
@@ -350,7 +350,12 @@ function loadReport({ background = false } = {}) {
   return reportFeed.run({ background });
 }
 
+const leaderboardsFeed = createFeed(() => refreshLeaderboardsLive(tabPanels.leaderboards), () => {}, {
+  when: () => viewerIsAdmin() && activeTab === "leaderboards",
+});
+
 connectHubLive({
+  leaderboards: leaderboardsFeed,
   personal: personalFeed,
   attendance: attendanceFeed,
   crew: crewFeed,
@@ -475,10 +480,8 @@ export async function loadUserHub() {
   }
 }
 
-// Exposed so hubClock.js can ask for a fresh payload after a Start/Stop
-// action changes the running session -- one fetch serves the clock and
-// both tabs, so a start/stop refreshes all three consistently rather than
-// only the widget that triggered it.
+// A full re-entry, for callers outside the hub; own actions on Home use the
+// targeted `refreshHomeFeeds` instead (W7 rule 5).
 export async function refreshUserHub() {
   await loadUserHub();
 }

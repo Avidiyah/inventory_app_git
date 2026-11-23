@@ -11,6 +11,7 @@
 import { escapeHtml, friendlyError } from "../format.js";
 import { openWorkOrdersByNumberSearch } from "./workOrders.js";
 import { showPage } from "./nav.js";
+import { liveId, patchHub } from "./hubPatch.js";
 
 const CENTRAL_TIME_ZONE = "America/Chicago";
 
@@ -79,7 +80,7 @@ function rowHtml(row) {
   // A real <button>, so the row is keyboard-reachable -- and the cell's only
   // button, because a button inside a button is hoisted out into a sibling.
   // Every row here is closed, so every one routes to the exact-number search.
-  return `<tr>
+  return `<tr class="hub-report-row" id="${liveId("report-row", row.number)}">
       <td data-label="Community">${escapeHtml(COMMUNITY_LABELS[row.community] || row.community)}</td>
       <td data-label="Number"><button type="button" class="hub-report-row-btn" data-number="${escapeHtml(
         row.number
@@ -172,33 +173,29 @@ function headerHtml(payload) {
 }
 
 // A closed row has no card page -- the Work Orders list hides archived rows --
-// so it routes to the exact-number search, which fires the shipped "Work Order
-// has been closed. Restore?" prompt.
-function wireRowButtons(panel) {
-  panel.querySelectorAll(".hub-report-row-btn").forEach((button) => {
-    button.addEventListener("click", () => {
-      openWorkOrdersByNumberSearch(button.dataset.number);
-      showPage("work-orders");
-    });
-  });
-}
+// so a row routes to the exact-number search, which fires the shipped "Work
+// Order has been closed. Restore?" prompt. One delegated listener per panel
+// reads the latest payload (a patch keeps the buttons; binding per render
+// would stack).
+const reportState = new WeakMap();
 
-function wireWeekNav(panel, payload, onSelectWeek) {
-  panel.querySelector(".hub-report-prev")?.addEventListener("click", () => {
-    onSelectWeek?.(shiftMonday(payload.week_start, -7));
-  });
-  panel.querySelector(".hub-report-next")?.addEventListener("click", () => {
-    onSelectWeek?.(shiftMonday(payload.week_start, 7));
-  });
-  panel.querySelector(".hub-report-this-week")?.addEventListener("click", () => {
-    onSelectWeek?.(null);
-  });
+function clickReport(event) {
+  const state = reportState.get(event.currentTarget);
+  if (!state) return;
+  const row = event.target.closest(".hub-report-row-btn");
+  if (row) {
+    openWorkOrdersByNumberSearch(row.dataset.number);
+    showPage("work-orders");
+  } else if (event.target.closest(".hub-report-prev")) state.onSelectWeek?.(shiftMonday(state.payload.week_start, -7));
+  else if (event.target.closest(".hub-report-next")) state.onSelectWeek?.(shiftMonday(state.payload.week_start, 7));
+  else if (event.target.closest(".hub-report-this-week")) state.onSelectWeek?.(null);
 }
 
 export function mountHubReport(panel, payload, { onSelectWeek } = {}) {
-  panel.innerHTML = `${headerHtml(payload)}${bodyHtml(payload)}`;
-  wireRowButtons(panel);
-  wireWeekNav(panel, payload, onSelectWeek);
+  patchHub(panel, `${headerHtml(payload)}${bodyHtml(payload)}`, { flashSelector: ".hub-report-row[id]" });
+  const firstMount = !reportState.has(panel);
+  reportState.set(panel, { payload, onSelectWeek });
+  if (firstMount) panel.addEventListener("click", clickReport);
 }
 
 export function renderReportSkeleton(panel) {

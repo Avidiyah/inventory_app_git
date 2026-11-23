@@ -9,7 +9,8 @@ import { apiGetHubPerformance } from "../api.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { skeletonCard } from "../skeleton.js";
 import { tipHtml } from "../tooltip.js";
-import { mountPerformanceBoard } from "./hubPerformanceBoard.js";
+import { performanceBoardHtml } from "./hubPerformanceBoard.js";
+import { patchHub } from "./hubPatch.js";
 import { isoDate, shiftMonday, weekLabel } from "./hubWeek.js";
 
 let window_ = "week";
@@ -43,7 +44,7 @@ function render(panelEl) {
   const atCurrent = current[window_] && payload.start >= current[window_];
   const switchButton = (name, text) =>
     `<button type="button" class="secondary-btn" data-window="${name}" aria-pressed="${window_ === name}">${text}</button>`;
-  panelEl.innerHTML = `<div class="hub-hours-toolbar">
+  patchHub(panelEl, `<div class="hub-hours-toolbar">
       <div class="hub-lb-head" hidden><h3>Leaderboard</h3><span>ranked by score</span></div>
       <div class="hub-leaderboards-switch" role="group" aria-label="Window">
         ${switchButton("week", "Week")}${switchButton("month", "Month")}
@@ -55,30 +56,35 @@ function render(panelEl) {
       </div>
       ${tipHtml("hub.leaderboard")}
     </div>
-    <div class="hub-leaderboards-board"></div>`;
-  mountPerformanceBoard(panelEl.querySelector(".hub-leaderboards-board"), payload);
-  for (const button of panelEl.querySelectorAll(".hub-leaderboards-switch [data-window]")) {
-    button.addEventListener("click", () => {
-      if (button.dataset.window === window_) return;
-      window_ = button.dataset.window;
-      start = null;
-      void load(panelEl);
-    });
+    <div class="hub-leaderboards-board">${performanceBoardHtml(payload)}</div>`, { flashSelector: ".hub-leaderboard-row[id]" });
+  if (!panelEl.dataset.lbBound) {
+    panelEl.dataset.lbBound = "true";
+    panelEl.addEventListener("click", (event) => clickBoard(event, panelEl));
   }
-  panelEl.querySelector(".hub-leaderboards-prev").addEventListener("click", () => {
+}
+
+// One delegated listener: a patch keeps the buttons, so per-render binding
+// would stack.
+function clickBoard(event, panelEl) {
+  const windowButton = event.target.closest(".hub-leaderboards-switch [data-window]");
+  if (windowButton) {
+    if (windowButton.dataset.window === window_) return;
+    window_ = windowButton.dataset.window;
+    start = null;
+    void load(panelEl);
+  } else if (event.target.closest(".hub-leaderboards-prev")) {
     start = shiftStart(payload.start, -1);
     void load(panelEl);
-  });
-  panelEl.querySelector(".hub-leaderboards-next").addEventListener("click", () => {
+  } else if (event.target.closest(".hub-leaderboards-next")) {
     start = shiftStart(payload.start, 1);
     if (current[window_] && start >= current[window_]) start = null;
     void load(panelEl);
-  });
+  }
 }
 
-async function load(panelEl) {
+async function load(panelEl, { background = false } = {}) {
   const id = ++requestId;
-  if (!payload) panelEl.innerHTML = `<div class="skel-grid">${skeletonCard({ lines: 6 })}</div>`;
+  if (!payload && !background) panelEl.innerHTML = `<div class="skel-grid">${skeletonCard({ lines: 6 })}</div>`;
   try {
     const next = await apiGetHubPerformance({ window: window_, start });
     if (id !== requestId) return;
@@ -86,7 +92,8 @@ async function load(panelEl) {
     payload = next;
     render(panelEl);
   } catch (err) {
-    if (id !== requestId) return;
+    // A live refresh keeps the last good board.
+    if (id !== requestId || (background && payload)) return;
     const message = escapeHtml(friendlyError(err, "Could not load the leaderboards."));
     panelEl.innerHTML = `<p class="hub-hours-message error">${message} <button type="button" class="secondary-btn hub-leaderboards-retry">Retry</button></p>`;
     panelEl.querySelector(".hub-leaderboards-retry").addEventListener("click", () => { void load(panelEl); });
@@ -99,6 +106,12 @@ export function renderLeaderboardsTab(panelEl) {
   void load(panelEl);
 }
 
+// A live refresh of the window on screen (W7 rule 7).
+export function refreshLeaderboardsLive(panelEl) {
+  if (!panelEl || !payload) return Promise.resolve();
+  return load(panelEl, { background: true });
+}
+
 // A different person signed in, or this viewer lost the tab.
 export function resetLeaderboardsTab(panelEl) {
   window_ = "week";
@@ -106,5 +119,6 @@ export function resetLeaderboardsTab(panelEl) {
   current = {};
   payload = null;
   requestId += 1;
+  if (panelEl) delete panelEl.dataset.lbBound;
   panelEl?.replaceChildren();
 }

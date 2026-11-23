@@ -8,6 +8,7 @@
 
 import { escapeHtml, formatMoney } from "../format.js";
 import { formatHm } from "./hubWeek.js";
+import { liveId } from "./hubPatch.js";
 
 const MEDALS = ["🥇", "🥈", "🥉"];
 
@@ -51,7 +52,7 @@ function rowHtml(row) {
   const classes = ["hub-leaderboard-row"];
   if (row.rank && row.rank <= 3) classes.push("hub-leaderboard-top");
   if (row.below_floor) classes.push("hub-performance-unranked");
-  return `<tr class="${classes.join(" ")}">
+  return `<tr class="${classes.join(" ")}" id="${liveId("lb-row", row.user.id)}">
       <td class="hub-leaderboard-rank">${rankHtml(row.rank)}</td>
       <th scope="row">${escapeHtml(userName(row.user))}${notesHtml(row)}</th>
       <td class="hub-leaderboard-num hub-performance-score" data-label="Score">${row.score}</td>
@@ -72,7 +73,8 @@ function bodyHtml(payload) {
   return [...ranked.map(rowHtml), divider, ...unranked.map(rowHtml)].join("");
 }
 
-export function mountPerformanceBoard(container, payload) {
+// Returns the board's markup; the Leaderboards tab patches it in (W7).
+export function performanceBoardHtml(payload) {
   const table = payload.rows.length
     ? `<div class="hub-hours-table-wrap hub-leaderboard-wrap">
         <table class="hub-hours-table hub-leaderboard-table">
@@ -86,5 +88,9 @@ export function mountPerformanceBoard(container, payload) {
         </table>
       </div>`
     : `<p class="hint hub-leaderboard-empty"><b class="hub-lb-empty-title" hidden>No scores yet ${windowWord(payload.window)}</b>Nobody has trusted time ${windowWord(payload.window)} yet.<span class="hub-lb-empty-more" hidden> Rankings appear once technicians clock in and charge work orders.</span></p>`;
-  container.innerHTML = `<section class="hub-leaderboard" aria-label="Performance board">${table}</section>`;
+  return `<section class="hub-leaderboard" aria-label="Performance board">${table}</section>`;
+}
+
+export function mountPerformanceBoard(container, payload) {
+  container.innerHTML = performanceBoardHtml(payload);
 }

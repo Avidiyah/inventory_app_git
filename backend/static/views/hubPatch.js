@@ -17,8 +17,9 @@ export function liveId(prefix, key) {
 export function patchHub(mount, html, { flashSelector = null, flashKey, skipSelector = null } = {}) {
   const fresh = document.createElement("div");
   fresh.innerHTML = html;
-  const skip = (old) => old === document.activeElement
-    || (old.matches("input, select, textarea") && isDirty(old))
+  // A focused field keeps what is typed; a focused button still updates
+  // (keepPlace puts focus back).
+  const skip = (old) => (old.matches("input, select, textarea") && (old === document.activeElement || isDirty(old)))
     || old.matches(ALWAYS_SKIP)
     || Boolean(skipSelector && old.matches(skipSelector));
   // A repaint before the glow ends must not cut it short (`animationend`
