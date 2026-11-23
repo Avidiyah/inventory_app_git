@@ -417,6 +417,17 @@ Real-time invalidation (`domain/realtime.py`, `services/realtime*.py`,
   queue (or 404s) the text stays, the action buttons are disabled, and the
   note says it was closed or sent back. An own action in flight, or an order
   an own action already removed, is not refreshed.
+- User Hub (`hubLive.js`, `hubPatch.js`): every tab paints through `patchHub`
+  (morph + shared skip: a focused or dirty field, an open punch editor, the
+  reparented clock; glow survives a second repaint). Each payload is a
+  coalesced feed (one fetch in flight, one rerun queued) run by
+  `attendance.changed` / `labor.session.changed` (both Technician+, so a
+  worker's other devices follow their punch and clock),
+  `work_order.status.changed`, `user_request.changed`, reconnect and a 60 s
+  timer; a feed for a tab not showing does not fetch. Report follows events
+  only for the week in progress. Own Home actions refresh only `/hub` +
+  `/attendance/me`. An open punch editor whose punch vanished closes with
+  "That punch was changed on another device."
 - Admin Review unpriced rule: a blank or $0.00 price is unpriced (`is_priced` /
   `isUnpriced`, same rule that opens a missing-price request). Cards with
   `has_unpriced_items` paint red ("Needs price"); selecting one withholds the

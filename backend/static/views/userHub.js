@@ -480,8 +480,7 @@ export async function loadUserHub() {
   }
 }
 
-// A full re-entry, for callers outside the hub; own actions on Home use the
-// targeted `refreshHomeFeeds` instead (W7 rule 5).
+// A full re-entry; own Home actions use `refreshHomeFeeds` (W7 rule 5).
 export async function refreshUserHub() {
   await loadUserHub();
 }
