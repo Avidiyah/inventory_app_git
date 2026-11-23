@@ -17,6 +17,7 @@ const tap = () => overlay().click();
 const key = (k) => document.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true }));
 
 beforeEach(async () => {
+  server.use(http.put("/tutorials/progress/:key", () => new HttpResponse(null, { status: 204 })));
   tut = await mountView("tutorial.js");
   stubScrollIntoView();
   document.body.insertAdjacentHTML("beforeend", `
@@ -227,7 +228,9 @@ describe("session", () => {
   });
 
   it("offers Next only when a later script's tab exists; Next runs it without a reload", async () => {
-    install();
+    const d = demo();
+    d.scripts[1].here = "#t2:not([hidden])"; // `here` = its tab is selected; not yet
+    install({ demo: d });
     const host = document.getElementById("host");
     host.insertAdjacentHTML("beforeend", '<button id="tab2">tab</button><div id="t2" hidden>t2</div>');
     document.getElementById("tab2").addEventListener("click", () => { document.getElementById("t2").hidden = false; });
@@ -327,5 +330,97 @@ describe("minRole and Next", () => {
     tut.runSteps(a, "supervisor", { scripts: [a, b, c] });
     expect(act("next").textContent).toBe("Next: B");
     act("done").click();
+  });
+});
+
+describe("progress recording", () => {
+  let tp;
+  beforeEach(async () => { tp = await import("../../../backend/static/tutorialProgress.js"); });
+  const two = { key: "demo.p", title: "P", steps: [
+    { target: "#a", text: "A." }, { target: "#b", text: "B." }, { target: "#d", text: "Hidden." }] };
+
+  it("marks seen on entry and completed on the last visible step, not before", () => {
+    tut.runSteps(two, "technician");
+    expect(tp.hasSeen("demo.p")).toBe(true);
+    expect(tp.isDone("demo.p")).toBe(false);
+    tap();
+    tap();
+    expect(count()).toBe("2 of 2"); // #d is skipped, so #b is the last
+    expect(tp.isDone("demo.p")).toBe(true);
+  });
+
+  it("End early never completes", () => {
+    tut.runSteps(two, "technician");
+    act("end").click();
+    expect(tp.hasSeen("demo.p")).toBe(true);
+    expect(tp.isDone("demo.p")).toBe(false);
+  });
+
+  it("a Next jump marks the next script seen", async () => {
+    document.getElementById("host").insertAdjacentHTML("beforeend", '<button id="tn">n</button>');
+    const a = { key: "demo.a", title: "A", steps: [{ target: "#a", text: "A." }] };
+    const b = { key: "demo.b", title: "B", open: ["#tn"], steps: [{ target: "#b", text: "B." }] };
+    const out = tut.runSteps(a, "technician", { scripts: [a, b] });
+    expect(tp.isDone("demo.a")).toBe(true);
+    act("next").click();
+    expect((await out).script).toBe(b);
+    tut.runSteps(b, "technician");
+    expect(tp.hasSeen("demo.b")).toBe(true);
+    act("done").click();
+  });
+});
+
+describe("startTutorial by key", () => {
+  const mk = (extra = {}) => ({ scripts: [
+    { key: "demo.a", title: "A", here: "#a", steps: [{ target: "#a", text: "A." }] },
+    { key: "demo.b", title: "B", steps: [{ target: "#b", text: "B." }] },
+  ], ...extra });
+  const install = (tutorials, showPage = vi.fn()) => {
+    tut.installTutorials({ getActivePage: () => "demo", showPage, tutorials });
+    return showPage;
+  };
+  beforeEach(async () => { await setTestUser({ role: "technician" }); });
+
+  const playing = async (page, key) => {
+    install({ [page]: mk() });
+    const started = tut.startTutorial(page, key);
+    await vi.waitFor(() => expect(box()).not.toBeNull());
+    return async () => { tut.endTutorial({ restore: false }); await started; };
+  };
+
+  it("a key overrides `here`", async () => {
+    const stop = await playing("demo", "demo.b");
+    expect(text()).toBe("B.");
+    await stop();
+  });
+
+  it("no key keeps the here rule", async () => {
+    const stop = await playing("demo");
+    expect(text()).toBe("A.");
+    await stop();
+  });
+
+  it("an unknown key falls back to the here rule", async () => {
+    const stop = await playing("demo", "demo.nope");
+    expect(text()).toBe("A.");
+    await stop();
+  });
+
+  it("an entry with no sample (a starter) never calls showPage", async () => {
+    const showPage = install({ starter: mk() });
+    const started = tut.startTutorial("starter", "demo.b");
+    await vi.waitFor(() => expect(text()).toBe("B."));
+    act("done").click();
+    await started;
+    expect(showPage).not.toHaveBeenCalled();
+  });
+
+  it("pickScript skips a script above the person's role", () => {
+    const scripts = [
+      { key: "x.a", here: "#a", steps: [] },
+      { key: "x.b", here: "#b", minRole: "techfm_oa", steps: [] },
+    ];
+    expect(tut.pickScript(scripts, "technician").key).toBe("x.a");
+    expect(tut.pickScript(scripts, "admin").key).toBe("x.b");
   });
 });

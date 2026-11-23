@@ -13,12 +13,14 @@ import { setSampleResponder } from "./api.js";
 import { messageDialog } from "./dom.js";
 import { getCurrentUser } from "./state.js";
 import { roleAtLeast } from "./roles.js";
+import { mark } from "./tutorialProgress.js";
 import { closeTip } from "./tooltip.js";
 
 const GAP = 12;          // px between target and box, and from the screen edge
 const PAD = 6;           // px of light around the lit target
 const OPEN_WAIT_MS = 3000;
 const POLL_MS = 50;
+const SETTLE_MS = 300;   // visible steps unchanged this long = page has loaded
 const REFUSE_TEXT = "Finish or save what you typed, then start the tutorial. It reloads the page.";
 
 // jsdom has no layout, so tests rely on the attribute rules alone; a real
@@ -61,10 +63,12 @@ export function visibleSteps(script, role) {
     .map(({ step }) => ({ step, lines: sentences(step, role) }));
 }
 
-// The last script in file order whose `here` matches the page; else the first.
-export function pickScript(scripts) {
-  let pick = scripts[0];
-  for (const s of scripts) if (s.here && document.querySelector(s.here)) pick = s;
+// The last script for this role, in file order, whose `here` matches the
+// page; else the first one for this role.
+export function pickScript(scripts, role = getCurrentUser()?.role) {
+  const mine = scripts.filter((s) => !s.minRole || roleAtLeast(role, s.minRole));
+  let pick = mine[0] || scripts[0];
+  for (const s of mine) if (s.here && document.querySelector(s.here)) pick = s;
   return pick;
 }
 
@@ -175,6 +179,8 @@ function render({ scroll = false } = {}) {
 
 function show(i) {
   Object.assign(run, { i, s: 0, boxHidden: false });
+  // Reaching the last visible step is finishing (0b spec 5.3); End early never does.
+  if (i === run.list.length - 1 && run.key) mark(run.key, "completed");
   render({ scroll: true });
 }
 
@@ -230,7 +236,8 @@ export function runSteps(script, role, { scripts = [script] } = {}) {
   if (!list.length) return Promise.resolve({ result: "empty" });
   ensureNodes();
   return new Promise((resolve) => {
-    run = { list, i: 0, s: 0, boxHidden: false, resolve, next: nextScript(scripts, script, role) };
+    run = { list, i: 0, s: 0, boxHidden: false, resolve, key: script.key, next: nextScript(scripts, script, role) };
+    if (script.key) mark(script.key, "seen");
     show(0);
   });
 }
@@ -259,14 +266,26 @@ export async function runOpen(script, role = getCurrentUser()?.role) {
   for (let i = 0; i < sels.length; i += 1) {
     const optional = sels[i].startsWith("?");
     const sel = strip(sels[i]);
-    const revealed = i + 1 < sels.length ? () => visibleSel(strip(sels[i + 1])) : firstTargetVisible;
+    // The last click reveals the script's tab: judged by `here` (that tab is
+    // selected) when the script names one, else by its first step showing.
+    const revealed = i + 1 < sels.length ? () => visibleSel(strip(sels[i + 1]))
+      : script.here ? () => Boolean(document.querySelector(script.here)) : firstTargetVisible;
     if (revealed()) continue;
     const el = optional ? document.querySelector(sel) : await waitFor(() => document.querySelector(sel), OPEN_WAIT_MS);
     if (!el) { if (optional) continue; return false; }
     el.focus?.();
     el.click();
   }
-  return Boolean(await waitFor(firstTargetVisible, OPEN_WAIT_MS));
+  if (!(await waitFor(firstTargetVisible, OPEN_WAIT_MS))) return false;
+  // Later targets may still be loading (a list behind a fetch): wait until the
+  // visible step count holds for SETTLE_MS, capped at OPEN_WAIT_MS.
+  let last = -1, stableSince = Date.now();
+  await waitFor(() => {
+    const n = visibleSteps(script, role).length;
+    if (n !== last) { last = n; stableSince = Date.now(); }
+    return Date.now() - stableSince >= SETTLE_MS;
+  }, OPEN_WAIT_MS);
+  return true;
 }
 
 export function makeResponder(map) {

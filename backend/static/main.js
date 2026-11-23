@@ -50,6 +50,7 @@ import { getActivePage, showPage } from "./views/nav.js";
 import { setActivePageGetter } from "./realtime.js";
 import { installTooltips } from "./tooltip.js";
 import { installTutorials } from "./tutorial.js";
+import { installDots } from "./tutorialDots.js";
 import { TUTORIALS } from "./tutorials/index.js";
 
 // Let the scan-and-go flow stop the live camera + clear the scan UI when
@@ -70,6 +71,7 @@ installTooltips();
 
 // "How this page works" tutorials: one pill per page listed in tutorials/index.js.
 installTutorials({ getActivePage, showPage, tutorials: TUTORIALS });
+installDots();
 
 // --- Auth gate ---------------------------------------------------
 // `initAuth` checks /auth/me and then either shows the login screen or
