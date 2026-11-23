@@ -8,14 +8,16 @@
 // low and moving, and that question has to be answerable without opening
 // anything.
 //
-// Rows are rebuilt from the server on every load. Nothing is patched in
-// place, because a threshold edit can remove the row it was made on
-// (lowering a threshold below the current count clears the condition),
-// and a list that quietly kept such a row would be lying.
+// Every load -- first draw, Refresh, own save, live event -- builds the
+// cards detached and patches the list in place (`morph.js`). A patch leaves
+// alone what the user holds: a focused or typed field, a barcode block they
+// added to or removed from, a message that is showing text. A card that left
+// the list is removed even so, and the page says so.
 
 import { apiListLowStock, apiSetLowStockThreshold } from "../api.js";
 import { setMessage } from "../dom.js";
 import { escapeHtml, friendlyError } from "../format.js";
+import { isDirty, keepPlace, morphInto } from "../morph.js";
 import { subscribe } from "../realtime.js";
 import { cardBodyHtml } from "./lowStockCard.js";
 
@@ -38,6 +40,8 @@ const BUCKETS = [
   { key: "stale", label: "Older or never" },
 ];
 
+const NO_LONGER_LOW = "An item you were editing is no longer low.";
+
 const EMPTY_TEXT = {
   day: "Nothing low was dispensed in the last 24 hours.",
   week: "Nothing low was dispensed in the last week.",
@@ -53,6 +57,11 @@ let activeBucket = "day";
 // in flight.
 let loadSequence = 0;
 
+// Live events coalesce: one background fetch at a time, one rerun queued
+// behind it, so a bulk stock write costs two fetches rather than hundreds.
+let loading = false;
+let rerun = false;
+
 function quantityText(value) {
   // Matches the backend's `domain.receipt.format_quantity`: 3.00 -> 3.
   return String(Number(value));
@@ -66,6 +75,7 @@ function quantityText(value) {
 function buildCard(row) {
   const card = document.createElement("details");
   card.className = "low-stock-card";
+  card.id = `low-stock-card-${row.id}`;
   card.dataset.id = row.id;
   // The pre-edit values, so a save can tell a changed barcode from an
   // untouched one without holding draft state in a module variable.
@@ -120,21 +130,22 @@ function bucketRows(rows) {
   return grouped;
 }
 
-// A background reload rebuilds every card, which would slam shut an editor
-// the user is typing in. Remember which ones were open by item id and
-// reopen them after the rebuild.
-function openCardIds() {
-  return new Set(
-    Array.from(listEl.querySelectorAll("details.low-stock-card[open]"))
-      .map(el => el.dataset.id)
-  );
+// What a patch leaves as it is. The two message lines are found by tag and
+// parent: `setMessage` replaces their class with the message type.
+function skip(el) {
+  if (el.matches("input, select, textarea")) return el === document.activeElement || isDirty(el);
+  if (el.matches(".ls-barcode-rows[data-touched]")) return true;
+  return el.localName === "p" && el.textContent !== ""
+    && el.parentElement.classList.contains("low-stock-body");
 }
 
-function restoreOpenCards(ids) {
-  if (!ids.size) return;
-  for (const el of listEl.querySelectorAll("details.low-stock-card")) {
-    if (ids.has(el.dataset.id)) el.open = true;
-  }
+// Cards holding input a patch cannot bring back if the card goes. A card in
+// the middle of its own save is exempt: its input was just sent.
+function heldCards() {
+  return Array.from(listEl.querySelectorAll(".low-stock-card:not([data-saving])")).filter(
+    (card) => card.querySelector(".ls-barcode-rows[data-touched]")
+      || Array.from(card.querySelectorAll("input")).some(isDirty)
+  );
 }
 
 function paintTabs(grouped) {
@@ -147,8 +158,12 @@ function paintTabs(grouped) {
   }
 }
 
-function render() {
+// `reset` is a tab change: the user asked for a different list, so it is a
+// first draw (no glow, nothing held). `background` is a live or own-save
+// reload, which leaves an error or the no-longer-low message on the page.
+function render({ reset = false, background = false } = {}) {
   const grouped = bucketRows(allRows);
+  const chosen = activeBucket;
 
   // Never strand the user on an empty tab: keep the one they chose while it
   // still holds rows, otherwise fall to the first that does. This covers
@@ -160,41 +175,58 @@ function render() {
   }
   paintTabs(grouped);
 
-  const open = openCardIds();
-  listEl.replaceChildren();
-
-  if (!allRows.length) {
-    setMessage(messageEl, "Nothing is below its threshold.", "success");
-    return;
-  }
+  const held = reset ? [] : heldCards();
+  // Another tab's cards are not these cards changed: wipe, do not morph.
+  if (reset || activeBucket !== chosen) listEl.replaceChildren();
 
   const rows = grouped[activeBucket];
-  if (!rows.length) {
-    setMessage(messageEl, EMPTY_TEXT[activeBucket], "success");
+  const tree = document.createElement("div");
+  for (const row of rows) tree.append(buildCard(row));
+  const restore = keepPlace(listEl);
+  morphInto(listEl, tree.childNodes, { skip, flashSelector: ".low-stock-card" });
+  restore();
+
+  if (held.some(card => !card.isConnected)) {
+    setMessage(messageEl, NO_LONGER_LOW, "error");
     return;
   }
-
-  const fragment = document.createDocumentFragment();
-  for (const row of rows) fragment.append(buildCard(row));
-  listEl.append(fragment);
-  restoreOpenCards(open);
-  setMessage(messageEl, "", "");
+  if (background && messageEl.className === "error") return;
+  if (!allRows.length) setMessage(messageEl, "Nothing is below its threshold.", "success");
+  else if (!rows.length) setMessage(messageEl, EMPTY_TEXT[activeBucket], "success");
+  else setMessage(messageEl, "", "");
 }
 
 export async function loadLowStock({ background = false } = {}) {
   if (!listEl) return;
+  if (background) {
+    if (loading) {
+      rerun = true;
+      return;
+    }
+    loading = true;
+  }
   const sequence = ++loadSequence;
   if (!background) setMessage(messageEl, "Loading low stock...", "");
   try {
     const rows = await apiListLowStock();
-    if (sequence !== loadSequence) return;
-    allRows = rows;
-    render();
+    if (sequence === loadSequence) {
+      allRows = rows;
+      render({ background });
+    }
   } catch (err) {
-    if (sequence !== loadSequence) return;
-    allRows = [];
-    listEl.replaceChildren();
-    setMessage(messageEl, friendlyError(err, "Could not load low stock."), "error");
+    if (sequence === loadSequence) {
+      allRows = [];
+      listEl.replaceChildren();
+      setMessage(messageEl, friendlyError(err, "Could not load low stock."), "error");
+    }
+  } finally {
+    if (background) {
+      loading = false;
+      if (rerun) {
+        rerun = false;
+        await loadLowStock({ background: true });
+      }
+    }
   }
 }
 
@@ -252,7 +284,7 @@ if (tabsEl) {
     if (!btn || !btn.dataset.bucket || btn.dataset.bucket === activeBucket) return;
     activeBucket = btn.dataset.bucket;
     // Filter, do not refetch: the queue in hand is the same queue.
-    render();
+    render({ reset: true });
   });
 }
 

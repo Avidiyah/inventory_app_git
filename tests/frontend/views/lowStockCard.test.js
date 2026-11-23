@@ -152,7 +152,7 @@ describe("save-item", () => {
     await vi.waitFor(() => expect(listGets()).toHaveLength(1));
     expect(writes()).toEqual([["PATCH", "/items/i1"], ["GET", "/items/low-stock"]]);
     expect(el.message().textContent).toBe("");
-    expect(cardFor("i1")).not.toBe(card);
+    expect(cardFor("i1")).toBe(card);
   });
 
   it("a changed list PATCHes the barcodes first, then the item", async () => {
@@ -265,7 +265,7 @@ describe("save-correction", () => {
     });
     await vi.waitFor(() => expect(listGets()).toHaveLength(1));
     expect(el.message().textContent).toBe("");
-    expect(cardFor("i1")).not.toBe(card);
+    expect(cardFor("i1")).toBe(card);
   });
 
   it("a failed POST reports and leaves the card", async () => {

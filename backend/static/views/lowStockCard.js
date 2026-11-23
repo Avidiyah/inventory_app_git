@@ -9,11 +9,10 @@
 // contributes only the markup that sits inside its body, so nothing here is
 // a disclosure of its own.
 //
-// Every handler is delegated off `#low-stock-list`, so cards rebuilt by a
+// Every handler is delegated off `#low-stock-list`, so cards patched in by a
 // reload need no rewiring. After any successful save the page reloads in
-// the background rather than patching the card, because a correction or a
-// threshold change can remove the row it was made on -- the same rule
-// `lowStock.js` already follows.
+// the background: a correction or a threshold change can remove the row it
+// was made on.
 
 import { apiCreateCorrection } from "../api.js";
 import { setMessage } from "../dom.js";
@@ -184,8 +183,12 @@ if (listEl) {
 
     const action = btn.dataset.action;
     if (action === "add-barcode") {
-      card.querySelector(".ls-barcode-rows").insertAdjacentHTML("beforeend", barcodeRowHtml(""));
+      const block = card.querySelector(".ls-barcode-rows");
+      // Marks the block as the user's, so a live patch leaves it alone.
+      block.dataset.touched = "";
+      block.insertAdjacentHTML("beforeend", barcodeRowHtml(""));
     } else if (action === "remove-barcode") {
+      btn.closest(".ls-barcode-rows").dataset.touched = "";
       btn.closest(".ls-barcode-row").remove();
     } else if (action === "save-item") {
       saveItem(card);

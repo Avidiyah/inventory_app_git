@@ -118,18 +118,19 @@ describe("loadLowStock: the list and its cards", () => {
     const before = cardFor("i1");
     el.refresh().click();
     expect(el.message().textContent).toBe("Loading low stock...");
-    await vi.waitFor(() => expect(cardFor("i1")).not.toBe(before));
+    await vi.waitFor(() => expect(el.message().textContent).toBe(""));
     expect(listGets()).toHaveLength(1);
-    expect(el.message().textContent).toBe("");
+    // W6: patched in place, not rebuilt.
+    expect(cardFor("i1")).toBe(before);
   });
 
-  it("a background load skips the loading copy and still repaints", async () => {
+  it("a background load skips the loading copy and patches in place", async () => {
     const { mod } = await mountLowStock({ rows: [lowStockItem({ id: "i1" })] });
     const before = cardFor("i1");
     const loading = mod.loadLowStock({ background: true });
     expect(el.message().textContent).toBe("");
     await loading;
-    expect(cardFor("i1")).not.toBe(before);
+    expect(cardFor("i1")).toBe(before);
     expect(listGets()).toHaveLength(1);
   });
 
@@ -271,12 +272,12 @@ describe("the recency buckets", () => {
     expect(activeTab()).toEqual(["stale"]);
   });
 
-  it("reopens by id the cards that were open before a reload", async () => {
+  it("an open card stays open, and the same node, through a reload", async () => {
     const { mod } = await mountLowStock({ rows: [lowStockItem({ id: "a" }), lowStockItem({ id: "b" })] });
     const before = cardFor("a");
     before.open = true;
     await mod.loadLowStock({ background: true });
-    expect(cardFor("a")).not.toBe(before);
+    expect(cardFor("a")).toBe(before);
     expect(cardFor("a").open).toBe(true);
     expect(cardFor("b").open).toBe(false);
   });
@@ -285,8 +286,9 @@ describe("the recency buckets", () => {
 describe("the threshold control", () => {
   it("commits on blur: disabled meanwhile, PATCHes, keeps the new default, reports, reloads in the background", async () => {
     const gate = deferred();
+    const rows = [lowStockItem({ id: "i1", low_stock_threshold: 5 })];
     await mountLowStock({
-      rows: [lowStockItem({ id: "i1", low_stock_threshold: 5 })],
+      rows,
       handlers: [http.patch("/items/:id/low-stock-threshold", async () => {
         await gate.promise;
         return HttpResponse.json(lowStockItem());
@@ -298,13 +300,14 @@ describe("the threshold control", () => {
     expect(requestFor("/items/i1/low-stock-threshold", "PATCH").body).toEqual({ low_stock_threshold: 7 });
     expect(listGets()).toEqual([]);
 
+    rows[0] = lowStockItem({ id: "i1", low_stock_threshold: 7 });
     gate.resolve();
     await vi.waitFor(() => expect(rowMessage(card).textContent).toBe("Saved."));
     expect(rowMessage(card).className).toBe("success");
     expect(input.defaultValue).toBe("7");
     expect(input.disabled).toBe(false);
-    await vi.waitFor(() => expect(cardFor("i1")).not.toBe(card));
-    expect(listGets()).toHaveLength(1);
+    await vi.waitFor(() => expect(listGets()).toHaveLength(1));
+    expect(cardFor("i1")).toBe(card);
     expect(el.message().textContent).toBe("");
   });
 
@@ -409,8 +412,8 @@ describe("realtime", () => {
     const rt = await connectLowStock("low-stock");
     rt.emit("item.low_stock.changed");
     expect(el.message().textContent).toBe("");
-    await vi.waitFor(() => expect(cardFor("i1")).not.toBe(before));
-    expect(listGets()).toHaveLength(1);
+    await vi.waitFor(() => expect(listGets()).toHaveLength(1));
+    expect(cardFor("i1")).toBe(before);
     expect(el.message().textContent).toBe("");
   });
 
