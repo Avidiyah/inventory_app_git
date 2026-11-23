@@ -113,4 +113,36 @@ describe("tutorialProgress", () => {
     expect(fn).toHaveBeenCalledTimes(3);
     await flush();
   });
+
+  describe("claimSeen", () => {
+    const serveFirst = (body, status = 200) => server.use(
+      http.put("/tutorials/progress/:key", async ({ params, request }) => {
+        puts.push([params.key, (await request.json()).event]);
+        return HttpResponse.json(body, { status });
+      }));
+
+    it("resolves true for {first:true} and caches seen", async () => {
+      serveFirst({ first: true });
+      expect(await tp.claimSeen("welcome")).toBe(true);
+      expect(puts).toEqual([["welcome", "seen"]]);
+      expect(tp.hasSeen("welcome")).toBe(true);
+      expect(tp.isDone("welcome")).toBe(false);
+    });
+
+    it("resolves false for {first:false} and still caches seen", async () => {
+      serveFirst({ first: false });
+      expect(await tp.claimSeen("welcome")).toBe(false);
+      expect(tp.hasSeen("welcome")).toBe(true);
+    });
+
+    it("fails closed on a 500 or a network error and does not cache", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      serveFirst({ detail: "x" }, 500);
+      expect(await tp.claimSeen("a")).toBe(false);
+      expect(tp.hasSeen("a")).toBe(false);
+      server.use(http.put("/tutorials/progress/:key", () => HttpResponse.error()));
+      expect(await tp.claimSeen("b")).toBe(false);
+      expect(tp.hasSeen("b")).toBe(false);
+    });
+  });
 });

@@ -54,6 +54,23 @@ export function mark(key, event) {
     console.error("tutorial progress save failed", err));
 }
 
+// Awaited "seen": resolves true only when the server says this call set the
+// timestamp (reply `{first: true}`). Fails closed: any error resolves false
+// and leaves the cache alone, so the caller shows nothing rather than twice.
+export async function claimSeen(key) {
+  try {
+    const reply = await apiSetTutorialProgress(key, "seen");
+    if (!cache.has(key)) {
+      cache.set(key, false);
+      notify();
+    }
+    return reply?.first === true;
+  } catch (err) {
+    console.error("tutorial claim failed", err);
+    return false;
+  }
+}
+
 export function clearProgress() {
   generation += 1;
   loaded = null;
