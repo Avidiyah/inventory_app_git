@@ -33,6 +33,7 @@ const mine = () => catalogue().filter((e) => relevant(e, getCurrentUser()?.role)
 function pageTitle(page) {
   if (page === "user-hub") return "User Hub";
   if (page === "starter") return "Menu";
+  if (page === "welcome") return "Welcome";
   const btn = document.querySelector(`.nav-btn[data-page="${page}"]`);
   return btn?.textContent.trim() || page;
 }
@@ -116,7 +117,7 @@ export function mountHubTutorials(panel) {
     }
     const entry = event.target.closest(".hub-tut-entry");
     if (!entry) return;
-    if (!isStarter({ page: entry.dataset.tutPage })) showPage(entry.dataset.tutPage);
+    if (!isStarter({ page: entry.dataset.tutPage }) && entry.dataset.tutPage !== "welcome") showPage(entry.dataset.tutPage);
     void startTutorial(entry.dataset.tutPage, entry.dataset.tutKey);
   });
 }

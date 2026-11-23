@@ -27,6 +27,7 @@ import { sample as lowStockSample } from "./low-stock.sample.js";
 import { SCRIPTS as adminReview } from "./admin-review.js";
 import { sample as adminReviewSample } from "./admin-review.sample.js";
 import { SCRIPTS as starter } from "./starter.js";
+import { SCRIPTS as welcome } from "./welcome.js";
 import { SCRIPTS as integrations } from "./integrations.js";
 import { sample as integrationsSample } from "./integrations.sample.js";
 
@@ -45,4 +46,5 @@ export const TUTORIALS = {
   "admin-review": { scripts: adminReview, sample: adminReviewSample },
   "integrations": { scripts: integrations, sample: integrationsSample },
   "starter": { scripts: starter },
+  "welcome": { scripts: welcome, standalone: true },
 };
