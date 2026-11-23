@@ -20,6 +20,7 @@
 
 import { confirmDialog } from "../dom.js";
 import { escapeHtml } from "../format.js";
+import { liveId, patchHub } from "./hubPatch.js";
 
 const DEFAULT_IDLE_RED_MINUTES = 10;
 
@@ -88,7 +89,7 @@ function cardHtml(entry) {
   const since = entry.punch_started_at
     ? `on shift since ${timeLabel(entry.punch_started_at)}`
     : "";
-  return `<li class="hub-roster-card hub-roster-${escapeHtml(state)}"
+  return `<li class="hub-roster-card hub-roster-${escapeHtml(state)}" id="${liveId("ts-roster", entry.user?.id ?? name)}"
     data-user="${escapeHtml(String(entry.user?.id ?? ""))}" data-state="${escapeHtml(state)}">
     <span class="hub-roster-name">${escapeHtml(name)}</span>
     <span class="hub-roster-detail">${escapeHtml(detailText(entry, state))}</span>
@@ -118,7 +119,7 @@ function render() {
   const strip = onShift.length
     ? `<ul class="hub-roster-strip">${onShift.map(cardHtml).join("")}</ul>`
     : `<p class="hint hub-roster-empty">Nobody is clocked in right now.</p>`;
-  container.innerHTML = `<section class="hub-roster" aria-labelledby="hub-roster-heading">
+  patchHub(container, `<section class="hub-roster" aria-labelledby="hub-roster-heading">
     <h4 id="hub-roster-heading" class="sr-only">On shift now</h4>
     <div class="hub-roster-head"><h3>On shift now</h3><span>live</span></div>
     <div class="hub-roster-minis">
@@ -129,7 +130,13 @@ function render() {
     <p class="hub-roster-counts" aria-live="polite">${escapeHtml(counts)}</p>
     ${strip}
     ${absentHtml(payload.absent || [])}
-  </section>`;
+  </section>`, { flashSelector: ".hub-roster-card[id]", flashKey: rosterKey });
+}
+
+// A card glows on a change of state, name or shift start -- never on the
+// detail line the one-second tick rewrites.
+function rosterKey(card) {
+  return `${card.dataset.state}|${card.querySelector(".hub-roster-name")?.textContent}|${card.querySelector(".hub-roster-since")?.textContent}`;
 }
 
 // One pass per second. Each card's figure is rewritten as text; a card whose

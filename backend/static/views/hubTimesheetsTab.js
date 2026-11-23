@@ -137,8 +137,11 @@ function renderWeek(panelEl) {
   if (!area || !weekPayload) return;
   const isAdmin = roleAtLeast(viewerRole, "admin");
   if (dayOpen) { renderDay(panelEl, isAdmin); return; }
-  area.innerHTML = `<div class="hub-timesheets-actions"></div>
+  // Built once; a live week refresh patches the strip inside it (W7).
+  if (!area.querySelector(":scope > .hub-timesheets-days")) {
+    area.innerHTML = `<div class="hub-timesheets-actions"></div>
     <div class="hub-timesheets-days"></div>`;
+  }
   renderActions(panelEl, isAdmin);
   mountHubAttendanceDays(mountFor(panelEl, "days"), weekPayload, {
     onWeekChange: changeWeek(panelEl),

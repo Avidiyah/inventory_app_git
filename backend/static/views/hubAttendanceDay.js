@@ -15,6 +15,7 @@ import { escapeHtml } from "../format.js";
 import { mountPunchEditor } from "./hubAttendancePunchEditor.js";
 import { drilldownHtml, PROFILABLE_ROLES } from "./hubAttendanceHours.js";
 import { formatHm, isoDate, shiftMonday, spanList, weekLabel } from "./hubWeek.js";
+import { liveId, patchHub } from "./hubPatch.js";
 
 function cardLabel(iso) {
   return isoDate(iso).toLocaleDateString([], {
@@ -62,7 +63,7 @@ export function mountHubAttendanceDays(container, payload, { onWeekChange, onOpe
     const now = new Date();
     const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     const isToday = date === todayIso;
-    return `<button type="button" class="hub-day-card${isToday ? " is-today" : ""}" data-date="${escapeHtml(date)}" aria-label="${escapeHtml(`${longLabel(date)}, ${count}, ${formatHm(minutes)} paid`)}">
+    return `<button type="button" class="hub-day-card${isToday ? " is-today" : ""}" id="${liveId("ts-day", date)}" data-date="${escapeHtml(date)}" aria-label="${escapeHtml(`${longLabel(date)}, ${count}, ${formatHm(minutes)} paid`)}">
       <span class="hub-day-card-date"><span class="hub-day-card-dow" aria-hidden="true">${isToday ? "TODAY" : escapeHtml(dow)}</span><span class="hub-day-card-num" aria-hidden="true">${d.getUTCDate()}</span><span class="hub-day-card-full">${escapeHtml(cardLabel(date))}</span>${flags}</span>
       <span class="hub-day-card-count">${escapeHtml(count)}</span>
       <span class="hub-day-card-hours">${formatHm(minutes)}</span>
@@ -73,7 +74,7 @@ export function mountHubAttendanceDays(container, payload, { onWeekChange, onOpe
   const dst = payload.week_hours === 168
     ? ""
     : `<p class="hint hub-hours-dst">Daylight saving: this week is ${escapeHtml(String(payload.week_hours))} hours long, not 168.</p>`;
-  container.innerHTML = `<section class="hub-days" aria-labelledby="hub-days-heading">
+  patchHub(container, `<section class="hub-days" aria-labelledby="hub-days-heading">
       <div class="hub-hours-toolbar">
         <div class="hub-hours-week-nav">
           <button type="button" class="secondary-btn hub-timesheets-prev" aria-label="Previous week">◀</button>
@@ -86,16 +87,23 @@ export function mountHubAttendanceDays(container, payload, { onWeekChange, onOpe
       <p class="hint hub-days-hint">Tap a day to see who clocked in.</p>
       <div class="hub-day-cards">${cards}</div>
       ${dst}
-    </section>`;
-  container.querySelectorAll(".hub-day-card").forEach((button) => {
-    button.addEventListener("click", () => onOpenDay?.(button.dataset.date));
-  });
-  container.querySelector(".hub-timesheets-prev").addEventListener("click", () => {
-    onWeekChange?.(shiftMonday(payload.week_start, -7));
-  });
-  container.querySelector(".hub-timesheets-next").addEventListener("click", () => {
-    onWeekChange?.(shiftMonday(payload.week_start, 7));
-  });
+    </section>`, { flashSelector: ".hub-day-card[id]" });
+  // A patch keeps the nodes, so one delegated listener per container reads
+  // the latest payload and callbacks.
+  const firstMount = !stripState.has(container);
+  stripState.set(container, { payload, onWeekChange, onOpenDay });
+  if (firstMount) container.addEventListener("click", clickStrip);
+}
+
+const stripState = new WeakMap();
+
+function clickStrip(event) {
+  const state = stripState.get(event.currentTarget);
+  if (!state) return;
+  const card = event.target.closest(".hub-day-card");
+  if (card) state.onOpenDay?.(card.dataset.date);
+  else if (event.target.closest(".hub-timesheets-prev")) state.onWeekChange?.(shiftMonday(state.payload.week_start, -7));
+  else if (event.target.closest(".hub-timesheets-next")) state.onWeekChange?.(shiftMonday(state.payload.week_start, 7));
 }
 
 // --- The day page: everyone clocked in on one date -------------------------
