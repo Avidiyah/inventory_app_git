@@ -87,7 +87,7 @@ Ending leaves the person on the Hub Home tab as they were. A "Done" on the last 
 
 | # | Target | Title | Text |
 | --- | --- | --- | --- |
-| 1 | none | Welcome | Three sentences, one per tap (user's text, 2026-11-23): "Welcome to TechFM." / "TechFM is Technological Facilities Maintenance: our app for work orders, stock, tools and time." / "Each page has its own tutorial available at the top of the page." |
+| 1 | none | Welcome | Four sentences, one per tap (user's text, 2026-11-23): "Welcome to TechFM." / "TechFM is Technological Facilities Maintenance: our app for work orders, stock, tools and time." / "Each page has its own tutorial available at the top of the page." / "They are also in the Tutorials section, which we're about to navigate to first." The 3-sentence limit is lifted for this step only |
 | 2 | `#hub-tab-tutorials` | Tutorials | The Hub has a Tutorials tab. Everything that teaches you the app is kept there. |
 | 3 | Tutorials to-do list (after `open`) | Your to-do list | Tutorials you have not finished are listed here. Tap one to start it. |
 | 4 | Completed sub-tab | Completed | Finished ones move to Completed, so you can run them again any time. |
