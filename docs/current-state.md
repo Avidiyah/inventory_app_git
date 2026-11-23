@@ -95,7 +95,7 @@ Path shorthand:
 | List-size ceiling (all list endpoints) | `domain/list_limits.py`, `services/_list_cap.py`, the six `list_*` service functions | `test_list_limits.py`, `test_list_cap_service.py`, `test_list_caps_applied.py` |
 | Roles/permissions/user management | `domain/roles.py`, `routers/users.py`, `services/users.py`, `schemas/users.py`, `static/roles.js`, `static/views/users.js`, `static/views/nav.js` | `test_roles.py`, `test_route_role_gates.py`, `test_user_names.py`, `test_user_role_edit.py`, `test_user_archive.py`; frontend `tests/frontend/views/users{,Actions,ActionCoverage}.test.js` |
 | Item CRUD/lookup/archive | `routers/items.py`, `services/items.py`, `schemas/items.py`, `models.py`, `static/views/items.js`, `static/views/itemEditor.js`, `static/api.js` | `test_item_barcodes.py`, `test_item_price_gating.py`, route-gate tests, `tests/frontend/views/items.test.js`, `tests/frontend/views/itemEditor.test.js` (prefill, validation, the `itemSave.js` order, both prompts), `tests/frontend/views/notes.test.js`, `tests/frontend/views/addBarcode.test.js`, `tests/frontend/views/correction.test.js` |
-| Low stock alerts / page | `domain/low_stock.py`, `services/low_stock.py`, `routers/_stock_events.py`, `services/items.py`, `routers/items.py`, `domain/notifications.py`, `domain/realtime.py`, `static/views/lowStock.js`, `static/pages/low-stock.html` | `test_low_stock_domain.py`, `test_low_stock_buffer.py`, `test_low_stock_triggers.py`, `test_items_low_stock.py`, `test_low_stock_shell.py`, `tests/frontend/views/lowStock*.test.js` |
+| Low stock alerts / page | `domain/low_stock.py`, `services/low_stock.py`, `routers/_stock_events.py`, `services/items.py`, `routers/items.py`, `item_events.py`, `domain/notifications.py`, `domain/realtime.py`, `static/views/lowStock.js`, `static/views/lowStockCard.js`, `static/pages/low-stock.html` | `test_item_events.py`, `test_low_stock_domain.py`, `test_low_stock_buffer.py`, `test_low_stock_triggers.py`, `test_items_low_stock.py`, `test_low_stock_shell.py`, `tests/frontend/views/lowStock*.test.js` |
 | Item notes | `domain/notes_validation.py`, `services/notes.py`, `schemas/items.py`, `routers/items.py`, `static/views/notes.js` | add/extend focused tests if behavior changes |
 | Alternate barcodes | `models.py`, `services/items.py`, `schemas/items.py`, `routers/items.py`, `static/views/itemEditor.js`, `static/views/addBarcode.js` | `test_item_barcodes.py` |
 | Stock/dispense/correction/void | `domain/quantity.py`, `services/transactions.py`, `routers/transactions.py`, `schemas/transactions.py`, `static/views/transactions.js`, `static/views/correction.js` | `test_quantity_reverse.py`, `test_user_requests.py`, route-gate tests |
@@ -115,7 +115,7 @@ Path shorthand:
 | User profile (per-person weekly history on the Users page) | `services/person_week.py`, `schemas/attendance.py` (`PersonWeek*`), `routers/hub.py` (`GET /hub/people/{user_id}/week`, **Team Lead+**), `static/views/userProfile.js`, `static/views/dayTimeline.js` (an opened day in time order), `static/views/profileOrigin.js`, `static/views/hubWeek.js` (shared week helpers, also used by `hubAttendanceHours.js`), `static/views/users.js`, `static/views/hubAttendanceHours.js`, `static/views/hubTimesheetsTab.js`, `static/views/workOrderRouting.js`, `static/views/workOrderActions.js`, `static/pages/saved-users.html`, `static/api.js`, `static/styles.css` | `test_person_week_service.py`, `test_person_week_router.py`, `test_route_role_gates.py`, `tests/frontend/views/userProfile.test.js`, `users.test.js`, `hubAttendanceHours.test.js`, `hubTimesheetsTab.test.js`, `workOrders/solo.test.js`, `unit/profileOrigin.test.js`, `unit/hubWeek.test.js` |
 | SMR27 audit | `domain/work_orders_smr.py`, `domain/work_orders_smr_block.py` (correction block + lines digest), `services/work_orders_smr.py`, `services/work_orders_smr_lines.py` (readings, lines, workers, blocks, Hours), `services/work_orders_smr_import.py` (paper import), `services/work_orders_smr_xlsx.py`, `routers/work_orders_smr.py`, `schemas/work_orders_smr.py`, `schemas/work_orders_smr_lines.py`, `models_smr.py` (the five `smr_*` tables), `static/views/smr.js`, `static/views/smrHours.js`, `static/pages/smr.html`, `styles.css` (`#smr-page` ladder), the Skilled Technician control in `workOrderCardHtml.js` / `workOrderActions.js`, the SMR Import and SMR Labor Import buttons in `workOrderIntegrations.js`, the target lines and paper check (`paperCheckHtml`) in `workOrderPresenters.js`, the Ready to invoice row (`readyRowHtml`) in `workOrderSmrLines.js`, the SMR Admin Review page (`static/views/smrAdminReview.js`, `static/pages/smr-admin-review.html`: ready unarchived orders, full correction block, Print / Mark pasted / Regenerate / Not ready / Archive) | `test_work_orders_smr_domain.py`, `test_smr_block.py`, `test_smr_import.py`, `test_smr_paper_import.py`, `test_smr_lines.py`, `test_smr_lines_routes.py`, `test_smr_tiles.py`, `test_smr_export_xlsx.py`, `test_smr_export_lines_xlsx.py`, `test_smr_exclusion.py`, `test_work_order_skilled_labor.py`, `test_models_smr.py`, `test_smr_paper_check.py`, `test_smr_ready.py`, `tests/frontend/views/smr.test.js`, `tests/frontend/views/workOrders/smrLines.test.js`, `tests/frontend/views/smrAdminReview.test.js`; specs `docs/superpowers/specs/2026-10-23-smr-audit-workflow-design.md` … `2026-11-06-smr-paper-stage-design.md` |
 | NetFacilities enrichment | `integrations/netfacilities/`, `services/netfacilities.py`, `services/netfacilities_cloud_auth.py`, `services/netfacilities_cloud_crypto.py`, `services/netfacilities_jobs.py`, `routers/netfacilities.py`, `schemas/netfacilities.py`, `lifespan.py`, Work Orders import UI, priority migration/model/response plumbing | `test_netfacilities_*.py`; behavior under API Surface → NetFacilities |
-| Admin Review / fixed-width receipt | `static/views/adminReview.js`, `static/adminReviewReceipt.js`, `static/pricingText.js`, `static/pages/admin-review.html`, `static/views/history.js`, `static/views/nav.js`, `static/api.js` | work-order billing/role tests, pure receipt assertions, served DOM/resource check, `tests/frontend/views/adminReview.test.js` |
+| Admin Review / fixed-width receipt | `static/views/adminReview.js`, `static/views/reviewLiveDetail.js`, `static/adminReviewReceipt.js`, `static/pricingText.js`, `static/pages/admin-review.html`, `static/views/history.js`, `static/views/nav.js`, `static/api.js` | work-order billing/role tests, pure receipt assertions, served DOM/resource check, `tests/frontend/views/adminReview.test.js` |
 | Real-time transport / invalidation | `domain/realtime.py`, `services/realtime.py`, `services/realtime_limits.py`, `routers/realtime.py`, `static/realtime.js`, `static/views/auth.js`, `static/views/nav.js`, emit-capable resource routers, `logging_config.py` | `test_realtime_*.py`, `test_logging.py`, all-JavaScript syntax check, manual browser check |
 | Tools API/domain/service (custody) | `domain/tools.py`, `domain/quantity.py` (reused), `services/tools.py`, `routers/tools.py`, `schemas/tools.py`, `models.py` | `test_tools_domain.py`, `test_tools_service.py`, `test_route_role_gates.py` |
 | Tools UI (Add Tool tab + Tools page) | `static/views/tools.js`, `static/views/toolCheckout.js`, `static/views/toolReturn.js`, `static/views/toolCorrection.js`, `static/pages/tools.html`, `static/pages/create-item.html`, `static/api.js` | `tests/frontend/views/tools{Custody,Checkout,Inventory,Scan,ActionCoverage}.test.js` on `helpers/tools.js` |
@@ -382,7 +382,7 @@ Real-time invalidation (`domain/realtime.py`, `services/realtime*.py`,
 `routers/realtime.py`, `static/realtime.js`):
 
 - The wire envelope is exactly `type`, `id`, `req` — no row data, no actor.
-  **Three events**; the vocabulary, audiences, and pinned emitter sets live in
+  **Six events**; the vocabulary, audiences, and pinned emitter sets live in
   `domain/realtime.py`, asserted by `test_realtime_emit.py`.
   Audience is a noise rule, not a security boundary — scoping happens on the
   client's REST refetch. Emission is non-blocking and best-effort, after the
@@ -408,9 +408,15 @@ Real-time invalidation (`domain/realtime.py`, `services/realtime*.py`,
   next section close or focusout. A filtered list is a
   snapshot refined by live badges: a row whose new status no longer matches
   the filter keeps its updated badge and stays until the next full load.
-- Admin Review: socket-driven refreshes are silent and never replace the open
-  receipt; queue requests carry a monotonic id so an older response cannot
-  repaint newer cards.
+- Admin Review and SMR Admin Review: tiles patch in place (`morph.js`); queue
+  requests carry a monotonic id so an older response cannot repaint newer
+  tiles. An event naming the selected order (or a reconnect) refetches it
+  (`reviewLiveDetail.js`): if the text or status differs, the receipt or block
+  repaints with "This order was changed by someone else…", never taking
+  focus, selecting text or opening the price picker. If the order left the
+  queue (or 404s) the text stays, the action buttons are disabled, and the
+  note says it was closed or sent back. An own action in flight, or an order
+  an own action already removed, is not refreshed.
 - Admin Review unpriced rule: a blank or $0.00 price is unpriced (`is_priced` /
   `isUnpriced`, same rule that opens a missing-price request). Cards with
   `has_unpriced_items` paint red ("Needs price"); selecting one withholds the
@@ -441,6 +447,9 @@ Work Orders save conflicts (W3):
 - `user_request.changed` is emitted only by the after-commit listener in
   `app/request_events.py` (one envelope per changed request per commit);
   never emit it from a route.
+- `item.low_stock.changed` is emitted only by the after-commit listener in
+  `app/item_events.py` (one envelope per commit for each changed item that is
+  low before or after the write); never emit it from a route.
 - Edit details, material quantity and billing, and labor hours send expected
   values (`workOrderConflict.js` reads them from the edited element's defaults
   and `data-original-*` / `data-expected-minutes` / `data-billable-quantity`,
@@ -1796,9 +1805,12 @@ mutually exclusive recency tabs (last 24h / 2-7 days / older or never),
 bucketed client-side from `last_dispensed_at`; one fetch serves all three.
 The open body holds barcode/location, the threshold input (commits on
 blur/Enter), the core-field and additional-barcode editor, and a count
-correction (`POST /transactions/adjust`). Any save reloads the queue
-rather than patching the card; open cards reopen after the reload.
-`item.low_stock.changed` refreshes it in place while it is the active page.
+correction (`POST /transactions/adjust`). Every load (save, Refresh, or
+`item.low_stock.changed` while the page is active) patches the list in place:
+a focused or typed field, a touched barcode block and a showing message are
+left alone; an own save makes its section clean first. A card that left the
+list goes even with typed input, and the page says "An item you were editing
+is no longer low." Live fetches coalesce to one plus one rerun.
 `user_request.changed` (Technician+; every request write and any stock write
 crossing zero for a requested item) reloads User Requests, the Hub rows, and
 open cards' Request/Materials surfaces.

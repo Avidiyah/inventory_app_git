@@ -74,11 +74,11 @@ EVENT_WORK_ORDER_STATUS_CHANGED = "work_order.status.changed"
 # card. Emitted from `routers/work_orders.py`'s tracking start/stop routes.
 EVENT_LABOR_SESSION_CHANGED = "labor.session.changed"
 
-# The Low Stock page's membership. Narrow in the same way the others are:
-# it invalidates *which items are low*, not an item's contents, so a name
-# or price edit is not in this vocabulary. Emitted whenever an item enters
-# or leaves the set -- a crossing in either direction, a threshold edit,
-# an item created below its threshold, or an item archived out of the list.
+# The Low Stock page's rows. Emitted on any change to a low item: every
+# committed write to an item that is at or below its threshold before or
+# after the write -- a dispense, restock, correction, threshold or field
+# edit, a create below threshold, an archive. The one emitter is the
+# after-commit listener in `app/item_events.py`.
 #
 # `id` names one item; `None` is unused today and reserved for a command
 # that could change several rows at once.

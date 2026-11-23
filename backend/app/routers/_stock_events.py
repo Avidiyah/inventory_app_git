@@ -11,11 +11,8 @@ threshold) and `services.material_requests` (requests that just became
 `stocked`). Each branch has its own try/except so a failure in one costs
 that branch's push and never the other's.
 
-Why the drain lives here rather than in a service: emitting realtime
-invalidations from the router is the convention this repo already follows
-(`routers/work_orders.py::_emit_status_changed`), and pulling
-`services.realtime` into a service that `services.notifications` imports
-would close an import ring.
+Pushes only. The Low Stock page's realtime invalidation comes from the
+after-commit listener in `app/item_events.py`, not from here.
 """
 
 import logging
