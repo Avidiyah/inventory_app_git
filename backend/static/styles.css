@@ -7193,3 +7193,5 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .users-tut-count { white-space: nowrap; font-size: var(--fs-sm); }
 .users-profile-tut { margin-top: var(--space-4); overflow-wrap: anywhere; }
 .users-profile-tut-list { margin: 0; padding-left: var(--space-4); }
+.tut-targetless .tut-spot { outline: none; }
+.tut-targetless .tut-box { left: 50%; top: 50%; transform: translate(-50%, -50%); }

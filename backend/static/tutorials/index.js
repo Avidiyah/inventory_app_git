@@ -1,5 +1,7 @@
 // Tutorial registry: page name -> { scripts, sample }. Edited by the
 // orchestrator only; each page's two files are data (see tutorial.js).
+// An entry may be `{ scripts, standalone: true }` (no page, no sample): the
+// player restores the Hub tab it began on and startTutorial(page, key, { onEnd }) reports the end.
 import { SCRIPTS as workOrders } from "./work-orders.js";
 import { sample as workOrdersSample } from "./work-orders.sample.js";
 import { SCRIPTS as transaction } from "./transaction.js";

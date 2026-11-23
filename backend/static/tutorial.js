@@ -15,6 +15,8 @@ import { getCurrentUser } from "./state.js";
 import { roleAtLeast } from "./roles.js";
 import { mark } from "./tutorialProgress.js";
 import { closeTip } from "./tooltip.js";
+import { alreadyOpen, endReason, isTargetless, placeTargetless, restoreHubTab,
+  snapshotHubTab } from "./tutorialStandalone.js";
 import { WAIT_MS, blockKeys, clearExpectNav, expectNav, forwardTap, isExpectingNav, isWaitStep,
   resolveWait, roleVisible } from "./tutorialWait.js";
 
@@ -72,7 +74,7 @@ export function visibleSteps(script, role) {
       skipping = !roleVisible(document.querySelector(step.waitTap));
       afterWait = !skipping;
       if (skipping) continue;
-    } else if (skipping || (!afterWait && !isVisible(document.querySelector(step.target)))) continue;
+    } else if (skipping || (!afterWait && !isTargetless(step) && !isVisible(document.querySelector(step.target)))) continue;
     out.push({ step, lines: sentences(step, role) });
   }
   return out;
@@ -154,11 +156,13 @@ function button(act, label) {
 // The element the current step lights (a wait step's is re-resolved each time).
 function litEl() {
   const { step } = run.list[run.i];
+  if (isTargetless(step)) return null;
   return isWaitStep(step) ? resolveWait(step).el : document.querySelector(step.target);
 }
 
 function place() {
   if (!run || !nodes) return;
+  if (placeTargetless(run.list[run.i].step, nodes)) return;
   const el = litEl();
   if (!el) return; // vanished mid-refresh: keep the last position
   const r = el.getBoundingClientRect();
@@ -195,7 +199,7 @@ function render({ scroll = false } = {}) {
   }
   nodes.box.hidden = run.boxHidden;
   nodes.pill.hidden = !run.boxHidden;
-  if (scroll && !wait) document.querySelector(step.target)?.scrollIntoView?.({ block: "center" });
+  if (scroll && !wait && !isTargetless(step)) document.querySelector(step.target)?.scrollIntoView?.({ block: "center" });
   place();
   requestAnimationFrame(place);
   if (!run.boxHidden) (nodes.actions.querySelector("button") || nodes.box).focus();
@@ -336,6 +340,7 @@ async function openOnce(script, role) {
     if (revealed()) continue;
     const el = optional ? document.querySelector(sel) : await waitFor(() => document.querySelector(sel), OPEN_WAIT_MS);
     if (!el) { if (optional) continue; return false; }
+    if (alreadyOpen(el)) continue; // an open toggle is never clicked shut
     el.focus?.();
     el.click();
   }
@@ -364,16 +369,18 @@ function hasUnsavedText(page) {
     (el.tagName === "TEXTAREA" || TEXT_TYPES.has(el.type)) && el.value.trim() !== "");
 }
 
-export async function startTutorial(page, key = null) {
-  if (running || !deps) return;
-  const entry = deps.tutorials[page];
-  if (!entry) return;
+// `onEnd(reason)`: "done" (Done tapped) or "ended" (End, Esc, leaving, nothing to
+// show), called once after teardown. A standalone entry (`standalone: true`, no
+// sample) also puts the Hub tab it began on back.
+export async function startTutorial(page, key = null, { onEnd } = {}) {
+  const entry = deps?.tutorials[page];
+  if (running || !entry) { onEnd?.("ended"); return; }
   // A page marks live work (an open scanning batch) with [data-tutorial-busy].
   // An entry with no sample (the starter tours) reloads nothing and blocks all
   // input, so neither refusal applies to it.
   const busy = entry.sample && document.querySelector(`#${page}-page [data-tutorial-busy]`);
-  if (busy && !busy.closest("[hidden]")) { messageDialog(BUSY_TEXT); return; }
-  if (entry.sample && hasUnsavedText(page)) { messageDialog(REFUSE_TEXT); return; }
+  if (busy && !busy.closest("[hidden]")) { messageDialog(BUSY_TEXT); onEnd?.("ended"); return; }
+  if (entry.sample && hasUnsavedText(page)) { messageDialog(REFUSE_TEXT); onEnd?.("ended"); return; }
   closeTip();
   let script = (key && entry.scripts.find((s) => s.key === key)) || pickScript(entry.scripts);
   running = { page, restore: Boolean(entry.sample) };
@@ -384,12 +391,17 @@ export async function startTutorial(page, key = null) {
     await new Promise((r) => setTimeout(r, RELOAD_WAIT_MS));
   }
   const role = getCurrentUser()?.role;
+  const hubTab = entry.standalone ? snapshotHubTab() : null;
+  let last = "end";
   while (running && script) {
     if (!(await runOpen(script, role)) || !running) break;
     const out = await runSteps(script, role, { scripts: entry.scripts });
+    last = out.result;
     script = out.result === "next" ? out.script : null;
   }
   endTutorial();
+  if (entry.standalone) restoreHubTab(hubTab);
+  onEnd?.(endReason(last));
 }
 
 // Ends the tutorial by any route. `restore: false` when the caller is already
