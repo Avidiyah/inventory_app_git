@@ -1215,6 +1215,32 @@ class PushSubscription(Base):
     __table_args__ = (Index("ix_push_subscriptions_user_id", "user_id"),)
 
 
+class TutorialProgress(Base):
+    """One person's progress on one tutorial script (0b spec 5.1).
+
+    First-write-wins: `seen_at` and `completed_at` are never moved or
+    cleared once set, so replaying a finished tutorial changes nothing.
+    Stores the script key only; a renamed or deleted script leaves a
+    harmless orphan row that counts ignore. Cascades on user delete;
+    archiving a user keeps their rows.
+    """
+
+    __tablename__ = "tutorial_progress"
+
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    script_key = Column(Text, primary_key=True)
+    seen_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+
 class NetFacilitiesCloudSession(Base):
     """One user's captured NetFacilities cloud-auth session (spec D8, D9).
 
