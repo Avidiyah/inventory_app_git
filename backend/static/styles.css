@@ -7046,3 +7046,72 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     box-shadow: var(--shadow-panel);
 }
 .wo-more-menu > button { width: 100%; margin: 0; }
+
+/* tutorial -- tutorial.js owns these nodes and writes left/top/width/height
+   through CSSOM (the CSP drops style= attributes). Above the tip bubble (30)
+   and menu popovers (20), below the confirm modal (1000). */
+.tut-btn {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--btn-h-sm);
+    margin: 0 0 0 var(--space-2);
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-pill);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+    vertical-align: middle;
+    white-space: nowrap;
+}
+.tut-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 900;
+    touch-action: none;
+    cursor: pointer;
+}
+.tut-spot {
+    position: fixed;
+    left: 0;
+    top: 0;
+    border-radius: var(--radius-md);
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, .65);
+    outline: 2px solid var(--color-brand-light);
+    pointer-events: none;
+}
+.tut-box {
+    position: fixed;
+    left: var(--space-3);
+    top: var(--space-3);
+    width: 340px;
+    max-width: calc(100vw - 2 * var(--space-3));
+    padding: var(--space-4);
+    border: 1px solid var(--gray-700);
+    border-radius: var(--radius-md);
+    background-color: var(--color-header);
+    color: var(--text-panel);
+    box-shadow: var(--shadow-panel);
+    cursor: default;
+}
+.tut-box[hidden], .tut-pill[hidden] { display: none; }
+.tut-title { margin: 0 0 var(--space-2); font-weight: var(--fw-bold); }
+.tut-text { margin: 0 0 var(--space-3); line-height: var(--lh-body); overflow-wrap: anywhere; }
+.tut-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.tut-count { color: var(--text-panel-mute); font-size: var(--fs-sm); }
+.tut-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-left: auto; }
+.tut-act { min-height: var(--btn-h-sm); margin: 0; }
+.tut-act:not(.primary) { background: transparent; border: 1px solid var(--gray-700); color: var(--text-panel); }
+.tut-pill {
+    position: fixed;
+    left: 50%;
+    bottom: var(--space-6);
+    transform: translateX(-50%);
+    max-width: calc(100vw - 2 * var(--space-4));
+    margin: 0;
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-pill);
+    background-color: var(--color-header);
+    color: var(--text-panel);
+    font-size: var(--fs-sm);
+    text-align: center;
+    pointer-events: none;
+}
