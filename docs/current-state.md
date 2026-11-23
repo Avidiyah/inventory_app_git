@@ -925,6 +925,14 @@ login globally. Landing is role-based (`landingPageForRole`): technician →
 Transaction, Team Lead → Work Orders, admin/owner → History; a resumed batch
 overrides it and opens Transaction.
 
+Tutorials ("How this page works" pill, `tutorial.js`):
+- Registry `tutorials/index.js` → per page `tutorials/<page>.js` (data-only `SCRIPTS`) + `<page>.sample.js` (`sample(user)` → `{"GET <path>": body}`).
+- Sample mode: `api.js::setSampleResponder` answers GETs by path (query ignored); writes go to the server. Sample ids use the reserved prefix `ffffffff-ffff-4fff-8fff-`.
+- Pill goes in `[data-tutorial-slot]`, else the page's first `h2`. Start refuses while typed text is on the page; start and End reload the page; End fires `tutorial:end`.
+- `open` selectors: a click is skipped when what it reveals is visible; `?` prefix = optional. A step whose target is missing or hidden is skipped.
+- `nav.showPage` to another page and `showLoginScreen` end a tutorial without a reload.
+- `tests/frontend/views/tutorialGuard.test.js` is the rule for new scripts (targets per role, one sentence per box, ≤ 3 per step, ≤ 120 chars, id prefix).
+
 Scanner: upload mode posts to `/barcodes/decode`; live mode is vendored ZXing in
 the browser (environment camera, 1280×720 ideal, torch only if the track
 reports it) and never calls the backend. Live scan uses dwell + same-barcode
