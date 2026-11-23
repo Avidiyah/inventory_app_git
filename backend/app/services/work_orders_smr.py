@@ -422,10 +422,15 @@ def closed_week(work_order: WorkOrder) -> Optional[str]:
     return rules.week_label(week) if week is not None else None
 
 
-def tile_for(work_order: WorkOrder, *, now: Optional[datetime] = None) -> SmrTile:
+def tile_for(
+    work_order: WorkOrder, *, now: Optional[datetime] = None, figures=None, current: Optional[dict] = None,
+) -> SmrTile:
     # Computed once: the snapshot, the target gap and the lines summary all read it.
-    figures = smr.labor_figures(work_order.labor_entries, smr.correction_lines(work_order))
-    current = current_snapshot(work_order, now=now, figures=figures)
+    # The export passes both in, having built them already for its own sheets.
+    if figures is None:
+        figures = smr.labor_figures(work_order.labor_entries, smr.correction_lines(work_order))
+    if current is None:
+        current = current_snapshot(work_order, now=now, figures=figures)
     baseline = work_order.smr_baseline or current
     d = smr.deltas(baseline, current)
     lines = [l for l in smr.correction_lines(work_order) if l.exclusion_ground != rules.GROUND_REMOVED]

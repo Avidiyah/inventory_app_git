@@ -120,9 +120,9 @@ def _target_columns(orders: Iterable[WorkOrder]) -> list[str]:
     return known + sorted(c for c in seen if c not in smr.TARGET_SHEET_COLUMNS)
 
 
-def _target_values(order: WorkOrder, current: dict) -> list:
+def _target_values(order: WorkOrder, current: dict, figures) -> list:
     """`_TARGET` values for one order; a row of None without a target."""
-    target = smr_service.target_for(order, current)
+    target = smr_service.target_for(order, current, figures)
     if target is None:
         return [None] * len(_TARGET)
     return [
@@ -145,8 +145,8 @@ def _paper_values(order: WorkOrder) -> list:
     return ["YES", _when(order.smr_paper_checked_at), who.full_name if who else None]
 
 
-def _stage_values(order: WorkOrder) -> list:
-    tile = smr_service.tile_for(order)
+def _stage_values(order: WorkOrder, figures, current: dict) -> list:
+    tile = smr_service.tile_for(order, figures=figures, current=current)
     return [
         tile.stage,
         _when(tile.ready.at) if tile.ready else None,
@@ -197,7 +197,17 @@ def _last_edit(order: WorkOrder, baseline_at: Optional[datetime], names: dict) -
     return latest, who
 
 
-def _orders_sheet(sheet: Worksheet, orders: list[WorkOrder], names: dict) -> None:
+def _live(orders: list[WorkOrder]) -> dict:
+    """Each order's labor figures and AFTER snapshot, built once for every
+    sheet: rebuilding them per sheet made the export several times slower."""
+    live = {}
+    for order in orders:
+        figures = smr.labor_figures(order.labor_entries, smr.correction_lines(order))
+        live[order.id] = (figures, smr_service.current_snapshot(order, figures=figures))
+    return live
+
+
+def _orders_sheet(sheet: Worksheet, orders: list[WorkOrder], names: dict, live: dict) -> None:
     source_columns = _source_columns(orders)
     target_columns = _target_columns(orders)
     headers = (
@@ -215,7 +225,7 @@ def _orders_sheet(sheet: Worksheet, orders: list[WorkOrder], names: dict) -> Non
     theme.header_row(sheet, 1, headers)
     rows = []
     for order in orders:
-        current = smr_service.current_snapshot(order)
+        figures, current = live[order.id]
         baseline = order.smr_baseline or current
         source = baseline.get("source_row") or {}
         baseline_at = _when(baseline.get("taken_at"))
@@ -229,13 +239,13 @@ def _orders_sheet(sheet: Worksheet, orders: list[WorkOrder], names: dict) -> Non
             [source.get(column) for column in source_columns]
             + [value for header, value in zip(wo.EXPORT_HEADERS, wos.export_row(order)) if header not in _SHEET_OWNED]
             + numbers
-            + _target_values(order, current)
+            + _target_values(order, current, figures)
             + _paper_values(order)
             + _lines_values(order, baseline)
-            + _stage_values(order)
+            + _stage_values(order, figures, current)
             + [breakdown.get(column) for column in target_columns]
             + [
-                "YES" if smr.is_edited(order) else "NO",
+                "YES" if smr.is_edited(order, current) else "NO",
                 _when(order.smr_imported_at),
                 baseline_at,
                 _when(edited_at),
@@ -246,10 +256,10 @@ def _orders_sheet(sheet: Worksheet, orders: list[WorkOrder], names: dict) -> Non
     theme.write_rows(sheet, 2, rows)
 
 
-def _phase_rows(orders: list[WorkOrder], key: str, project) -> list[list]:
+def _phase_rows(orders: list[WorkOrder], live: dict, key: str, project) -> list[list]:
     rows: list[list] = []
     for order in orders:
-        current = smr_service.current_snapshot(order)
+        current = live[order.id][1]
         baseline = order.smr_baseline or current
         for phase, snap in ((BEFORE, baseline), (AFTER, current)):
             for record in snap[key]:
@@ -318,7 +328,8 @@ def _paper_sheets(workbook: Workbook, orders: list[WorkOrder], edits: list[SmrLi
     ])
 
 
-def smr_workbook(db: Session) -> bytes:
+def smr_workbook(db: Session) -> memoryview:
+    """The workbook's bytes as a view on the save buffer (no second copy)."""
     orders = smr_service.smr_orders(db)
     line_ids = [line.id for order in orders for line in order.smr_lines]
     edits = db.query(SmrLineEdit).filter(SmrLineEdit.line_id.in_(line_ids)).all() if line_ids else []
@@ -338,24 +349,25 @@ def smr_workbook(db: Session) -> bytes:
     workbook = Workbook()
     orders_sheet = workbook.active
     orders_sheet.title = "Orders"
-    _orders_sheet(orders_sheet, orders, names)
+    live = _live(orders)
+    _orders_sheet(orders_sheet, orders, names, live)
 
     _lines_sheet(
         workbook.create_sheet("Material Lines"), MATERIAL_HEADERS,
-        _phase_rows(orders, "material_lines", lambda r: [
+        _phase_rows(orders, live, "material_lines", lambda r: [
             r["item_name"], r["barcode"], _num(r["quantity"]), _num(r["billable_quantity"]),
             _num(r["unit_price"]), _num(r["line_total"]), _when(r["created_at"]),
         ]),
     )
     _lines_sheet(
         workbook.create_sheet("Labor Entries"), LABOR_HEADERS,
-        _phase_rows(orders, "labor_entries", lambda r: [
+        _phase_rows(orders, live, "labor_entries", lambda r: [
             r["technician"], r["minutes"], r["recorded_by"], _when(r["created_at"]),
         ]),
     )
     _lines_sheet(
         workbook.create_sheet("Labor Sessions"), SESSION_HEADERS,
-        _phase_rows(orders, "labor_sessions", lambda r: [
+        _phase_rows(orders, live, "labor_sessions", lambda r: [
             r["technician"], _when(r["started_at"]), _when(r["ended_at"]), r["minutes"],
             "YES" if r["auto_closed"] else "NO", _when(r["reviewed_at"]),
         ]),
@@ -364,4 +376,4 @@ def smr_workbook(db: Session) -> bytes:
 
     buffer = io.BytesIO()
     workbook.save(buffer)
-    return buffer.getvalue()
+    return buffer.getbuffer()

@@ -193,3 +193,20 @@ def test_smr_export_stage_columns(db):
     assert isinstance(row["READY AT"], datetime)
     blank = next(r for r in rows if r["WORK ORDER"] == fresh)
     assert (blank["STAGE"], blank["READY AT"], blank["READY BY"], blank["BELFOR ONLY"]) == ("no_material", None, None, "FALSE")
+
+
+def test_smr_export_builds_each_live_snapshot_once(db, monkeypatch):
+    """Every sheet reads one AFTER snapshot per order; rebuilding it per sheet
+    made the export several times slower (soak 2026-11-23)."""
+    owner = _user(db)
+    number = f"SMR-{uuid.uuid4().hex[:8]}"
+    order = wos.get_or_create_work_order(db, number=number, created_by_id=owner.id)
+    _line(db, order, owner)
+    smr_service.import_smr(db, csv_bytes=_sheet([number]), user=owner)
+
+    from app.domain import work_orders_smr as smr_domain
+    calls = []
+    real = smr_domain.snapshot
+    monkeypatch.setattr(smr_domain, "snapshot", lambda *a, **k: calls.append(1) or real(*a, **k))
+    _book(db)
+    assert len(calls) == len(smr_service.smr_orders(db))

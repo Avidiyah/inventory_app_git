@@ -7,6 +7,7 @@ role (all hands)."""
 
 from __future__ import annotations
 
+import threading
 import uuid
 from datetime import date
 from typing import Literal, Optional
@@ -201,14 +202,22 @@ def set_paper_reviewed(
     return tile
 
 
+# One build at a time: overlapping builds each hold a whole workbook, and
+# the memory they grow is kept by the allocator afterwards (soak 2026-11-23).
+# ponytail: per-process lock; fine on one Render instance, revisit if scaled out.
+_EXPORT_LOCK = threading.Lock()
+
+
 @router.get("/export.xlsx", responses=_forbidden(roles.ROLE_OWNER))
 def export_smr_xlsx(
     user: User = Depends(require_min_role(roles.ROLE_OWNER)),
     db: Session = Depends(get_db),
 ) -> Response:
     """The before / after / delta audit workbook, every SMR order (Owner)."""
+    with _EXPORT_LOCK:
+        content = smr_xlsx.smr_workbook(db)
     return Response(
-        content=smr_xlsx.smr_workbook(db),
+        content=content,
         media_type=smr_xlsx.XLSX_MEDIA_TYPE,
         headers={"Content-Disposition": f'attachment; filename="{smr_xlsx.SMR_XLSX_FILENAME}"'},
     )
