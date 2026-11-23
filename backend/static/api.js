@@ -32,6 +32,14 @@ export function setConnectivityHandler(fn) {
   connectivityHandler = fn;
 }
 
+// Tutorial sample mode: the player (tutorial.js) injects `fn(path)`; a GET
+// whose path (query stripped) it answers is served from that body instead of
+// the network. `undefined` falls through. Writes are never offered.
+let sampleResponder = null;
+export function setSampleResponder(fn) {
+  sampleResponder = fn;
+}
+
 // Looks up `globalThis.fetch` at call time rather than capturing it once at
 // module load: a test's fetch-recording wrapper can install itself either
 // before or after this module first evaluates, and a frozen reference would
@@ -52,6 +60,12 @@ export const LONG_REQUEST_TIMEOUT_MS = 120000;
 const LONG_REQUEST_URL = /\/export|dispense-exports|\/integrations\/netfacilities\//;
 
 async function rawFetch(url, init = {}) {
+  if (sampleResponder && (init.method || "GET").toUpperCase() === "GET") {
+    const body = sampleResponder(url.split("?")[0]);
+    if (body !== undefined) {
+      return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+  }
   const long = init.body instanceof FormData || LONG_REQUEST_URL.test(url);
   // Optional-chained for browsers predating AbortSignal.timeout (iOS < 16):
   // they keep the old no-deadline behavior rather than breaking.

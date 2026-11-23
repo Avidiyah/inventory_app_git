@@ -54,6 +54,45 @@ describe("apiGetWorkOrder", () => {
   });
 });
 
+describe("setSampleResponder", () => {
+  const throwIfHit = () => server.use(http.get("/work-orders/", () => { throw new Error("reached the network"); }));
+
+  it("answers a listed GET without reaching the network", async () => {
+    throwIfHit();
+    api.setSampleResponder((path) => (path === "/work-orders/" ? [{ id: "x" }] : undefined));
+    await expect(api.apiListWorkOrders()).resolves.toEqual([{ id: "x" }]);
+  });
+
+  it("lets an unlisted GET through", async () => {
+    server.use(http.get("/work-orders/", () => HttpResponse.json([{ id: "real" }])));
+    api.setSampleResponder(() => undefined);
+    await expect(api.apiListWorkOrders()).resolves.toEqual([{ id: "real" }]);
+  });
+
+  it("answers nothing after it is cleared", async () => {
+    server.use(http.get("/work-orders/", () => HttpResponse.json([{ id: "real" }])));
+    api.setSampleResponder(() => [{ id: "x" }]);
+    api.setSampleResponder(null);
+    await expect(api.apiListWorkOrders()).resolves.toEqual([{ id: "real" }]);
+  });
+
+  it("is called with the path alone, query stripped", async () => {
+    throwIfHit();
+    const fn = vi.fn((path) => (path === "/work-orders/" ? [] : undefined));
+    api.setSampleResponder(fn);
+    await expect(api.apiListWorkOrders({ status: "x", mine: true })).resolves.toEqual([]);
+    expect(fn).toHaveBeenCalledWith("/work-orders/");
+  });
+
+  it("never sees a write", async () => {
+    server.use(http.post("/auth/logout", () => new HttpResponse(null, { status: 204 })));
+    const fn = vi.fn(() => ({}));
+    api.setSampleResponder(fn);
+    await api.apiLogout();
+    expect(fn).not.toHaveBeenCalled();
+  });
+});
+
 describe("unhandled requests", () => {
   it("fail loudly rather than resolving to undefined", async () => {
     // No handler registered for this path.
