@@ -96,10 +96,9 @@ EVENT_USER_REQUEST_CHANGED = "user_request.changed"
 # board rather than one row's fields, so `id` is always `None` and the
 # recipient refetches the roster and the week rather than targeting a card.
 #
-# Audience **Team Lead**, the same rank as its sibling: the only consumer is
-# the Timesheets tab, which Team Leads open to edit hours (2026-10-22). Not
-# a security boundary -- P2 keeps row data out of the envelope -- but a lower
-# audience here would be pure noise.
+# Audience: every role (W7) -- the Timesheets tab and the worker's own Home
+# tab on their other devices. Not a security boundary: P2 keeps row data out
+# of the envelope.
 EVENT_ATTENDANCE_CHANGED = "attendance.changed"
 
 _AUDIENCE_MIN_ROLE = {
@@ -108,8 +107,9 @@ _AUDIENCE_MIN_ROLE = {
     # P2 keeps row data out of the envelope, so a technician who receives an
     # event for a work order they cannot see simply re-fetches nothing.
     EVENT_WORK_ORDER_STATUS_CHANGED: roles.ROLE_TECHNICIAN,
-    # Only supervisors and above can see a crew board at all (spec §4.1).
-    EVENT_LABOR_SESSION_CHANGED: roles.ROLE_SUPERVISOR,
+    # Crew board (Supervisor+) and, since W7, the worker's own Home tab on
+    # another device, so every role. Not a security boundary (P2).
+    EVENT_LABOR_SESSION_CHANGED: roles.ROLE_TECHNICIAN,
     # The page is TechFM OA+ for both viewing and editing, and so is the
     # push, so the socket audience matches both rather than inventing a
     # third rank.
@@ -117,8 +117,9 @@ _AUDIENCE_MIN_ROLE = {
     # Technicians file, cancel, and add from the stocked line, so the whole
     # hierarchy subscribes. Not a security boundary (P2).
     EVENT_USER_REQUEST_CHANGED: roles.ROLE_TECHNICIAN,
-    # The Timesheets tab's refresh. See the note on the constant.
-    EVENT_ATTENDANCE_CHANGED: roles.ROLE_SUPERVISOR,
+    # Timesheets (Team Lead+) and, since W7, the worker's own Home tab on
+    # another device, so every role. Not a security boundary (P2).
+    EVENT_ATTENDANCE_CHANGED: roles.ROLE_TECHNICIAN,
 }
 
 # --- thresholds --------------------------------------------------------

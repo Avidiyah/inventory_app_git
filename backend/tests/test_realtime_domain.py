@@ -209,12 +209,19 @@ def test_attendance_events_reach_team_lead_and_above():
         ), role
 
 
-def test_attendance_events_do_not_reach_technicians():
-    """The only consumer is the Timesheets tab, which opens at Team Lead, so
-    a Technician would receive pure noise."""
+def test_attendance_events_reach_technicians():
+    """W7: a worker's own Home tab on another device follows their punch."""
     assert (
         realtime.audience_allows(realtime.EVENT_ATTENDANCE_CHANGED, "technician")
-        is False
+        is True
+    )
+
+
+def test_labor_session_events_reach_technicians():
+    """W7: a worker's own Home tab on another device follows their clock."""
+    assert (
+        realtime.audience_allows(realtime.EVENT_LABOR_SESSION_CHANGED, "technician")
+        is True
     )
 
 
