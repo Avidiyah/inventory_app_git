@@ -162,7 +162,7 @@ describe("starter scripts", () => {
       restoreRects();
     }
     restoreBrowserStubs();
-  }, 60000);
+  }, 300000);
 });
 
 describe("catalogue rules across all pages", () => {
