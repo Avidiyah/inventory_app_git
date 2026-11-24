@@ -141,12 +141,12 @@ asking. Commit after each task once its tests pass.
 - **Files:** `backend/scripts/photo_sort.py` (new), `backend/tests/test_photo_sort.py` (new).
 - **Steps:**
   1. Stdlib only. Zip = argv[1] (dragged on) or newest `export_*.zip` in
-     `~/Downloads`; extract to `tempfile.mkdtemp()`.
+     this folder or `~/Downloads`; extract beside the script (none found → use what is there).
   2. Prompt for the Drive path; remember it in `photo_sort_last_path.txt` next to the
      script; Enter reuses it; refuse a path that doesn't exist.
   3. Walk the extracted tree (skip `manifest.csv`) into `<drive>/`; `mkdir(parents=True, exist_ok=True)`; copy with `shutil.copy2`
      only if the target doesn't exist; never overwrite/delete.
-  4. Print `Copied N, skipped M (already there), unsorted K`; remove the temp folder;
+  4. Print `Copied N, skipped M (already there), unsorted K`;
      `input("Press Enter to close")`. Any exception → print it and wait (the window
      must not vanish).
 - **Test:** temp zip + temp "drive": first run copies all; second run skips all; a
