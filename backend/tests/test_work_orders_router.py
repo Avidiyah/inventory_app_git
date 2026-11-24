@@ -299,9 +299,9 @@ def test_the_tab_label_count_is_live_and_reads_mine_total():
     The number: `counts.assigned` is worker assignment only, so it read "(0)"
     for a Supervisor whose work was all routed to them.
 
-    The liveness: the label used to be written in exactly one place, inside
-    `loadUserHub`. Every background refresh replaced `latestPayload` without
-    touching it, so the count only moved on a full page re-entry.
+    The liveness: the label used to be written only inside `loadUserHub`, so a
+    background refresh replaced `latestPayload` without touching it. Since W7
+    the refresh path is the `personalFeed` callback (hubLive coalescing).
     """
     code = _code("userHub.js")
 
@@ -312,7 +312,7 @@ def test_the_tab_label_count_is_live_and_reads_mine_total():
     assert "function renderWorkOrdersTabLabel()" in code
     assert code.count("renderWorkOrdersTabLabel();") >= 2
 
-    refresh_body = code.split("async function refreshPersonal")[1]
+    refresh_body = code.split("const personalFeed = createFeed(")[1].split("}, { when:")[0]
     assert "renderWorkOrdersTabLabel();" in refresh_body
     # The cards move with the number. A live count over a stale list is the
     # same disagreement wearing a different hat.
