@@ -91,6 +91,17 @@ function place() {
     el.classList.toggle("on-left", pos.side === "left");
     el.classList.toggle("on-right", pos.side === "right");
   }
+  placeFloat();
+}
+
+// The approved preview's placePanel(): beside the bubble, bottoms aligned,
+// clamped on screen. A fixed host with no inset would sit below the page.
+function placeFloat() {
+  float.style.left = float.style.right = float.style.top = "";
+  if (!panel || isSheet()) return; // the sheet positions itself in CSS
+  const h = float.offsetHeight || Math.min(560, window.innerHeight - 16);
+  float.style.top = `${clamp(cur.y + SIZE - h, GAP, window.innerHeight - h - GAP)}px`;
+  float.style[pos.side] = `${SIZE + GAP * 2}px`;
 }
 
 // --- visibility ------------------------------------------------------------
@@ -103,6 +114,7 @@ function sync() {
   bubble.hidden = !mounted || away || tutorial || (sheet && open);
   float.hidden = !open || tutorial;
   float.classList.toggle("sheet", sheet);
+  placeFloat(); // after un-hiding, so offsetHeight is real
   if (!mounted) trash.hidden = true;
 }
 

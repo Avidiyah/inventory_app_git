@@ -251,6 +251,30 @@ describe("narrow screens and resize", () => {
     expect(bubble().hidden).toBe(false);
   });
 
+  it("wide screens place the panel beside the bubble, on screen", () => {
+    // jsdom has no layout, so the panel's height falls back to min(560, vh - 16).
+    localStorage.setItem("techfm.msgBubble.pos", JSON.stringify({ side: "right", y: 600 }));
+    view.mountMessages();
+    view.openMessages();
+    expect(float().style.right).toBe("72px");   // bubble 56 + two 8 px gaps
+    expect(float().style.left).toBe("");
+    expect(float().style.top).toBe("96px");     // 600 + 56 - 560, bottoms aligned
+    localStorage.setItem("techfm.msgBubble.pos", JSON.stringify({ side: "left", y: 0 }));
+    view.mountMessages({ resume: true });
+    view.openMessages();
+    expect(float().style.left).toBe("72px");
+    expect(float().style.top).toBe("8px");      // clamped to the top gap
+  });
+
+  it("the sheet clears the inline placement", () => {
+    view.mountMessages();
+    view.openMessages();
+    setViewport(390, 800);
+    window.dispatchEvent(new Event("resize"));
+    expect(float().style.top).toBe("");
+    expect(float().style.right).toBe("");
+  });
+
   it("resize re-clamps the remembered position on screen", () => {
     localStorage.setItem("techfm.msgBubble.pos", JSON.stringify({ side: "right", y: 600 }));
     view.mountMessages();
