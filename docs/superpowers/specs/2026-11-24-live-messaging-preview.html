@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Messages preview</title>
+<style>
+  :root { --brand: #C8102E; --canvas: #1C1D20; --header: #141414; --size: 56px; --gap: 8px; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--canvas); color: #fff; overflow-x: hidden;
+         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
+  header.app { background: var(--header); padding: 14px 16px; display: flex; gap: 10px; align-items: center;
+           border-bottom: 1px solid rgba(200,16,46,.4); position: sticky; top: 0; }
+  header.app img { width: 28px; height: 28px; }
+  main { padding: 16px; max-width: 760px; margin: 0 auto; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; align-items: center; }
+  .ctl { background: #2a2b30; color: #fff; border: 1px solid #44464d; border-radius: 8px;
+         padding: 10px 14px; font-size: 15px; cursor: pointer; font-family: inherit; }
+  .ctl:hover { border-color: #fff; }
+  .card { background: #fff; color: #1a1a1a; border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+  .card.photo { background: linear-gradient(135deg, #5b6b7a, #c9b58f 60%, #e9e3d6); height: 140px; }
+  .card h3 { margin: 0 0 6px; font-size: 16px; }
+  .card p { margin: 0; color: #555; font-size: 14px; }
+
+  /* ---------- the bubble (approved) ---------- */
+  #bubble { position: fixed; left: 0; top: 0; width: var(--size); height: var(--size);
+            border-radius: 50%; border: 2px solid #fff; background: rgba(20,20,20,.18);
+            backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+            padding: 0; cursor: grab; touch-action: none; z-index: 50;
+            box-shadow: 0 0 10px 2px rgba(110, 8, 24, .85), 0 0 22px 6px rgba(110, 8, 24, .45); }
+  #bubble.settle { transition: transform .22s cubic-bezier(.2,.9,.3,1.2); }
+  #bubble.dragging { cursor: grabbing; }
+  #bubble.unread { box-shadow: 0 0 12px 3px rgba(255, 40, 70, .95), 0 0 28px 10px rgba(255, 40, 70, .6);
+                   animation: pulse 2.4s ease-in-out infinite; }
+  #bubble.over-trash { opacity: .55; }
+  #bubble img { width: 68%; height: 68%; pointer-events: none; display: block; margin: auto; }
+  #bubble:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
+  @keyframes pulse { 50% { box-shadow: 0 0 16px 5px rgba(255, 40, 70, 1), 0 0 36px 14px rgba(255, 40, 70, .7); } }
+  @media (prefers-reduced-motion: reduce) { #bubble.unread { animation: none; } #bubble.settle { transition: none; } }
+  #badge { position: absolute; top: -6px; min-width: 22px; height: 22px; padding: 0 6px;
+           border-radius: 999px; background: var(--brand); color: #fff; border: 2px solid #fff;
+           font-size: 12px; font-weight: 700; line-height: 18px; text-align: center; pointer-events: none; }
+  #bubble.on-right #badge { left: -6px; }
+  #bubble.on-left  #badge { right: -6px; }
+  [hidden] { display: none !important; }
+
+  #trash { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom));
+           width: 64px; height: 64px; margin-left: -32px; border-radius: 50%;
+           border: 2px solid rgba(255,255,255,.7); background: rgba(20,20,20,.75);
+           display: grid; place-items: center; z-index: 49;
+           opacity: 0; transform: translateY(30px) scale(.8); pointer-events: none;
+           transition: opacity .15s, transform .15s; }
+  #trash.show { opacity: 1; transform: none; }
+  #trash.hot { transform: scale(1.25); border-color: #fff; background: rgba(200,16,46,.85); }
+  #trash svg { width: 28px; height: 28px; stroke: #fff; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  #toast { position: fixed; left: 50%; top: 76px; transform: translateX(-50%); background: #000;
+           border: 1px solid #555; padding: 10px 16px; border-radius: 8px; font-size: 14px;
+           opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 60; max-width: 90vw; text-align: center; }
+  #toast.show { opacity: 1; }
+
+  /* ---------- the message panel ---------- */
+  #panel { position: fixed; z-index: 48; width: 360px; height: min(560px, calc(100vh - 16px));
+           background: rgba(20,20,20,.94); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+           border: 1px solid rgba(200,16,46,.4); border-radius: 14px; box-shadow: 0 8px 32px rgba(0,0,0,.55);
+           display: flex; flex-direction: column; overflow: hidden; }
+  #panel.sheet { inset: 0; width: auto; height: auto; border-radius: 0; border: 0; z-index: 55; }
+  .p-head { display: flex; align-items: center; gap: 8px; padding: 12px 12px 10px; border-bottom: 1px solid #2c2d33; }
+  .p-head h2 { font-size: 17px; margin: 0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .p-head small { display: block; font-weight: 400; font-size: 12px; color: #a9abb3; }
+  .icon-btn { width: 40px; height: 40px; border-radius: 50%; border: 0; background: transparent; color: #fff;
+              font-size: 22px; cursor: pointer; flex: none; }
+  .icon-btn:hover { background: #2a2b30; }
+  .p-tools { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .field { width: 100%; background: #26272c; border: 1px solid #3a3c43; color: #fff; border-radius: 10px;
+           padding: 11px 12px; font-size: 16px; font-family: inherit; }
+  .field:focus { outline: 2px solid #fff; outline-offset: 1px; }
+  .row-btns { display: flex; gap: 8px; }
+  .btn { flex: 1; border-radius: 10px; padding: 10px; font-size: 14px; font-weight: 600; cursor: pointer;
+         background: transparent; color: #fff; border: 1px solid #55575f; font-family: inherit; }
+  .btn.primary { background: var(--brand); border-color: var(--brand); }
+  .btn.small { flex: none; padding: 7px 10px; font-size: 13px; }
+  .btn:disabled { opacity: .4; cursor: default; }
+  .p-scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; }
+  .sec { padding: 10px 14px 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #a9abb3; }
+  .empty { padding: 28px 16px; text-align: center; color: #a9abb3; font-size: 14px; }
+  .conv { display: flex; gap: 10px; align-items: center; width: 100%; text-align: left; padding: 10px 12px;
+          background: transparent; border: 0; color: #fff; cursor: pointer; font-family: inherit; }
+  .conv:hover, .conv:focus-visible { background: #26272c; outline: 0; }
+  .av { width: 42px; height: 42px; border-radius: 50%; background: #3a3c43; display: grid; place-items: center;
+        font-weight: 700; font-size: 14px; flex: none; }
+  .av.group { background: #5a1420; }
+  .conv .mid { flex: 1; min-width: 0; }
+  .conv .name { font-size: 15px; font-weight: 600; display: flex; gap: 6px; align-items: baseline; }
+  .conv .name time { margin-left: auto; font-size: 12px; font-weight: 400; color: #a9abb3; flex: none; }
+  .conv .snip { font-size: 13px; color: #a9abb3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .conv.has-unread .snip { color: #fff; font-weight: 600; }
+  .tag { font-size: 11px; font-weight: 600; color: #ff9aa6; border: 1px solid #7a2532; border-radius: 999px; padding: 0 6px; }
+  .dot { min-width: 20px; height: 20px; border-radius: 999px; background: var(--brand); font-size: 12px; font-weight: 700;
+         display: grid; place-items: center; padding: 0 6px; flex: none; }
+  mark { background: #7a2532; color: #fff; border-radius: 3px; padding: 0 1px; }
+
+  .note { font-size: 12px; color: #a9abb3; text-align: center; padding: 8px 12px; border-bottom: 1px solid #2c2d33; }
+  .thread { padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .msg { max-width: 80%; padding: 8px 12px; border-radius: 16px; font-size: 15px; line-height: 1.35; overflow-wrap: anywhere; }
+  .msg.them { align-self: flex-start; background: #2f3037; border-bottom-left-radius: 4px; }
+  .msg.me { align-self: flex-end; background: var(--brand); border-bottom-right-radius: 4px; }
+  .msg .who { display: block; font-size: 12px; font-weight: 700; color: #ff9aa6; margin-bottom: 2px; }
+  .meta { font-size: 11px; color: #a9abb3; align-self: flex-end; margin-top: -2px; }
+  .composer { display: flex; gap: 8px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid #2c2d33; }
+  .composer .field { flex: 1; }
+  .composer .btn { flex: none; padding: 0 16px; }
+  .pick { display: flex; gap: 10px; align-items: center; padding: 8px 12px; cursor: pointer; }
+  .pick input { width: 22px; height: 22px; accent-color: var(--brand); }
+  .pick small { color: #a9abb3; }
+</style>
+</head>
+<body>
+<header class="app"><img src="../../../backend/static/logo-mark.png" alt=""><strong>TechFM</strong> <span style="opacity:.6">— messages preview</span></header>
+<main>
+  <div class="controls">
+    <button class="ctl" id="incoming">Someone messages you</button>
+    <label>Viewing as <select class="ctl" id="role"><option value="tech">Technician</option><option value="lead">Team Lead</option></select></label>
+    <button class="ctl" id="restore">Sign in again (bring bubble back)</button>
+  </div>
+  <div class="card"><h3>Try it</h3><p>Tap the bubble to open messages. Open a chat, send something, search for a name or a word ("gasket"), and switch to Team Lead to start a group. "Someone messages you" shows what a new message does to the bubble and the list.</p></div>
+  <div class="card photo"></div>
+  <div class="card"><h3>WO 48213 · Unit 204</h3><p>Filler page content.</p></div>
+  <div class="card"><h3>WO 48219 · Clubhouse</h3><p>Filler page content.</p></div>
+  <div class="card"><h3>WO 48230 · Unit 118</h3><p>Filler page content.</p></div>
+  <div class="card"><h3>WO 48244 · Unit 310</h3><p>Filler page content.</p></div>
+</main>
+
+<section id="panel" role="dialog" aria-label="Messages" hidden></section>
+<button id="bubble" class="on-right" aria-label="Messages">
+  <img src="../../../backend/static/logo-mark.png" alt="">
+  <span id="badge" hidden></span>
+</button>
+<div id="trash" aria-hidden="true">
+  <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v5M14 11v5"/></svg>
+</div>
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const bubble = $('bubble'), badge = $('badge'), trash = $('trash'), toast = $('toast'), panel = $('panel');
+const SIZE = 56, GAP = 8;
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+function say(text) { toast.textContent = text; toast.classList.add('show'); clearTimeout(say.t); say.t = setTimeout(() => toast.classList.remove('show'), 2400); }
+function h(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') e.className = v;
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else if (v === true) e.setAttribute(k, '');
+    else if (v !== false && v != null) e.setAttribute(k, v);
+  }
+  kids.flat().forEach(c => c != null && c !== false && e.append(c));
+  return e;
+}
+
+/* ================= mock data ================= */
+const ME = 'You';
+const people = [
+  { name: 'Marcus Bell', role: 'Team Lead' }, { name: 'Dana Ortiz', role: 'Technician' },
+  { name: 'Luis Romero', role: 'Technician' }, { name: 'Priya Shah', role: 'Admin' },
+  { name: 'Tom Keller', role: 'Technician' }, { name: 'Renee Castillo', role: 'Technician' },
+];
+let clock = 100;
+const m = (from, text, time, unread = false) => ({ from, text, time, unread, t: clock++ });
+let chats = [
+  { id: 1, group: false, name: 'Dana Ortiz', members: ['Dana Ortiz'], msgs: [
+      m(ME, 'Did the gasket for 204 come in?', '9:12 AM'), m('Dana Ortiz', 'Yes, it is on the shelf by the door', '9:15 AM'),
+      m('Dana Ortiz', 'Want me to bring it over?', '9:16 AM', true) ] },
+  { id: 2, group: true, name: 'Bldg 4 flood', starter: 'Marcus Bell', members: ['Marcus Bell', 'Luis Romero', 'Tom Keller'], msgs: [
+      m('Marcus Bell', 'Everyone on Bldg 4 today, meet at the east stairwell', '7:40 AM'),
+      m('Luis Romero', 'Bringing two air movers', '7:52 AM', true), m('Tom Keller', 'On my way', '7:55 AM', true) ] },
+  { id: 3, group: false, name: 'Priya Shah', members: ['Priya Shah'], msgs: [
+      m('Priya Shah', 'Your timesheet for last week is approved', 'Yesterday'), m(ME, 'Thank you', 'Yesterday') ], seen: true },
+];
+let nextId = 10;
+const view = { name: 'list', chatId: null, q: '' };
+const isLead = () => $('role').value === 'lead';
+const initials = n => n.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+const last = c => c.msgs[c.msgs.length - 1];
+const unreadOf = c => c.msgs.filter(x => x.unread).length;
+
+function refreshBadge() {
+  const who = new Set(chats.flatMap(c => c.msgs.filter(x => x.unread).map(x => x.from)));   // distinct people
+  const n = who.size;
+  badge.hidden = n === 0; badge.textContent = n > 9 ? '9+' : n;
+  bubble.classList.toggle('unread', n > 0);
+  bubble.setAttribute('aria-label', n ? `Messages, ${n} ${n === 1 ? 'person' : 'people'} unread` : 'Messages');
+}
+
+/* ================= panel views ================= */
+function go(name, chatId = null) { view.name = name; view.chatId = chatId; render(); }
+function render() {
+  panel.replaceChildren();
+  ({ list: renderList, chat: renderChat, people: renderPeople, group: renderGroupForm })[view.name]();
+  refreshBadge();
+}
+const closeBtn = () => h('button', { class: 'icon-btn', 'aria-label': 'Close messages', onclick: closePanel }, '✕');
+const backBtn = () => h('button', { class: 'icon-btn', 'aria-label': 'Back to messages', onclick: () => go('list') }, '‹');
+const avatar = c => h('span', { class: 'av' + (c.group ? ' group' : '') }, c.group ? '👥' : initials(c.name));
+
+function marked(text, q) {
+  const i = q ? text.toLowerCase().indexOf(q.toLowerCase()) : -1;
+  if (i < 0) return [text];
+  return [text.slice(0, i), h('mark', {}, text.slice(i, i + q.length)), text.slice(i + q.length)];
+}
+function convRow(c, snippet, q) {
+  const n = unreadOf(c), l = last(c);
+  return h('button', { class: 'conv' + (n ? ' has-unread' : ''), onclick: () => go('chat', c.id) },
+    avatar(c),
+    h('span', { class: 'mid' },
+      h('span', { class: 'name' }, h('span', {}, marked(c.name, q)), c.group && h('span', { class: 'tag' }, 'Group'), h('time', {}, l ? l.time : '')),
+      h('span', { class: 'snip' }, snippet || (l ? [(l.from === ME ? 'You: ' : c.group ? l.from.split(' ')[0] + ': ' : ''), l.text] : 'No messages yet'))),
+    n ? h('span', { class: 'dot', 'aria-label': n + ' unread' }, n) : null);
+}
+
+function renderList() {
+  const results = h('div', { class: 'p-scroll' });
+  const search = h('input', { class: 'field', type: 'search', placeholder: 'Search people and messages', value: view.q, 'aria-label': 'Search people and messages',
+    oninput: e => { view.q = e.target.value; fill(); } });
+  function fill() {
+    results.replaceChildren();
+    const q = view.q.trim().toLowerCase();
+    if (!q) {
+      const sorted = [...chats].sort((a, b) => (last(b)?.t ?? 0) - (last(a)?.t ?? 0));
+      results.append(...(sorted.length ? sorted.map(c => convRow(c)) : [h('p', { class: 'empty' }, 'No messages yet. Tap New chat to start one.')]));
+      return;
+    }
+    const byName = chats.filter(c => c.name.toLowerCase().includes(q));
+    const strangers = people.filter(p => p.name.toLowerCase().includes(q) && !chats.some(c => !c.group && c.name === p.name));
+    const byText = chats.flatMap(c => c.msgs.filter(x => x.text.toLowerCase().includes(q)).map(x => ({ c, x })));
+    if (byName.length || strangers.length) results.append(h('div', { class: 'sec' }, 'People and groups'),
+      ...byName.map(c => convRow(c, null, view.q.trim())), ...strangers.map(p => personRow(p, view.q.trim())));
+    if (byText.length) results.append(h('div', { class: 'sec' }, 'Messages'),
+      ...byText.map(({ c, x }) => convRow(c, [(x.from === ME ? 'You: ' : x.from.split(' ')[0] + ': '), ...marked(x.text, view.q.trim())])));
+    if (!results.children.length) results.append(h('p', { class: 'empty' }, `Nothing found for "${view.q.trim()}".`));
+  }
+  panel.append(
+    h('div', { class: 'p-head' }, h('h2', {}, 'Messages'), closeBtn()),
+    h('div', { class: 'p-tools' }, search,
+      h('div', { class: 'row-btns' },
+        h('button', { class: 'btn primary', onclick: () => go('people') }, 'New chat'),
+        isLead() && h('button', { class: 'btn', onclick: () => go('group') }, 'New group'))),
+    results);
+  fill();
+}
+
+function personRow(p, q) {
+  return h('button', { class: 'conv', onclick: () => openDm(p.name) },
+    h('span', { class: 'av' }, initials(p.name)),
+    h('span', { class: 'mid' }, h('span', { class: 'name' }, h('span', {}, marked(p.name, q))), h('span', { class: 'snip' }, p.role)));
+}
+function openDm(name) {
+  let c = chats.find(x => !x.group && x.name === name);
+  if (!c) { c = { id: nextId++, group: false, name, members: [name], msgs: [] }; chats.push(c); }
+  go('chat', c.id);
+}
+function renderPeople() {
+  panel.append(
+    h('div', { class: 'p-head' }, backBtn(), h('h2', {}, 'New chat')),
+    h('div', { class: 'p-scroll' }, h('div', { class: 'sec' }, 'Pick a person'), ...people.map(p => personRow(p))));
+}
+
+function renderGroupForm() {
+  const name = h('input', { class: 'field', placeholder: 'Group name, e.g. Bldg 4 flood', 'aria-label': 'Group name', oninput: check });
+  const boxes = people.map(p => h('input', { type: 'checkbox', value: p.name, onchange: check }));
+  const create = h('button', { class: 'btn primary', disabled: true, onclick: () => {
+    const members = boxes.filter(b => b.checked).map(b => b.value);
+    const c = { id: nextId++, group: true, name: name.value.trim(), starter: ME, members, msgs: [] };
+    chats.push(c); go('chat', c.id);
+  } }, 'Start group');
+  function check() { create.disabled = !name.value.trim() || boxes.filter(b => b.checked).length < 2; }
+  panel.append(
+    h('div', { class: 'p-head' }, backBtn(), h('h2', {}, 'New group')),
+    h('div', { class: 'p-tools' }, name),
+    h('div', { class: 'p-scroll' }, h('div', { class: 'sec' }, 'Pick at least two people'),
+      ...people.map((p, i) => h('label', { class: 'pick' }, boxes[i], h('span', {}, p.name, ' ', h('small', {}, p.role))))),
+    h('div', { class: 'composer' }, create));
+}
+
+function renderChat() {
+  const c = chats.find(x => x.id === view.chatId);
+  if (!c) return go('list');
+  c.msgs.forEach(x => x.unread = false);                               // opening a chat reads it
+  const thread = h('div', { class: 'thread' },
+    c.msgs.length ? c.msgs.map(x => h('div', { class: 'msg ' + (x.from === ME ? 'me' : 'them') },
+      c.group && x.from !== ME && h('span', { class: 'who' }, x.from), x.text))
+      : h('p', { class: 'empty' }, 'No messages yet. Say hello.'));
+  const l = last(c);
+  if (l && l.from === ME) thread.append(h('span', { class: 'meta' }, l.time + ' · ' + (c.seen ? 'Seen' : 'Sent')));
+  const scroll = h('div', { class: 'p-scroll' }, thread);
+  const input = h('input', { class: 'field', placeholder: 'Message', 'aria-label': 'Message', maxlength: 2000,
+    onkeydown: e => { if (e.key === 'Enter') send(); } });
+  function send() {
+    const text = input.value.trim(); if (!text) return;
+    c.msgs.push(m(ME, text, 'Now')); c.seen = false; render();
+    setTimeout(() => { c.seen = true; if (view.name === 'chat' && view.chatId === c.id && !panel.hidden) render(); }, 1500);
+  }
+  panel.append(
+    h('div', { class: 'p-head' }, backBtn(), avatar(c),
+      h('h2', {}, c.name, h('small', {}, c.group ? `Temporary group · ${c.members.length + 1} people` : (people.find(p => p.name === c.name)?.role ?? ''))),
+      c.group && c.starter === ME && h('button', { class: 'btn small', onclick: () => { chats = chats.filter(x => x !== c); say(`"${c.name}" ended for everyone.`); go('list'); } }, 'End group')),
+    c.group && h('div', { class: 'note' }, `Started by ${c.starter === ME ? 'you' : c.starter}. Ends when ${c.starter === ME ? 'you end' : c.starter.split(' ')[0] + ' ends'} it, or after 7 quiet days.`),
+    scroll,
+    h('div', { class: 'composer' }, input, h('button', { class: 'btn primary', onclick: send }, 'Send')));
+  scroll.scrollTop = scroll.scrollHeight;
+  if (matchMedia('(pointer: fine)').matches) input.focus();
+}
+
+/* ================= open / close / place ================= */
+function placePanel() {
+  const sheet = window.innerWidth < 600;
+  panel.classList.toggle('sheet', sheet);
+  bubble.hidden = sheet && !panel.hidden ? true : bubble.dataset.binned === '1';
+  panel.style.left = panel.style.right = panel.style.top = '';
+  if (sheet) return;
+  const H = Math.min(560, window.innerHeight - 16);
+  panel.style.top = clamp(bubble._y + SIZE - H, GAP, window.innerHeight - H - GAP) + 'px';
+  panel.style[pos.side] = (SIZE + GAP * 2) + 'px';
+}
+function openPanel() { panel.hidden = false; view.name = 'list'; view.q = ''; render(); placePanel(); }
+function closePanel() { panel.hidden = true; placePanel(); refreshBadge(); bubble.focus(); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !panel.hidden) closePanel(); });
+document.addEventListener('pointerdown', e => {
+  if (!panel.hidden && !e.target.closest('#panel, #bubble, .controls')) closePanel();
+});
+
+/* ================= the bubble (approved behaviour) ================= */
+let pos = { side: 'right', y: 0.7 }, drag = null;
+const maxX = () => document.documentElement.clientWidth - SIZE - GAP;
+const maxY = () => window.innerHeight - SIZE - GAP;
+const place = (x, y) => { bubble.style.transform = `translate(${x}px, ${y}px)`; bubble._x = x; bubble._y = y; };
+function settle() {
+  bubble.classList.add('settle');
+  bubble.classList.toggle('on-right', pos.side === 'right');
+  bubble.classList.toggle('on-left', pos.side === 'left');
+  place(pos.side === 'right' ? maxX() : GAP, clamp(pos.y * window.innerHeight, GAP + 60, maxY()));
+  if (!panel.hidden) placePanel();
+}
+function overTrash() {
+  const t = trash.getBoundingClientRect(), b = bubble.getBoundingClientRect();
+  return Math.hypot((t.left + t.width / 2) - (b.left + b.width / 2), (t.top + t.height / 2) - (b.top + b.height / 2)) < 56;
+}
+bubble.addEventListener('pointerdown', e => {
+  bubble.setPointerCapture(e.pointerId);
+  drag = { dx: e.clientX - bubble._x, dy: e.clientY - bubble._y, sx: e.clientX, sy: e.clientY, moved: false };
+});
+bubble.addEventListener('pointermove', e => {
+  if (!drag) return;
+  if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 6) return;
+  if (!drag.moved && !panel.hidden) panel.hidden = true;               // dragging closes the panel
+  drag.moved = true;
+  bubble.classList.remove('settle'); bubble.classList.add('dragging'); trash.classList.add('show');
+  place(clamp(e.clientX - drag.dx, 0, maxX() + GAP), clamp(e.clientY - drag.dy, 0, maxY() + GAP));
+  const hot = overTrash(); trash.classList.toggle('hot', hot); bubble.classList.toggle('over-trash', hot);
+});
+bubble.addEventListener('pointerup', () => {
+  if (!drag) return;
+  const moved = drag.moved; drag = null;
+  bubble.classList.remove('dragging', 'over-trash');
+  if (!moved) return panel.hidden ? openPanel() : closePanel();
+  const binned = overTrash();
+  trash.classList.remove('show', 'hot');
+  if (binned) { bubble.dataset.binned = '1'; bubble.hidden = true; return say('Bubble put away. Messages are still in the User Hub. It comes back next sign-in.'); }
+  pos = { side: bubble._x + SIZE / 2 > window.innerWidth / 2 ? 'right' : 'left', y: bubble._y / window.innerHeight };
+  settle();
+});
+bubble.addEventListener('pointercancel', () => { drag = null; trash.classList.remove('show', 'hot'); settle(); });
+
+/* ================= preview controls ================= */
+const lines = ['Can you cover Unit 310 after lunch?', 'Key is back in the lockbox', 'Need a second pair of hands at the pool gate', 'Running 10 minutes late'];
+$('incoming').addEventListener('click', () => {
+  const p = people[Math.floor(Math.random() * people.length)];
+  let c = chats.find(x => !x.group && x.name === p.name);
+  if (!c) { c = { id: nextId++, group: false, name: p.name, members: [p.name], msgs: [] }; chats.push(c); }
+  const open = !panel.hidden && view.name === 'chat' && view.chatId === c.id;
+  c.msgs.push(m(p.name, lines[Math.floor(Math.random() * lines.length)], 'Now', !open));
+  if (!panel.hidden && (view.name === 'list' || open)) render(); else refreshBadge();
+});
+$('role').addEventListener('change', () => { if (!panel.hidden) render(); });
+$('restore').addEventListener('click', () => { delete bubble.dataset.binned; bubble.hidden = false; settle(); });
+window.addEventListener('resize', settle);
+settle(); refreshBadge();
+</script>
+</body>
+</html>
