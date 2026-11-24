@@ -14,7 +14,7 @@ import io
 import logging
 import uuid
 import zipfile
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import BinaryIO
 
 from sqlalchemy import func, text
@@ -57,15 +57,31 @@ def _filename(photo: WorkOrderPhoto, work_order: WorkOrder) -> tuple[str, str]:
     )
 
 
-def add_photo(db: Session, work_order_id: uuid.UUID, *, user: User, raw: bytes) -> WorkOrderPhoto:
-    """Store one photo. Raises ValueError (not an image) before any write."""
+def check_can_upload(db: Session, work_order_id: uuid.UUID, *, user: User) -> None:
+    """404 / 403 before any image work, then hand the connection back to the
+    pool: the image step that follows holds no DB connection (stress test
+    2026-11-24: 50 uploads holding connections through Pillow exhausted it)."""
+    require_crew_for_technician(get_visible_work_order(db, work_order_id, user), user)
+    db.rollback()
+
+
+def prepare_upload(raw: bytes) -> tuple[bytes, bytes, date]:
+    """Image work, no DB. Raises ValueError when it isn't an image."""
+    return photos.prepare(raw, labor_day.central_date_of(datetime.now(timezone.utc)))
+
+
+def add_photo(
+    db: Session, work_order_id: uuid.UUID, *, user: User, prepared: tuple
+) -> WorkOrderPhoto:
+    """Store one prepared photo. The row lock serializes `seq` per work order
+    and is held only for this short insert."""
     get_visible_work_order(db, work_order_id, user)
     work_order = (
         db.query(WorkOrder).filter(WorkOrder.id == work_order_id).with_for_update().one()
     )
     require_crew_for_technician(work_order, user)
     now = datetime.now(timezone.utc)
-    original, preview, taken_on = photos.prepare(raw, labor_day.central_date_of(now))
+    original, preview, taken_on = prepared
     seq = (
         db.query(func.coalesce(func.max(WorkOrderPhoto.seq) + 1, 0))
         .filter_by(work_order_id=work_order.id, taken_on=taken_on)

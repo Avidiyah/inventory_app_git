@@ -25,6 +25,8 @@ def storage_flags(used: int, disk: int) -> dict:
     ratio = used / disk if disk > 0 else 1.0
     return {"used": used, "disk": disk, "ratio": ratio,
             "warn": ratio >= WARN_RATIO, "full": ratio >= FULL_RATIO}
+
+
 _DATETIME_ORIGINAL = 36867  # EXIF sub-IFD tag
 _EXIF_IFD = 0x8769
 
@@ -38,18 +40,22 @@ def _taken_on(img: Image.Image) -> Optional[date]:
 
 
 def prepare(raw: bytes, today: date) -> tuple[bytes, bytes, date]:
-    """Return (original_jpeg, preview_jpeg, taken_on). Raises ValueError if not an image."""
+    """Return (original_jpeg, preview_jpeg, taken_on). Raises ValueError if not an image.
+
+    A JPEG is never fully decoded: the original is stored as received and the
+    preview decodes at reduced scale (`draft`) -- a full 12 MP decode is ~36 MB.
+    """
     try:
         img = Image.open(io.BytesIO(raw))
+        taken_on = _taken_on(img) or today
+        if img.format == "JPEG":
+            original = raw  # stored untouched; decoded only at preview scale
+            img.draft("RGB", (PREVIEW_EDGE, PREVIEW_EDGE))
         img.load()
     except Exception as exc:  # Pillow raises several types for bad input
         raise ValueError("Not a readable image.") from exc
 
-    taken_on = _taken_on(img) or today
-
-    if img.format == "JPEG":
-        original = raw
-    else:
+    if img.format != "JPEG":
         # HEIC (or PNG etc.): convert once at full resolution, keep EXIF and orientation tag.
         buf = io.BytesIO()
         exif = img.info.get("exif") or img.getexif().tobytes()
