@@ -54,6 +54,7 @@ from app.routers import (
     hub,
     items,
     mass_stages,
+    messages,
     netfacilities,
     push,
     realtime,
@@ -336,6 +337,7 @@ app.include_router(barcodes.router)
 app.include_router(hub.router)
 app.include_router(items.router)
 app.include_router(mass_stages.router)
+app.include_router(messages.router)
 app.include_router(netfacilities.router)
 app.include_router(push.router)
 # The only WebSocket route in the app. Note that none of the three

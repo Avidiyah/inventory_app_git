@@ -441,3 +441,18 @@ class InvalidTutorialKeyError(DomainError):
 
 class TutorialProgressLimitError(DomainError):
     """A person already holds the maximum number of progress rows. Maps to 400."""
+
+
+class ConversationNotFoundError(DomainError):
+    """The chat does not exist, or the caller is not a member -- the two are
+    indistinguishable on purpose. Maps to 404."""
+
+
+class InvalidMessageError(DomainError):
+    """A blank or too-long message or group name, or an unusable group member
+    list. Maps to 422."""
+
+
+class GroupPermissionError(DomainError):
+    """Starting a group below Team Lead, or ending one you did not start.
+    Maps to 403."""

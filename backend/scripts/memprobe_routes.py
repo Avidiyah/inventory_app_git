@@ -312,6 +312,18 @@ CATALOGUE: dict[str, Entry] = {k: Entry(exclude="see EXCLUDED") for k in EXCLUDE
                                                cycle=["POST /mass-stages/{stage_id}/load", "POST /mass-stages/{stage_id}/return"]),
     "POST /mass-stages/{stage_id}/return": Entry(path="/mass-stages/{loading_stage_id}/return",
                                                  body=J({"item_id": "{item_id}", "quantity": 1})),
+    # --- messages (no seeded chat exists: id routes take the 404 path; a one-member group is the 422 path) ---
+    "GET /messages/conversations": Entry(),
+    "GET /messages/conversations/{conversation_id}": Entry(token={"conversation_id": NIL}, expect=404),
+    "POST /messages/conversations/{conversation_id}/messages": Entry(
+        token={"conversation_id": NIL}, body=J({"body": "memprobe"}), expect=404),
+    "POST /messages/conversations/{conversation_id}/read": Entry(
+        token={"conversation_id": NIL}, body=J({"up_to": 1}), expect=404),
+    "POST /messages/direct": Entry(body=J({"user_id": "{user_id}"})),  # idempotent; an empty direct chat is never listed
+    "POST /messages/groups": Entry(body=J({"name": "memprobe", "member_ids": ["{user_id}"]}), expect=422),
+    "DELETE /messages/groups/{conversation_id}": Entry(token={"conversation_id": NIL}, expect=404),
+    "GET /messages/search": Entry(path="/messages/search?q=memprobe"),
+    "GET /messages/people": Entry(),
     # --- push ---
     "POST /push/test": Entry(),            # add expect=503 if the container has no VAPID keys (acceptance run decides)
     # --- tutorials ---

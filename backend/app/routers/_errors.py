@@ -17,13 +17,16 @@ from fastapi import HTTPException
 from app.domain.errors import (
     ArchivedBarcodeConflictError,
     BillingQuantityError,
+    ConversationNotFoundError,
     DomainError,
     DuplicateBarcodeError,
     DuplicateBuildingStageError,
     DuplicateToolBarcodeError,
     DuplicateUsernameError,
+    GroupPermissionError,
     InvalidAssigneeError,
     InvalidCredentialsError,
+    InvalidMessageError,
     InvalidSupervisorError,
     InvalidUserNameError,
     InvalidTutorialKeyError,
@@ -127,6 +130,9 @@ _STATUS_MAP: dict[type[DomainError], int] = {
     RoleManagementError: 403,
     PersonNotProfilableError: 403,
     MaterialRequestOwnershipError: 403,
+    ConversationNotFoundError: 404,
+    InvalidMessageError: 422,
+    GroupPermissionError: 403,
     # Safety net only. `routers/auth.py` handles this one directly so it
     # can attach a `Retry-After` header, which `to_http` cannot carry.
     LoginThrottledError: 429,
