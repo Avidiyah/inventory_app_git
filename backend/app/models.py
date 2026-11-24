@@ -739,6 +739,37 @@ class WorkOrderSignature(Base):
     captured_by = relationship("User", foreign_keys=[captured_by_id], viewonly=True)
 
 
+class WorkOrderPhoto(Base):
+    """A photo held until it is exported to Drive and cleared. `original` is
+    the uploaded bytes (HEIC converted to JPEG once); `preview_jpeg` is the
+    only thing the app displays. (taken_on, seq) gives the stable `_n` suffix.
+    """
+
+    __tablename__ = "work_order_photos"
+    __table_args__ = (
+        UniqueConstraint("work_order_id", "taken_on", "seq", name="uq_work_order_photos_wo_day_seq"),
+        Index("ix_work_order_photos_exported_at", "exported_at"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    work_order_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("work_orders.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    original = deferred(Column(LargeBinary, nullable=False))
+    original_type = Column(Text, nullable=False, default="image/jpeg")
+    preview_jpeg = deferred(Column(LargeBinary, nullable=False))
+    size_bytes = Column(Integer, nullable=False)
+    taken_on = Column(Date, nullable=False)
+    seq = Column(Integer, nullable=False, default=0)
+    uploaded_by_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    uploaded_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    exported_at = Column(DateTime(timezone=True), nullable=True)
+
+
 class AttendancePunch(Base):
     """One stretch of being on shift, for one person.
 
