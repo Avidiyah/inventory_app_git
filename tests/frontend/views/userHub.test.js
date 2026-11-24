@@ -90,6 +90,18 @@ describe("loadUserHub by role", () => {
     release(); await second;
   });
 
+  it("a tab picked while the first load is in flight stays picked when it lands", async () => {
+    let release;
+    const { mod } = await mountHub({ role: "technician", handlers: [http.get("/hub", () =>
+      new Promise((r) => { release = () => r(HttpResponse.json(hubPayload())); }))] });
+    const first = mod.loadUserHub();
+    await user().click(el.tab("work-orders"));
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    release(); await first;
+    expect(el.tab("work-orders").classList.contains("active")).toBe(true);
+    expect(el.panel("work-orders").hidden).toBe(false);
+  });
+
   it("a failing /hub writes the error into the clock mount and stops", async () => {
     const { mod } = await mountHub({ role: "supervisor", handlers: [http.get("/hub", () => HttpResponse.json({ detail: "x" }, { status: 500 }))] });
     await mod.loadUserHub();

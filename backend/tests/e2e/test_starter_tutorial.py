@@ -28,6 +28,8 @@ def _tap_lit(page):
 
 
 def _play_field_starter(page):
+    # The reload re-offers the clock-in prompt, whose overlay would sit over the tour.
+    page.click('[data-action="skip"]')
     page.evaluate("document.querySelector('#hub-tab-tutorials').click()")
     page.wait_for_selector("#hub-tabpanel-tutorials:not([hidden])", timeout=15000)
     page.evaluate("document.querySelector('[data-tut-sub=\"starter\"]').click()")

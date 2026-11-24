@@ -446,7 +446,7 @@ export async function loadUserHub() {
   if (userChanged) {
     personalFeed.reset();
     attendanceFeed.reset();
-    activeTab = "home";
+    if (loadedUserId !== null) activeTab = "home"; // a first load keeps a tab picked while it ran
     latestAttendance = null;
   }
   if (!canViewTimesheets && activeTab === "timesheets") activeTab = "home";

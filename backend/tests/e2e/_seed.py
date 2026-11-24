@@ -28,6 +28,7 @@ from app.models import (
     Tool,
     ToolTransaction,
     Transaction,
+    TutorialProgress,
     User,
     UserRequest,
     WorkOrder,
@@ -274,6 +275,9 @@ def build(db: Session) -> Seed:
     punch = attendance_service.admin_add_punch(db, actor=owner, user_id=tech.id,
                                                started_at=day, ended_at=day + timedelta(hours=1))
     seed.punch_id = str(punch.id)
+    # The one-time Welcome tour would cover every journey's first page; no
+    # journey is about it, so every seeded user has already seen it.
+    db.add_all([TutorialProgress(user_id=u.id, script_key="welcome") for u in (owner, admin, tech)])
     db.commit()
     return seed
 
