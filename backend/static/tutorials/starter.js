@@ -20,7 +20,7 @@ export const SCRIPTS = [
     minRole: "technician",
     steps: [
       {
-        target: "#main-nav",
+        target: "html.nav-mobile #nav-title, html:not(.nav-mobile) #main-nav",
         text: ["This bar at the top is the menu.", "Each button opens one page of the app."],
         textFor: {
           supervisor: ["This bar at the top is the menu.", "The buttons are grouped under names like Inventory and Field."],
@@ -30,7 +30,7 @@ export const SCRIPTS = [
         },
       },
       wait("saved-items", "inventory", "Inventory", "Find Item", { text: "Tap Find Item to try it." }),
-      { target: "#main-nav", text: "The button for the page you are on stays marked." },
+      { target: "html.nav-mobile #nav-title, html:not(.nav-mobile) #main-nav", text: "The button for the page you are on stays marked." },
       { target: "#auth-user-indicator", text: ["Your name takes you back to your Hub.", "Log Out is at the bottom of the Hub's Home tab."] },
     ],
   },

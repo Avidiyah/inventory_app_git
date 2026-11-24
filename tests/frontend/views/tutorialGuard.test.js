@@ -101,7 +101,7 @@ describe("starter scripts", () => {
   const entry = TUTORIALS.starter;
   const KEYS = ["starter.menu", "starter.inventory", "starter.field", "starter.people", "starter.review"];
   const GROUP = { "starter.inventory": "inventory", "starter.field": "field", "starter.people": "people", "starter.review": "review" };
-  const OVERVIEW = ["#main-nav", "#auth-user-indicator"];
+  const OVERVIEW = ["#main-nav", "html.nav-mobile #nav-title, html:not(.nav-mobile) #main-nav", "#auth-user-indicator"];
   const sentences = (l) => l.split(/[.!?]+(\s|$)/).filter((x) => x && x.trim() && !/^\s*$/.test(x)).length;
   afterEach(() => restoreRects());
 
