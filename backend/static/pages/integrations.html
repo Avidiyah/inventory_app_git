@@ -52,4 +52,16 @@
             </div>
         </section>
 
+        <!-- Admin+ (spec 2026-11-24 photo export); wiring in views/imageExport.js. -->
+        <section id="integrations-image-export" aria-labelledby="image-export-heading" hidden>
+            <h2 id="image-export-heading">Image export</h2>
+            <p id="image-export-usage" class="hint"></p>
+            <div class="filter-row">
+                <button id="image-export-download-btn" type="button" disabled>Download photos</button>
+                <button id="image-export-clear-btn" type="button" class="btn-danger" disabled>Clear exported</button>
+            </div>
+            <p class="hint">Download the zip, run the sort script, check the photos are in Google Drive, then Clear exported.</p>
+            <p id="image-export-message" aria-live="polite"></p>
+        </section>
+
     </div>

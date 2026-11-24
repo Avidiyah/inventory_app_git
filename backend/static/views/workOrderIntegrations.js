@@ -28,6 +28,7 @@ import { roleAtLeast } from "../roles.js";
 import { invalidateUsers } from "./workOrderReferenceData.js";
 import { currentFilters, invalidateFilterOptions } from "./workOrderFilters.js";
 import { loadWorkOrders } from "./workOrderList.js";
+import { loadImageExport } from "./imageExport.js";
 
 const importSection = document.getElementById("integrations-import-section");
 const importFile = document.getElementById("wo-import-file");
@@ -64,6 +65,7 @@ export async function loadIntegrationsPage() {
   if (smrTargetsBtn) smrTargetsBtn.hidden = !roleAtLeast(getRole(), "owner");
   if (smrInvoicesBtn) smrInvoicesBtn.hidden = !roleAtLeast(getRole(), "owner");
   if (smrPaperBtn) smrPaperBtn.hidden = !roleAtLeast(getRole(), "owner");
+  void loadImageExport();
   if (!isAdminPlus()) return;
   void refreshNetFacilitiesCloudSession();
 }

@@ -73,6 +73,13 @@ export function pageHandlers() {
     http.get("/user-requests/counts", () => HttpResponse.json({})),
     http.get("/user-requests/", () => HttpResponse.json([])),
 
+    // integrations -> loadImageExport, and the Admin+ sign-in storage check.
+    // 5% used: below the warning, so existing suites never see the modal.
+    http.get("/work-order-photos/storage", () => HttpResponse.json({
+      used: 53687091, disk: 1073741824, ratio: 0.05, warn: false, full: false,
+      waiting_photos: 0, waiting_bytes: 0, exported_photos: 0,
+    })),
+
     // integrations -> loadIntegrationsPage -> refreshNetFacilitiesCloudSession.
     // `available: false` is the no-integration form: the card renders its
     // disabled state and starts no poll.
