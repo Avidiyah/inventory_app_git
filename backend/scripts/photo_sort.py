@@ -31,8 +31,13 @@ def find_zip(argv: list, folders: list) -> Optional[Path]:
 
 def ask_drive(remember: Path = REMEMBER) -> Path:
     last = remember.read_text(encoding="utf-8").strip() if remember.exists() else ""
-    hint = f" [Enter = {last}]" if last else ""
-    answer = input(f"Paste the Google Drive folder path (e.g. G:\\My Drive){hint}: ").strip().strip('"')
+    print()
+    if last:
+        print(f"Last time the photos went to: {last}")
+        prompt = "Press Enter to use it again, or paste a different Google Drive folder: "
+    else:
+        prompt = "Paste the Google Drive folder the photos should go to: "
+    answer = input(prompt).strip().strip('"')
     drive = Path(answer or last)
     if not (answer or last) or not drive.is_dir():
         raise SystemExit(f"That folder does not exist: {drive}")
@@ -67,16 +72,19 @@ def main() -> None:
     try:
         zip_path = find_zip(sys.argv, [HERE, Path.home() / "Downloads"])
         if zip_path:
-            print(f"Extracting {zip_path} into {HERE}")
+            print(f"Unzipping {zip_path.name}")
             extract(zip_path, HERE)
         else:
-            print(f"No export_*.zip found; using the photos already in {HERE}")
+            print("No export zip found; using the photos already in this folder.")
         drive = ask_drive()
         copied, skipped, unsorted = copy_photos(HERE, drive)
-        print(f"Copied {copied}, skipped {skipped} (already there), unsorted {unsorted}")
+        print()
+        print(f"Done. {copied} new photo(s) copied, {skipped} were already in Drive.")
+        if unsorted:
+            print(f"{unsorted} had no location and went to the _Unsorted folder.")
     except BaseException as exc:  # the window must not vanish on any error
         print(f"Stopped: {exc}")
-    input("Press Enter to close")
+    input("\nPress Enter to close")
 
 
 if __name__ == "__main__":
