@@ -90,10 +90,19 @@ Readout so far:
 
 A tab shell that grows ~55 lines per tab; the fifth tab (Report) pushed it over
 and was wired in the established shape deliberately. Timesheets has since moved
-out whole (`hubTimesheetsTab.js`). **Trigger:** a sixth tab, or any substantive
+out whole (`hubTimesheetsTab.js`); Messages went in at net zero lines (logic in
+`hubMessages.js`). **Trigger:** the next tab, or any substantive
 edit to the lazy-loading machinery. Extraction is mechanical:
 `loadGraphs`/`loadReport` and their error renderers into a `hubTabs.js` that
 owns the caches and request counters. Do it as its own change, verified by hand.
+
+### N-MESSAGES-LATER — messaging features left out of v1
+
+Named in the live-messaging spec as later, not owner-scheduled: photos,
+work-order links, typing dots, reactions, editing or deleting a sent message,
+muting, adding/removing group members after start, leaving a group, a native
+over-other-apps bubble. Also owed: a **Messages tutorial script** (bubble, put
+away, Hub tab). **Trigger:** an owner request naming one.
 
 ### N-WO-STATUS-EVENTS — no status history, so a live close can vanish
 

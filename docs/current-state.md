@@ -190,6 +190,10 @@ docker run -d --name inventory-local --memory=2g -p 8124:8124 --env-file <copy> 
   asserted by `test_realtime_emit.py`. Audience is a noise rule, not a
   security boundary; scoping happens on the client's REST refetch. Emission is
   non-blocking and best-effort, after the mutating service returns.
+- **Targeted emit**: `services/realtime.emit(envelope, user_ids=…)` reaches only
+  those users' sockets; `message.changed` (id = conversation id) is the only
+  targeted event, sent to a chat's members by `routers/_message_events.py`.
+  `messagesStore.js` is the one subscriber with no `activePage` gate.
 - The browser connects after auth and disconnects on logout or any global 401;
   the connection is **generation-guarded** so an old socket's callbacks cannot
   reconnect over a cleared session. Retries use equal-jitter exponential
@@ -878,6 +882,17 @@ curve is pure, in `domain/login_throttle.py`.
   (`UNIQUE(stage_work_order_id, item_id)`). Planning moves no stock; loading
   increments `loaded_quantity`, returning `returned_quantity`; net consumed is
   loaded - returned.
+
+### `conversations`, `conversation_members`, `messages` (Messaging)
+
+| Fact | Rule |
+|---|---|
+| Kinds | `direct` (unique `direct_key` = `"<low id>:<high id>"`, race-safe get-or-create) or temporary `group` (Team Lead+ starts, 2–29 others, name ≤ 60; only the starter ends it = hard delete) |
+| Read mark | `conversation_members.last_read_message_id` (no FK), only rises, capped at the newest message; a read emits only when it moved (stops two-reader loops). Client posts reads only while the page is visible and the chat is on screen |
+| Unread / Seen | unread = messages past my mark not sent by me; badge = distinct senders. "Seen" (direct only) = the other member's mark ≥ my last message |
+| Retention | direct messages 90 days; a group quiet 7 days (`coalesce(last_message_at, created_at)`) is deleted. Swept by the first `GET /messages/conversations` per 24 h per process — no lifespan job |
+| Privacy | non-member → 404 on every chat route; text never on the socket, in a push or a log. Push = "New message from <name>", tag `chat-<id>` with `renotify`; tap posts `open-chat` to a window or opens `/?chat=<id>` |
+| Frontend | one panel (`messagePanel.js` + `messagePanelChat.js`) in two hosts: the floating bubble (`messageBubble.js`, `#msg-float`, bottom sheet under 600 px, hidden during tutorials) and the Hub Messages tab (`hubMessages.js`). Bubble storage: `techfm.msgBubble.pos` `{side, y}`, `techfm.msgBubble.away` `"1"` (put away; clears on a real sign-in, not a reload — then a notification tap opens the Hub tab) |
 
 ## API Surface
 
