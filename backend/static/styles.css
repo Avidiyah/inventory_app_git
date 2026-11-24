@@ -132,7 +132,14 @@
     --text-panel-mute: #C8CCD2;   /* secondary text, table headers */
 
     /* Radius / shadow / border */
-    --radius-sm: 6px; --radius-md: 8px; --radius-pill: 999px;
+    --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px; --radius-pill: 999px;
+    /* Top bar: frosted film + the red/grey outline gradient (two cycles, so the
+       sweep animation can slide it one full cycle and loop without a seam). */
+    --bar-glass: rgba(255, 255, 255, .06);
+    --bar-rim: linear-gradient(100deg,
+        var(--color-brand), var(--color-brand-light), var(--gray-400), var(--color-brand-light),
+        var(--color-brand), var(--color-brand-light), var(--gray-400), var(--color-brand-light),
+        var(--color-brand));
     --shadow-sm:   0 1px 3px rgba(0, 0, 0, .12);
     --shadow-card: 0 1px 4px rgba(0, 0, 0, .10);
     --shadow-md:   0 2px 8px rgba(0, 0, 0, .12);
@@ -443,6 +450,270 @@ header h1 {
     width: 100%;
     justify-content: flex-start;
     box-shadow: none;
+}
+
+/* Top bar: the nav, split from <header> so it can stick on its own.
+   Desktop (>=640px): <header> is the scrolling brand row (title + hub button)
+   and .topbar is the sticky glass bar.
+   Phone: <header> is the sticky glass bar (logo, title, hub avatar, page
+   picker) and .topbar is the dropdown the picker opens. */
+.topbar {
+    color: var(--color-white);
+}
+
+.topbar-glow,
+.nav-title,
+.nav-group-ico,
+.user-hub-first {
+    display: none;
+}
+
+@keyframes bar-sweep {
+    to { background-position: 200% 0; }
+}
+
+/* Outline = a gradient filling the box, masked down to a ring. The glow is
+   the same ring, wider, inside a wrapper that blurs it (a filter on the
+   masked element itself would be cut off by its own mask). Shared by the
+   desktop bar, the phone bar and the phone dropdown. */
+.topbar::before,
+header::before,
+.topbar-glow::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: var(--bar-rim);
+    background-size: 200% 100%;
+    -webkit-mask: linear-gradient(black 0 0) content-box, linear-gradient(black 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    animation: bar-sweep 10s linear infinite;
+}
+.topbar::before,
+header::before { padding: 1.5px; z-index: 1; }
+.topbar-glow {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    filter: blur(9px);
+    opacity: .75;
+    pointer-events: none;
+}
+.topbar-glow::before { padding: 3px; }
+@media (prefers-reduced-motion: reduce) {
+    .topbar::before,
+    header::before,
+    .topbar-glow::before { animation: none; }
+}
+
+/* Buttons on the glass: the outline carries the red now, so the per-button
+   red underline goes; hover is a translucent wash; the active page keeps its
+   solid red pill with a faint glow. */
+.topbar .nav-btn,
+.topbar .nav-group-toggle,
+.header-brand .nav-btn { box-shadow: none; }
+.topbar .nav-btn:hover,
+.topbar .nav-group-toggle:hover,
+.topbar .nav-group-toggle[aria-expanded="true"],
+.header-brand .nav-btn:hover { background-color: var(--panel-hover); }
+.topbar .nav-btn.active,
+.header-brand .nav-btn.active { box-shadow: 0 0 14px rgba(200, 16, 46, .55); }
+.topbar .nav-btn.active:hover,
+.header-brand .nav-btn.active:hover { background-color: var(--color-brand-hover); }
+.topbar .nav-group + .nav-group { border-left-color: var(--panel-rule); }
+.nav-title[aria-expanded="true"] .nav-caret { transform: rotate(180deg); }
+
+/* Hub button beside the TechFM title: a ghost pill. */
+.header-brand .user-hub-btn {
+    margin-left: var(--space-3);
+    border: 1px solid var(--panel-border);
+}
+
+/* Desktop vs mobile is a class, not a media query: views/nav.js sets
+   html.nav-mobile when the viewport is under 640px OR the desktop bar would
+   wrap onto a second row. */
+html:not(.nav-mobile) { scroll-padding-top: calc(var(--btn-h-sm) + var(--space-8)); }
+
+html:not(.nav-mobile) header {
+    background: none;
+    box-shadow: none;
+    padding: var(--space-4) var(--space-6) var(--space-2);
+}
+html:not(.nav-mobile) header::before,
+html:not(.nav-mobile) header > .topbar-glow { display: none; }
+html:not(.nav-mobile) .header-brand { margin-bottom: 0; }
+
+/* z 25: above page content (20), below tooltips (30), tutorials, modals. */
+html:not(.nav-mobile) .topbar {
+    position: sticky;
+    top: var(--space-3);
+    z-index: 25;
+    isolation: isolate;
+    margin: 0 var(--space-6);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-lg);
+    background: var(--bar-glass);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+    backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+    box-shadow: var(--shadow-panel);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    html:not(.nav-mobile) .topbar { background: rgba(20, 20, 20, .94); }
+}
+html:not(.nav-mobile) .topbar > .topbar-glow { display: block; }
+
+html.nav-mobile header {
+    position: sticky;
+    top: var(--space-2);
+    z-index: 25;
+    isolation: isolate;
+    margin: var(--space-2) var(--space-2) 0;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-lg);
+    background: var(--bar-glass);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+    backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+    box-shadow: var(--shadow-panel);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    html.nav-mobile header { background: rgba(20, 20, 20, .94); }
+}
+html.nav-mobile header h1 { font-size: var(--fs-xl); }
+html.nav-mobile .header-brand { gap: var(--space-2); margin-bottom: 0; }
+html.nav-mobile header > .topbar-glow { display: block; }
+
+/* Hub button as a pill: house icon + first name, one tap to the User Hub. The
+   long selectors outrank #auth-user-indicator.user-hub-btn further down the
+   file (which stacks name over role for desktop). */
+html.nav-mobile header #auth-user-indicator.user-hub-btn {
+    flex: none;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    height: 40px;
+    min-height: 40px;
+    padding: 0 var(--space-3);
+    margin-left: 0;
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-pill);
+    background-color: var(--panel-well);
+}
+html.nav-mobile header #auth-user-indicator.user-hub-btn.active { background-color: var(--color-brand); }
+html.nav-mobile header #auth-user-indicator .user-hub-name,
+html.nav-mobile header #auth-user-indicator .user-hub-role { display: none; }
+html.nav-mobile header #auth-user-indicator .user-hub-first {
+    display: inline;
+    max-width: 9ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+}
+
+/* Page picker: current page name + caret, opens the dropdown. */
+html.nav-mobile .nav-title {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    flex: 0 1 auto;
+    min-width: 0;
+    margin: 0 0 0 auto;
+    min-height: var(--btn-h-sm);
+    padding: 0 var(--space-3);
+    background-color: var(--panel-well);
+    border: 1px solid var(--panel-rule);
+    border-radius: var(--radius-md);
+    color: var(--color-white);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+}
+html.nav-mobile .nav-title:hover { background-color: var(--panel-hover); }
+html.nav-mobile .nav-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The dropdown: every group, labels first. Fixed just under the bar
+   (76px = bar margin + padding + picker height + padding + gap), pinned to
+   the right edge under the picker, full width on a phone. */
+html.nav-mobile .topbar {
+    display: none;
+    position: fixed;
+    top: calc(var(--space-2) * 4 + var(--btn-h-sm));
+    left: auto;
+    right: var(--space-2);
+    width: min(380px, calc(100vw - var(--space-4)));
+    z-index: 26;
+    isolation: isolate;
+    border-radius: var(--radius-lg);
+    background: rgba(24, 24, 26, .94);
+    box-shadow: var(--shadow-panel);
+}
+html.nav-mobile .topbar.open { display: block; }
+html.nav-mobile .topbar > .topbar-glow { display: block; }
+html.nav-mobile .topbar-body {
+    max-height: calc(100vh - 96px);
+    max-height: calc(100dvh - 96px);
+    overflow-y: auto;
+    padding: var(--space-2);
+    border-radius: inherit;
+}
+html.nav-mobile .topbar #main-nav {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    row-gap: 0;
+}
+html.nav-mobile .topbar .nav-group {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: var(--space-1);
+}
+html.nav-mobile .topbar .nav-group + .nav-group { border-left: none; padding-left: 0; }
+
+/* Group names are the loudest thing in the menu: big, bold, white, with the
+   group icon and a red edge. Headings, not buttons, in the dropdown. */
+html.nav-mobile .topbar .nav-group-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 0;
+    margin: var(--space-3) var(--space-1) var(--space-1);
+    padding: var(--space-2) var(--space-3);
+    border-left: 4px solid var(--color-brand);
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+    background-color: var(--panel-hover);
+    color: var(--color-white);
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-bold);
+    pointer-events: none;
+}
+html.nav-mobile .topbar .nav-group-toggle .nav-caret { display: none; }
+html.nav-mobile .topbar .nav-group-ico {
+    display: block;
+    width: 22px;
+    height: 22px;
+    stroke: var(--color-brand-light);
+}
+html.nav-mobile .topbar #main-nav .nav-group-menu {
+    display: flex;
+    position: static;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+    padding: 0;
+    background: none;
+    border: none;
+    box-shadow: none;
+}
+html.nav-mobile .topbar .nav-btn {
+    width: 100%;
+    justify-content: flex-start;
+    padding-left: var(--space-5);
 }
 
 main {
@@ -2294,15 +2565,6 @@ tr.archived-user {
     color: var(--gray-200);
 }
 
-/* The auth bar sits to the right of the nav inside the dark header. */
-#auth-bar {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    margin-top: var(--space-3);
-    font-size: var(--fs-sm);
-}
-
 /* The identity button inherits .nav-btn's box entirely (padding, hover,
    active-page highlight, box-shadow underline) -- this only restacks its
    contents: name over role, role a step smaller and dimmer, matching the
@@ -3699,18 +3961,23 @@ html:has(#user-hub-page.active > .hub-graph-sheet:not([hidden])) { overflow: hid
     }
 }
 
-/* Logout: white outline button on the dark header. */
+/* Log Out: the bottom of Hub Home. The slot sits right after the Home panel,
+   so it shows only while that panel does. */
+.hub-home-logout {
+    margin-top: var(--space-6);
+}
+
+#hub-tabpanel-home[hidden] + .hub-home-logout {
+    display: none;
+}
+
 #logout-btn {
     margin-top: 0;
     min-height: var(--btn-h-sm);
-    background-color: transparent;
-    color: var(--color-white);
-    border: 1px solid var(--gray-400);
 }
 
-#logout-btn:hover {
-    background-color: #2A2A2A;
-    color: var(--color-white);
+@media (max-width: 639px) {
+    #logout-btn { width: 100%; }
 }
 
 /* =================== BARCODE SCAN CONTROLS =================== */
@@ -5775,7 +6042,6 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 
 /* =================== RESPONSIVE (mobile portrait) =================== */
 @media (max-width: 639px) {
-    header { padding: var(--space-3) var(--space-4); }
     main { padding: var(--space-4); }
     section { padding: var(--space-4); }
     h1 { font-size: var(--fs-2xl); }
@@ -7199,13 +7465,6 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     text-align: center;
     pointer-events: none;
 }
-
-/* Users page tutorial progress (0b T9): row line wraps under the name; profile block is plain text. */
-.users-tut-count { white-space: nowrap; font-size: var(--fs-sm); }
-.users-profile-tut { margin-top: var(--space-4); overflow-wrap: anywhere; }
-.users-profile-tut-list { margin: 0; padding-left: var(--space-4); }
-.tut-targetless .tut-spot { outline: none; }
-.tut-targetless .tut-box { left: 50%; top: 50%; transform: translate(-50%, -50%); }
 /* Phone / narrow menu: the top-right corner holds the menu, so End sits bottom-right beside the hint. */
 @media (max-width: 639px) {
     .tut-end { top: auto; bottom: calc(var(--space-6) + env(safe-area-inset-bottom, 0px)); }
@@ -7213,3 +7472,10 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 }
 html.nav-mobile .tut-end { top: auto; bottom: calc(var(--space-6) + env(safe-area-inset-bottom, 0px)); }
 html.nav-mobile .tut-pill { left: var(--space-3); transform: none; max-width: calc(100vw - 11rem); text-align: left; }
+
+/* Users page tutorial progress (0b T9): row line wraps under the name; profile block is plain text. */
+.users-tut-count { white-space: nowrap; font-size: var(--fs-sm); }
+.users-profile-tut { margin-top: var(--space-4); overflow-wrap: anywhere; }
+.users-profile-tut-list { margin: 0; padding-left: var(--space-4); }
+.tut-targetless .tut-spot { outline: none; }
+.tut-targetless .tut-box { left: 50%; top: 50%; transform: translate(-50%, -50%); }

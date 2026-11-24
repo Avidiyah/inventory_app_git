@@ -1,6 +1,6 @@
 // View: Web Push opt-in and the Owner's test trigger.
 //
-// Layer: views. Owns the header's `#push-test-btn`, the login-time
+// Layer: views. Owns `#push-test-btn` (on the Owner's Dev Tools page), the login-time
 // permission request (requestPermissionAtLogin, called from views/auth.js
 // before login), the service-worker registration, and the browser
 // subscription lifecycle. There is no in-app way to turn notifications back

@@ -24,7 +24,7 @@ import {
   apiUpdateUserRole,
   apiGetHubAttendanceWeek,
 } from "../api.js";
-import { escapeHtml, filterRanked, friendlyError, formatUserName } from "../format.js";
+import { escapeHtml, filterRanked, friendlyError, formatFirstName, formatUserName } from "../format.js";
 import {
   setMessage,
   confirmDialog,
@@ -389,6 +389,7 @@ async function editDetails(user) {
       const indicator = document.getElementById("auth-user-indicator");
       if (indicator) {
         indicator.querySelector(".user-hub-name").textContent = formatUserName(updated);
+        indicator.querySelector(".user-hub-first").textContent = formatFirstName(updated);
         indicator.querySelector(".user-hub-role").textContent = roleLabel(updated.role);
         indicator.setAttribute(
           "aria-label",

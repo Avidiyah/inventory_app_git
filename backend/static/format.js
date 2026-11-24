@@ -205,6 +205,11 @@ export function formatMoney(value) {
 
 // Human-facing identity. Usernames are login/account-management identifiers
 // and must not leak onto operational pages.
+// First word of the displayed name, for tight spots (the mobile hub pill).
+export function formatFirstName(user) {
+  return formatUserName(user).split(" ")[0];
+}
+
 export function formatUserName(user) {
   if (!user) return "Name unavailable";
   const fullName = typeof user.full_name === "string" ? user.full_name.trim() : "";

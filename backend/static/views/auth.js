@@ -16,7 +16,7 @@ import { apiLogin, apiLogout, apiMe, setUnauthorizedHandler } from "../api.js";
 import { connectRealtime, disconnectRealtime } from "../realtime.js";
 import { setCurrentUser } from "../state.js";
 import { setMessage } from "../dom.js";
-import { friendlyError, formatUserName } from "../format.js";
+import { friendlyError, formatFirstName, formatUserName } from "../format.js";
 import { applyRoleVisibility, canAccessPage, landingPageForRole, showPage } from "./nav.js";
 import { roleLabel } from "../roles.js";
 import { loadUsers } from "./users.js";
@@ -122,6 +122,7 @@ async function enterApp(user, { resume = false } = {}) {
   loginScreen.hidden = true;
   appRoot.hidden = false;
   authUserIndicator.querySelector(".user-hub-name").textContent = formatUserName(user);
+  authUserIndicator.querySelector(".user-hub-first").textContent = formatFirstName(user);
   authUserIndicator.querySelector(".user-hub-role").textContent = roleLabel(user.role);
   authUserIndicator.setAttribute(
     "aria-label",

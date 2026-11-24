@@ -51,6 +51,8 @@ describe("initAuth — a valid session", () => {
     expect(el.screen().hidden).toBe(true);
     expect(el.root().hidden).toBe(false);
     expect(el.indicator().querySelector(".user-hub-name").textContent).toBe("Pat Example");
+    // The mobile pill shows the first name only.
+    expect(el.indicator().querySelector(".user-hub-first").textContent).toBe("Pat");
     expect(el.indicator().getAttribute("aria-label")).toContain("Pat Example");
     for (const page of hiddenPages) {
       expect(document.querySelector(`.nav-btn[data-page="${page}"]`).hidden).toBe(true);

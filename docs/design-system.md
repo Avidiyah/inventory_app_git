@@ -36,6 +36,15 @@ Translucent dark panel over a full-bleed photo; currently only `#login-section`.
 
 When a surface disagrees with a global color default, scope the override to that surface's container rather than editing the global rule. For neutral message color on a dark surface, use `:not(.error):not(.success)`; a bare `#id` selector out-specifies `.error`/`.success` and strips the coding.
 
+## Top bar
+
+A frosted-film bar (`--bar-glass` + blur) with a red/grey outline gradient (`--bar-rim`) that sweeps slowly around its edge, plus a blurred glow behind it; the sweep stops under `prefers-reduced-motion`. Two layouts, chosen by `html.nav-mobile` (set in `views/nav.js::updateNavMode`):
+
+- **Desktop:** the nav row is the sticky bar; the brand row (TechFM + hub button) scrolls away.
+- **Mobile:** under 640px, or whenever the desktop bar would wrap onto a second row. One sticky bar: logo, TechFM, hub pill (house icon + first name), and a picker showing the current page. The picker opens a dropdown whose group names are the loudest text in it (bold, icon, red edge); pages sit under them.
+
+Rationale: a wrapped bar costs a phone-sized chunk of screen, so wrapping is itself the signal to switch. Log Out is the bottom of Hub Home; the Owner's push test is the Dev Tools page.
+
 ## Color on a dark surface
 
 Contrast is measured against the composited panel (`#2A2B2D`). Three colors fail as text and have lifted variants; originals stay for fills (white-on-color is unaffected):

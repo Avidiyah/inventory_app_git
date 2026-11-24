@@ -21,7 +21,9 @@ const PAGES = [
   "user-hub", "create-item", "saved-items", "saved-users",
   "transaction", "mass-stage", "work-orders", "user-requests", "low-stock",
   "admin-review", "smr-admin-review", "tools", "history", "integrations", "smr",
+  "dev-tools",
 ];
+const ALL_BUT_DEV = PAGES.filter((page) => page !== "dev-tools");
 
 // Who may see what, written out per role rather than computed. This is the
 // backend's route gate mirrored in the UI, so it is exactly the thing a test
@@ -32,20 +34,21 @@ const VISIBLE_BY_ROLE = {
     "user-hub", "saved-items", "saved-users", "transaction",
     "mass-stage", "work-orders", "tools", "history", "smr",
   ],
-  techfm_oa: PAGES,
-  admin: PAGES,
+  techfm_oa: ALL_BUT_DEV,
+  admin: ALL_BUT_DEV,
   owner: PAGES,
 };
 
-// The five task-domain groups in `shell-head.html`, and which pages sit in
-// each. `user-hub` is in none of them -- the identity button lives in
-// `#auth-bar`, outside `#main-nav`.
+// The six task-domain groups in `shell-head.html`, and which pages sit in
+// each. `user-hub` is in none of them -- the identity button sits beside the
+// TechFM title, outside `#main-nav`.
 const GROUPS = {
   inventory: ["create-item", "saved-items", "tools"],
   field: ["transaction", "work-orders", "mass-stage", "smr"],
   people: ["saved-users"],
   review: ["low-stock", "user-requests", "admin-review", "smr-admin-review", "history"],
   integration: ["integrations"],
+  dev: ["dev-tools"],
 };
 
 const navButton = (page) => document.querySelector(`.nav-btn[data-page="${page}"]`);
@@ -87,7 +90,7 @@ describe("the page table", () => {
   it("has a nav button for every page except the hub, which is the identity button", () => {
     const wired = Array.from(document.querySelectorAll(".nav-btn")).map((b) => b.dataset.page);
     expect([...wired].sort()).toEqual([...PAGES].sort());
-    // The hub's button sits in #auth-bar, not #main-nav -- but it still
+    // The hub's button sits beside the title, not in #main-nav -- but it still
     // carries `.nav-btn`, so nav.js gates and wires it with all the others.
     // nav.js's own comment says "no nav button reads this key"; it does.
     // Filed in docs/open-work.md.
@@ -286,6 +289,94 @@ describe("nav buttons", () => {
     await userEvent.click(navButton("history"));
     await userEvent.click(navButton("user-hub"));
     expect(nav.getActivePage()).toBe("user-hub");
+  });
+});
+
+// Phone page picker (CSS shows it under 640px; the behaviour is plain DOM).
+describe("page picker", () => {
+  let nav;
+  const title = () => document.getElementById("nav-title");
+  const label = () => document.getElementById("nav-title-label").textContent;
+  const bar = () => document.querySelector(".topbar");
+  beforeEach(async () => { ({ nav } = await bootApp({ role: "owner" })); });
+
+  it("names the current page, and the hub is User Hub", () => {
+    nav.showPage("work-orders");
+    expect(label()).toBe("Work Orders");
+    nav.showPage("user-hub");
+    expect(label()).toBe("User Hub");
+  });
+
+  it("toggles the dropdown and mirrors it in aria-expanded", async () => {
+    await userEvent.click(title());
+    expect(bar().classList.contains("open")).toBe(true);
+    expect(title().getAttribute("aria-expanded")).toBe("true");
+    await userEvent.click(title());
+    expect(bar().classList.contains("open")).toBe(false);
+    expect(title().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("closes after picking a page, on an outside click and on Escape", async () => {
+    await userEvent.click(title());
+    await userEvent.click(navButton("history"));
+    expect(bar().classList.contains("open")).toBe(false);
+
+    await userEvent.click(title());
+    await userEvent.click(document.getElementById("app-root"));
+    expect(bar().classList.contains("open")).toBe(false);
+
+    await userEvent.click(title());
+    await userEvent.keyboard("{Escape}");
+    expect(bar().classList.contains("open")).toBe(false);
+  });
+});
+
+// jsdom has no layout, so the bar's rows are faked: every group toggle reports
+// the top the test gives it.
+describe("desktop vs mobile nav mode", () => {
+  let nav;
+  beforeEach(async () => { ({ nav } = await bootApp({ role: "owner" })); });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  function fakeRows(tops) {
+    const toggles = Array.from(document.querySelectorAll(".nav-group-toggle"));
+    vi.spyOn(HTMLElement.prototype, "offsetParent", "get").mockReturnValue(document.body);
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function () {
+      return { top: tops[toggles.indexOf(this)] ?? 0 };
+    });
+  }
+  const isMobile = () => document.documentElement.classList.contains("nav-mobile");
+
+  it("stays desktop while every group sits on one row", () => {
+    fakeRows([10, 10, 10, 10, 10, 10]);
+    nav.applyRoleVisibility("owner");
+    expect(isMobile()).toBe(false);
+  });
+
+  it("switches to mobile when a group wraps onto a second row", () => {
+    fakeRows([10, 10, 10, 10, 66, 66]);
+    nav.applyRoleVisibility("owner");
+    expect(isMobile()).toBe(true);
+  });
+});
+
+describe("account controls moved out of the nav", () => {
+  beforeEach(async () => { await bootApp({ role: "owner" }); });
+
+  it("has no #auth-bar; the identity button sits in the brand row", () => {
+    expect(document.getElementById("auth-bar")).toBeNull();
+    expect(document.getElementById("auth-user-indicator").closest(".header-brand")).not.toBeNull();
+  });
+
+  it("Log Out is at the bottom of Hub Home, after the Home panel", () => {
+    const logout = document.getElementById("logout-btn");
+    expect(logout.closest("#user-hub-page")).not.toBeNull();
+    expect(document.getElementById("hub-tabpanel-home").nextElementSibling)
+      .toBe(logout.closest(".hub-home-logout"));
+  });
+
+  it("the push test button is on the Owner-only Dev Tools page", () => {
+    expect(document.getElementById("push-test-btn").closest("#dev-tools-page")).not.toBeNull();
   });
 });
 

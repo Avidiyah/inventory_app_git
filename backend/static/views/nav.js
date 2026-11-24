@@ -30,6 +30,63 @@ const navGroups = document.querySelectorAll(".nav-group");
 const navGroupToggles = document.querySelectorAll(".nav-group-toggle");
 const mainNav = document.getElementById("main-nav");
 const pages = document.querySelectorAll(".page");
+// Phone: the title button shows the current page and opens `.topbar` as a
+// dropdown listing every group (CSS only reveals it under 640px; on desktop
+// `.topbar` is the always-visible bar and these are inert).
+const navTitle = document.getElementById("nav-title");
+const navTitleLabel = document.getElementById("nav-title-label");
+const topbar = document.querySelector(".topbar");
+
+function setMenuOpen(open) {
+  topbar.classList.toggle("open", open);
+  navTitle.setAttribute("aria-expanded", String(open));
+}
+
+// The hub has no nav button (its button is the identity button), so it is named here.
+function pageLabel(pageName) {
+  if (pageName === "user-hub") return "User Hub";
+  const btn = document.querySelector(`.nav-btn[data-page="${pageName}"]`);
+  return btn ? btn.textContent.trim() : "";
+}
+
+navTitle.addEventListener("click", () => setMenuOpen(!topbar.classList.contains("open")));
+
+// Desktop bar or mobile picker? `html.nav-mobile` selects the mobile layout
+// (styles.css): on under 640px, and on any wider screen where the desktop bar
+// would wrap its groups onto a second row. CSS cannot see a wrap, so the bar is
+// measured here: drop the class, lay the desktop bar out, look for a second
+// row, put the class back. All in one frame, so nothing paints in between.
+const navNarrow = window.matchMedia ? window.matchMedia("(max-width: 639px)") : { matches: false };
+let wrapWidth = 0; // viewport width at which the desktop bar last wrapped
+
+function navWraps() {
+  // What sits in the row: group toggles when compact (their menus are popovers,
+  // which must not count), the page buttons themselves when flat.
+  const row = mainNav.classList.contains("nav-compact") ? ".nav-group-toggle" : ".nav-btn";
+  const tops = [];
+  mainNav.querySelectorAll(row).forEach((el) => {
+    if (el.offsetParent !== null) tops.push(Math.round(el.getBoundingClientRect().top));
+  });
+  // Items on one row share a top within a few px; a wrapped row is a button taller.
+  return tops.length > 0 && Math.max(...tops) - Math.min(...tops) > 10;
+}
+
+function updateNavMode() {
+  const root = document.documentElement;
+  root.classList.remove("nav-mobile");
+  const narrow = navNarrow.matches;
+  const wraps = !narrow && navWraps();
+  if (wraps) wrapWidth = window.innerWidth;
+  // Hold mobile for 24px past the wrap point: the page scrollbar appearing or
+  // vanishing as the layout swaps would otherwise flip the bar back and forth.
+  const holding = !narrow && !wraps && window.innerWidth < wrapWidth + 24;
+  const mobile = narrow || wraps || holding;
+  root.classList.toggle("nav-mobile", mobile);
+  if (!mobile) setMenuOpen(false);
+}
+
+if (typeof ResizeObserver === "function") new ResizeObserver(updateNavMode).observe(document.body);
+updateNavMode();
 
 // Above this many total visible pages, the bar switches from flat buttons to
 // per-group dropdown menus (see `applyRoleVisibility`). Technician (5 pages)
@@ -139,6 +196,8 @@ export const PAGE_ACCESS = {
   // SMR27 audit tiles: every role since 2026-10-23 (all hands on the
   // re-charge); the import and export inside are Owner-only server-side.
   "smr": ["owner", "admin", "techfm_oa", "supervisor", "technician"],
+  // Owner-only test tools (the push-notification test button).
+  "dev-tools": ["owner"],
 };
 
 export function canAccessPage(role, pageName) {
@@ -188,7 +247,11 @@ export function applyRoleVisibility(role) {
     .filter((page) => page !== "user-hub")
     .filter(page => canAccessPage(role, page)).length;
   closeAllGroupMenus();
+  setMenuOpen(false);
   mainNav.classList.toggle("nav-compact", visiblePageCount > COMPACT_NAV_THRESHOLD);
+  // The groups changed, so re-measure; the old wrap point no longer applies.
+  wrapWidth = 0;
+  updateNavMode();
 }
 
 // Collapse every open group popover -- used on outside click/Escape, on a
@@ -216,10 +279,11 @@ navGroupToggles.forEach(toggle => {
 
 document.addEventListener("click", (event) => {
   if (!event.target.closest(".nav-group")) closeAllGroupMenus();
+  if (!event.target.closest(".topbar, #nav-title")) setMenuOpen(false);
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") closeAllGroupMenus();
+  if (event.key === "Escape") { closeAllGroupMenus(); setMenuOpen(false); }
 });
 
 export function showPage(pageName) {
@@ -245,6 +309,8 @@ export function showPage(pageName) {
     btn.classList.toggle("active", btn.dataset.page === pageName);
   });
   closeAllGroupMenus();
+  setMenuOpen(false);
+  navTitleLabel.textContent = pageLabel(pageName);
   activePage = pageName;
 
   const entering = SCANNERS_BY_PAGE[pageName];

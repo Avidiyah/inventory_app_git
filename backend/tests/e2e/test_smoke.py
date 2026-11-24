@@ -44,6 +44,8 @@ PAGE_LANDMARKS = {
     # The SMR27 audit page (Admin+): the heading is always rendered; the bar
     # and tiles paint only after GET /work-orders/smr answers.
     "smr": "#smr-heading",
+    # Owner-only page; the e2e user is the Owner.
+    "dev-tools": "#dev-tools-section",
 }
 
 PAGE_NAMES = [

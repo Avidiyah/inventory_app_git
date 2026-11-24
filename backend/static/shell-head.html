@@ -83,10 +83,29 @@
     <div id="app-root" hidden>
 
     <header>
+        <span class="topbar-glow" aria-hidden="true"></span>
         <div class="header-brand">
             <img src="/static/logo-mark.png" alt="" class="brand-mark">
             <h1>TechFM</h1>
+            <!-- The hub button lives beside the title, outside the nav (phone
+                 shows it as a single-letter avatar). Log Out sits at the
+                 bottom of Hub Home (pages/user-hub.html); the Owner's push
+                 test is on the Dev Tools page. -->
+            <button id="auth-user-indicator" type="button" class="nav-btn user-hub-btn" data-page="user-hub">
+                <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>
+                <span class="user-hub-first"></span>
+                <span class="user-hub-name"></span>
+                <span class="user-hub-role"></span>
+            </button>
+            <!-- Phone only (CSS): the current page's name; opens .topbar as a dropdown. -->
+            <button type="button" id="nav-title" class="nav-title" aria-haspopup="true" aria-expanded="false" aria-controls="app-menu"><span id="nav-title-label"></span><svg class="nav-caret" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
         </div>
+    </header>
+    <!-- Nav + auth sit in .topbar, a sibling of <header>: a sticky element only
+         sticks inside its parent, so inside <header> it could never stay put.
+         .topbar-glow is the blurred outer glow of the outline (CSS only). -->
+    <div class="topbar">
+        <span class="topbar-glow" aria-hidden="true"></span>
         <!-- Nav is grouped by task domain, not by role: Inventory / Field /
              People / Review. The groups are what make 11 buttons scannable
              for an Admin or Owner (a Technician only ever sees four, all in
@@ -109,9 +128,10 @@
              the toggle button visible and turns the menu into a popover --
              CSS-only otherwise (`.nav-group-menu { display: contents }`), so
              a Technician's four buttons render exactly as before. -->
+        <div class="topbar-body" id="app-menu">
         <nav id="main-nav">
             <div class="nav-group" data-nav-group="inventory">
-                <button type="button" class="nav-group-toggle" aria-haspopup="true" aria-expanded="false">Inventory<svg class="nav-caret" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
+                <button type="button" class="nav-group-toggle" aria-haspopup="true" aria-expanded="false"><svg class="nav-ico nav-group-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M12 11v6M9 14h6"/></svg>Inventory<svg class="nav-caret" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
                 <div class="nav-group-menu">
                     <button class="nav-btn" data-page="create-item"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M12 11v6M9 14h6"/></svg>Add Item</button>
                     <button class="nav-btn" data-page="saved-items"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>Find Item</button>
@@ -119,7 +139,7 @@
                 </div>
             </div>
             <div class="nav-group" data-nav-group="field">
-                <button type="button" class="nav-group-toggle" aria-haspopup="true" aria-expanded="false">Field<svg class="nav-caret" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
+                <button type="button" class="nav-group-toggle" aria-haspopup="true" aria-expanded="false"><svg class="nav-ico nav-group-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M7 12h10"/></svg>Field<svg class="nav-caret" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
                 <div class="nav-group-menu">
                     <button class="nav-btn" data-page="transaction"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M7 12h10"/></svg>Scan / Stock</button>
                     <button class="nav-btn" data-page="work-orders"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 4H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M9 13l2 2 4-4"/></svg>Work Orders</button>
@@ -128,13 +148,13 @@
                 </div>
             </div>
             <div class="nav-group" data-nav-group="people">
-                <button type="button" class="nav-group-toggle" aria-haspopup="true" aria-expanded="false">People<svg class="nav-caret" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
+                <button type="button" class="nav-group-toggle" aria-haspopup="true" aria-expanded="false"><svg class="nav-ico nav-group-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="9" cy="8" r="3.5"/><path d="M2 20a7 7 0 0 1 14 0"/></svg>People<svg class="nav-caret" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
                 <div class="nav-group-menu">
                     <button class="nav-btn" data-page="saved-users"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="9" cy="8" r="3.5"/><path d="M2 20a7 7 0 0 1 14 0"/><path d="M16 5.2a3.5 3.5 0 0 1 0 5.6M18 20a7 7 0 0 0-3-5.7"/></svg>Users</button>
                 </div>
             </div>
             <div class="nav-group" data-nav-group="review">
-                <button type="button" class="nav-group-toggle" aria-haspopup="true" aria-expanded="false">Review<svg class="nav-caret" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
+                <button type="button" class="nav-group-toggle" aria-haspopup="true" aria-expanded="false"><svg class="nav-ico nav-group-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>Review<svg class="nav-caret" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
                 <div class="nav-group-menu">
                     <button class="nav-btn" data-page="low-stock"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M12 10v5"/><path d="M9.5 12.5L12 15l2.5-2.5"/></svg>Low Stock</button>
                     <button class="nav-btn" data-page="user-requests"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M5 5h14l2 8v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5z"/></svg>User Requests</button>
@@ -144,26 +164,20 @@
                 </div>
             </div>
             <div class="nav-group" data-nav-group="integration">
-                <button type="button" class="nav-group-toggle" aria-haspopup="true" aria-expanded="false">Integration<svg class="nav-caret" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
+                <button type="button" class="nav-group-toggle" aria-haspopup="true" aria-expanded="false"><svg class="nav-ico nav-group-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Integration<svg class="nav-caret" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
                 <div class="nav-group-menu">
                     <button class="nav-btn" data-page="integrations"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Integration</button>
                 </div>
             </div>
+            <div class="nav-group" data-nav-group="dev">
+                <button type="button" class="nav-group-toggle" aria-haspopup="true" aria-expanded="false"><svg class="nav-ico nav-group-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 17l6-6-6-6M12 19h8"/></svg>Dev Tools<svg class="nav-caret" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
+                <div class="nav-group-menu">
+                    <button class="nav-btn" data-page="dev-tools"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 17l6-6-6-6M12 19h8"/></svg>Dev Tools</button>
+                </div>
+            </div>
         </nav>
-        <div id="auth-bar">
-            <button id="auth-user-indicator" type="button" class="nav-btn user-hub-btn" data-page="user-hub">
-                <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>
-                <span class="user-hub-name"></span>
-                <span class="user-hub-role"></span>
-            </button>
-            <!-- Starts hidden and is revealed by role in
-                 views/push.js::initPushForUser -- Owner only. Notifications
-                 themselves are opted into at login (see the login screen's
-                 checkbox) and opted out of by logging out. -->
-            <button id="push-test-btn" type="button" class="secondary-btn" hidden>Send test</button>
-            <button id="logout-btn" type="button" class="secondary-btn">Log Out</button>
         </div>
-    </header>
+    </div>
 
     <main>
 
