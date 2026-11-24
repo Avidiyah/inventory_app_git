@@ -12,13 +12,18 @@ import { friendlyError } from "../format.js";
 import { getCurrentUser } from "../state.js";
 
 let current = null;
+let resolveClosed = null;
 
 // Sign-out / session expiry must not leave the prompt over the login screen.
 export function closeClockInPrompt() {
   current?.remove();
   current = null;
+  resolveClosed?.();
+  resolveClosed = null;
 }
 
+// Resolves once the prompt closes, or right away when it does not show, so the
+// sign-in flow can queue the next modal (the storage warning) behind it.
 export async function maybePromptClockIn(user) {
   if (!user || user.role === "owner") return;
   let me;
@@ -59,4 +64,5 @@ export async function maybePromptClockIn(user) {
   }));
   overlay.querySelector('[data-action="skip"]').addEventListener("click", close);
   buttons[0].focus();
+  return new Promise((resolve) => { resolveClosed = resolve; });
 }

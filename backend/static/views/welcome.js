@@ -10,6 +10,7 @@ import { getCurrentUser } from "../state.js";
 import { startTutorial } from "../tutorial.js";
 import { claimSeen, hasSeen, loadProgress } from "../tutorialProgress.js";
 import { maybePromptClockIn } from "./clockInPrompt.js";
+import { maybeWarnStorage } from "./storageWarning.js";
 import { setTutorialsSub } from "./hubTutorials.js";
 
 async function due(user) {
@@ -37,4 +38,5 @@ export async function runWelcomeThenClockIn(user, { plain }) {
     console.error("welcome failed", err);
   }
   if (getCurrentUser() === user) await maybePromptClockIn(user);
+  if (getCurrentUser() === user) await maybeWarnStorage(user);
 }

@@ -21,6 +21,7 @@ import { applyRoleVisibility, canAccessPage, landingPageForRole, showPage } from
 import { roleLabel } from "../roles.js";
 import { loadUsers } from "./users.js";
 import { closeClockInPrompt } from "./clockInPrompt.js";
+import { closeStorageWarning } from "./storageWarning.js";
 import { runWelcomeThenClockIn } from "./welcome.js";
 import { setHistoryTab } from "./history.js";
 import { resetBatch, tryResumeBatch } from "./transactions.js";
@@ -67,6 +68,7 @@ function showLoginScreen({ expired = false } = {}) {
   endTutorial({ restore: false });
   disconnectRealtime();
   closeClockInPrompt();
+  closeStorageWarning();
   const wasInApp = !appRoot.hidden;
   // Same "timeout, not a deliberate logout" gate as the batch below: an
   // operator mid-entry on a work order when the session drops should land

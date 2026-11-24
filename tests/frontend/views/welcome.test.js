@@ -112,7 +112,8 @@ describe("welcome, then the clock-in prompt", () => {
 
   it("not due (seen_at set): clock-in only, no PUT", async () => {
     const app = await boot("technician", { me: [SEEN_ROW] });
-    await app.run();
+    void app.run();
+    await vi.waitFor(() => expect(modal()).not.toBeNull());
     expect(overlay()).toBeNull();
     expect(puts(app.requests)).toEqual([]);
     expect(modal()).not.toBeNull();
@@ -123,7 +124,8 @@ describe("welcome, then the clock-in prompt", () => {
     ["a 500", () => HttpResponse.json({ detail: "boom" }, { status: 500 })],
   ])("%s on the PUT: no tour, one PUT, modal still follows", async (_, put) => {
     const app = await boot("technician", { put });
-    await app.run();
+    void app.run();
+    await vi.waitFor(() => expect(modal()).not.toBeNull());
     expect(overlay()).toBeNull();
     expect(puts(app.requests).length).toBe(1);
     expect(modal()).not.toBeNull();
@@ -131,7 +133,8 @@ describe("welcome, then the clock-in prompt", () => {
 
   it("not plain (resumed or deep link): no tutorials request, modal follows", async () => {
     const app = await boot("technician");
-    await app.run({ plain: false });
+    void app.run({ plain: false });
+    await vi.waitFor(() => expect(modal()).not.toBeNull());
     expect(overlay()).toBeNull();
     expect(app.requests().filter((c) => c.url.startsWith("/tutorials/"))).toEqual([]);
     expect(modal()).not.toBeNull();
