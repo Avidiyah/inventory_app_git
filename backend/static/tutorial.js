@@ -364,6 +364,7 @@ export async function startTutorial(page, key = null, { onEnd } = {}) {
   closeTip();
   let script = (key && entry.scripts.find((s) => s.key === key)) || pickScript(entry.scripts);
   running = { page, restore: Boolean(entry.sample) };
+  document.dispatchEvent(new CustomEvent("tutorial:start"));
   if (entry.sample) {
     setSampleResponder(makeResponder(entry.sample(getCurrentUser())));
     deps.showPage(page);

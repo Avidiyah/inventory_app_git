@@ -15,11 +15,8 @@ import { connectHubLive, createFeed, startHubLive, stopHubLive } from "./hubLive
 import { roleAtLeast } from "../roles.js";
 import { mountHubClock, startHubClockTicking, stopHubClockTicking } from "./hubClock.js";
 import { mountHubHome } from "./hubHome.js";
-import {
-  mountHubDashboard,
-  mountHubWorkOrders,
-  refreshHubWorkOrders,
-} from "./hubTechnician.js";
+import { mountHubDashboard, mountHubWorkOrders, refreshHubWorkOrders } from "./hubTechnician.js";
+import { activate as activateMessages, deactivate as deactivateMessages } from "./hubMessages.js";
 import { mountHubPriorities } from "./hubPriorities.js";
 import { mountHubCrew } from "./hubSupervisor.js";
 import { mountHubAdminSummary } from "./hubAdmin.js";
@@ -41,6 +38,7 @@ const tabPanels = {
   timesheets: document.getElementById("hub-tabpanel-timesheets"),
   leaderboards: document.getElementById("hub-tabpanel-leaderboards"),
   "work-orders": document.getElementById("hub-tabpanel-work-orders"),
+  messages: document.getElementById("hub-tabpanel-messages"),
   graphs: document.getElementById("hub-tabpanel-graphs"),
   report: document.getElementById("hub-tabpanel-report"),
   tutorials: document.getElementById("hub-tabpanel-tutorials"),
@@ -88,6 +86,7 @@ function showTab(name) {
     panel.classList.toggle("active", key === name);
   });
   syncSectionPicker(name);
+  if (name === "messages") activateMessages(tabPanels.messages); else deactivateMessages();
   if (latestPayload) renderActiveTab();
 }
 
@@ -199,7 +198,7 @@ function renderActiveTab() {
     void loadReport({ background: Boolean(latestReportPayload) });
   } else if (activeTab === "tutorials") {
     mountHubTutorials(tabPanels.tutorials);
-  } else {
+  } else if (activeTab === "work-orders") {
     mountHubWorkOrders(tabPanels["work-orders"], latestPayload);
   }
 }

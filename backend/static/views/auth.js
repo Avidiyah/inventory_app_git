@@ -37,6 +37,7 @@ import {
 import { peekPendingResumeNumber } from "../workOrderDrafts.js";
 import { endTutorial } from "../tutorial.js";
 import { clearProgress, loadProgress } from "../tutorialProgress.js";
+import { mountMessages, unmountMessages } from "./messageBubble.js";
 
 const loginScreen = document.getElementById("login-screen");
 const appRoot = document.getElementById("app-root");
@@ -67,6 +68,7 @@ function setPasswordVisible(visible) {
 function showLoginScreen({ expired = false } = {}) {
   endTutorial({ restore: false });
   disconnectRealtime();
+  unmountMessages();
   closeClockInPrompt();
   closeStorageWarning();
   const wasInApp = !appRoot.hidden;
@@ -115,7 +117,11 @@ function showLoginScreen({ expired = false } = {}) {
 // deliberate logout) AND the re-authenticating user owns it AND the work order
 // is still active -- so a clean logout, a different user, or a stale WO all
 // fall through to a fresh gate.
-async function enterApp(user, { resume = false } = {}) {
+//
+// `signedIn: true` marks a real login submit (also `resume: true`, above), as
+// opposed to the boot check after a reload: the message bubble's "put away"
+// flag clears on a real sign-in and survives a reload.
+async function enterApp(user, { resume = false, signedIn = false } = {}) {
   setCurrentUser(user);
   const resumed = resume && await tryResumeBatch(user.id);
   if (!resumed) {
@@ -164,6 +170,7 @@ async function enterApp(user, { resume = false } = {}) {
     showPage(resumed ? "transaction" : landingPageForRole(user.role));
   }
   connectRealtime();
+  mountMessages({ resume: !signedIn });
 
   // Not awaited: dots appear a moment late, nothing waits on them.
   void loadProgress();
@@ -215,7 +222,7 @@ loginBtn.addEventListener("click", async () => {
     loginPassword.value = "";
     // resume: true so a re-login after a timeout picks the work order back up;
     // tryResumeBatch no-ops for a clean logout / different user / stale WO.
-    await enterApp(user, { resume: true });
+    await enterApp(user, { resume: true, signedIn: true });
   } catch (err) {
     if (err && err.status === 429) {
       // Throttled after repeated failures. The backend's detail already

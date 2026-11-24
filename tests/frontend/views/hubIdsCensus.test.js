@@ -1,5 +1,7 @@
 // W7 census: every element a hub tab patches as a row or tile carries a
 // unique id, so morph pairs it with the right neighbour (spec rule 1, risk 7).
+// The Messages tab is not walked: its panel builds its own DOM and is never
+// morphed by the hub (hubMessages.js), so it has no patched rows.
 
 import { afterEach, expect, it, vi } from "vitest";
 import { userEvent } from "@testing-library/user-event";

@@ -41,6 +41,7 @@ import "./views/push.js";
 import "./views/userHub.js";
 import "./views/auth.js";
 import "./views/connectivityModal.js";
+import "./views/messageBubble.js";
 
 // --- Named imports for bootstrap calls ---------------------------
 import { setScanResetter, setScanAutostarter } from "./views/transactions.js";

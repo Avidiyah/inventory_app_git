@@ -265,4 +265,15 @@ export const ENDPOINTS = [
   { fn: "apiSetTutorialProgress", args: ["k.a", "completed"], method: "PUT",
     url: "/tutorials/progress/k.a", body: { event: "completed" } },
   { fn: "apiGetTutorialProgressUsers", args: [], url: "/tutorials/progress/users" },
+
+  // --- Live messaging ---
+  { fn: "apiListConversations", args: [], url: "/messages/conversations", cache: "no-store" },
+  { fn: "apiGetConversation", args: ["c1"], url: "/messages/conversations/c1", cache: "no-store" },
+  { fn: "apiSendMessage", args: ["c1", "hi"], method: "POST", url: "/messages/conversations/c1/messages", body: { body: "hi" } },
+  { fn: "apiMarkConversationRead", args: ["c1", 9], method: "POST", url: "/messages/conversations/c1/read", body: { up_to: 9 } },
+  { fn: "apiOpenDirect", args: ["u1"], method: "POST", url: "/messages/direct", body: { user_id: "u1" } },
+  { fn: "apiCreateGroup", args: ["Crew", ["u1", "u2"]], method: "POST", url: "/messages/groups", body: { name: "Crew", member_ids: ["u1", "u2"] } },
+  { fn: "apiEndGroup", args: ["c1"], method: "DELETE", url: "/messages/groups/c1" },
+  { fn: "apiSearchMessages", args: ["pat s"], url: "/messages/search?q=pat%20s", cache: "no-store" },
+  { fn: "apiListMessagePeople", args: [], url: "/messages/people", cache: "no-store" },
 ];

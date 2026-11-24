@@ -60,6 +60,10 @@ export function pageHandlers() {
     http.put("/tutorials/progress/:key", () => HttpResponse.json({ first: false })),
     http.get("/tutorials/progress/users", () => HttpResponse.json({})),
 
+    // enterApp -> startMessages (live messaging store): the empty list
+    http.get("/messages/conversations", () =>
+      HttpResponse.json({ conversations: [], unread_people: 0 })),
+
     // user-hub -> loadUserHub
     http.get("/hub", () => HttpResponse.json(hubPayload())),
     // loadUserHub also fetches the caller's own punch for the Home tab.

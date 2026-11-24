@@ -1180,3 +1180,19 @@ export async function apiListSmrTiles({
   return jsonRequest(`/work-orders/smr${qs ? `?${qs}` : ""}`, "GET");
 }
 export const apiReprintDispenseExport = () => xlsxDownload("/items/dispense-exports/latest", "GET");
+
+// --- Live messaging (spec 2026-11-24-live-messaging-design) ------------
+// Every chat route answers 404 to a non-member. Lists are live reads (no-store).
+const msgPath = (id) => `/messages/conversations/${encodeURIComponent(id)}`;
+export const apiListConversations = () => liveGet("/messages/conversations");
+export const apiGetConversation = (id, { before = null } = {}) =>
+  liveGet(`${msgPath(id)}${before != null ? `?before=${encodeURIComponent(before)}` : ""}`);
+export const apiSendMessage = (id, body) => jsonRequest(`${msgPath(id)}/messages`, "POST", { body });
+export const apiMarkConversationRead = (id, upTo) => jsonRequest(`${msgPath(id)}/read`, "POST", { up_to: upTo });
+export const apiOpenDirect = (userId) => jsonRequest("/messages/direct", "POST", { user_id: userId });
+export const apiCreateGroup = (name, memberIds) =>
+  jsonRequest("/messages/groups", "POST", { name, member_ids: memberIds });
+export const apiEndGroup = async (id) =>
+  parseResponse(await rawFetch(`/messages/groups/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include" }));
+export const apiSearchMessages = (q) => liveGet(`/messages/search?q=${encodeURIComponent(q)}`);
+export const apiListMessagePeople = () => liveGet("/messages/people");

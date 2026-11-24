@@ -154,6 +154,20 @@
         </div>
     </div>
 
+    <!-- Live messaging: the floating bubble, its drag-to-dismiss trashcan and
+         the panel it opens (views/messageBubble.js). All start hidden; the
+         view shows them once signed in and positions the bubble through
+         CSSOM, because the CSP drops style= attributes. The badge is a span,
+         never a button, so the bubble button holds no nested control. -->
+    <button type="button" id="msg-bubble" class="on-right" aria-label="Messages" hidden>
+        <img src="/static/logo-mark.png" alt="">
+        <span id="msg-bubble-badge" hidden></span>
+    </button>
+    <div id="msg-trash" aria-hidden="true" hidden>
+        <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v5M14 11v5"/></svg>
+    </div>
+    <section id="msg-float" role="dialog" aria-label="Messages" hidden></section>
+
     </div><!-- /#app-root -->
 
     <!-- Urgent work-order fire (see .wo-card-urgent / .wo-priority-fire in
