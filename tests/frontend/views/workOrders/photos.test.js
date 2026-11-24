@@ -33,8 +33,6 @@ describe("work-order Photos section", () => {
     server.use(http.get(`/work-orders/${detail.id}/photos`, () => HttpResponse.json(PHOTOS)));
     const { section } = await mount(detail);
     expect(section.querySelector("summary").textContent).toBe("Photos · 2");
-    // Add photos opens the rear camera on phones (same as the barcode inputs).
-    expect(section.querySelector(".wo-photo-input").getAttribute("capture")).toBe("environment");
     expect(section.querySelectorAll(".wo-photo-thumb")).toHaveLength(0);
     section.open = true;
     section.dispatchEvent(new Event("toggle"));
@@ -74,6 +72,21 @@ describe("work-order Photos section", () => {
     const { mod, section } = await mount(detail);
     await mod.uploadPhotos(section, [new File(["a"], "a.jpg", { type: "image/jpeg" })]);
     expect(section.querySelector("[data-photos-msg]").textContent).toContain("Photo storage is full");
+  });
+
+  it("Take photo opens the camera input, Add photos the gallery input", async () => {
+    const { section } = await mount(workOrderDetail({}));
+    const camera = section.querySelector("#wo-photo-camera");
+    const gallery = section.querySelector("#wo-photo-input");
+    expect(camera.getAttribute("capture")).toBe("environment");
+    expect(gallery.hasAttribute("capture")).toBe(false);
+    expect(gallery.multiple).toBe(true);
+    const opened = [];
+    camera.click = () => opened.push("camera");
+    gallery.click = () => opened.push("gallery");
+    section.querySelector("#wo-photo-take").click();
+    section.querySelector("#wo-photo-add").click();
+    expect(opened).toEqual(["camera", "gallery"]);
   });
 
   it("hides Add photos from a Technician off the crew", async () => {

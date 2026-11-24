@@ -19,8 +19,10 @@ export function photosSectionHtml(detail) {
   const add = isCrewLocked(detail)
     ? ""
     : `<div class="wo-notes-actions">
-         <button type="button" class="secondary-btn" id="wo-photo-add" data-photo-add>Add photos</button>
-         <input type="file" class="wo-photo-input" id="wo-photo-input" accept="image/*,.heic,.heif" capture="environment" multiple hidden>
+         <button type="button" class="secondary-btn wo-photo-take" id="wo-photo-take" data-photo-add="wo-photo-camera">Take photo</button>
+         <button type="button" class="secondary-btn" id="wo-photo-add" data-photo-add="wo-photo-input">Add photos</button>
+         <input type="file" class="wo-photo-input" id="wo-photo-camera" accept="image/*" capture="environment" hidden>
+         <input type="file" class="wo-photo-input" id="wo-photo-input" accept="image/*,.heic,.heif" multiple hidden>
        </div>`;
   return `<details class="wo-section-card wo-photos-section" id="wo-sec-photos">
             <summary class="wo-section-summary">${escapeHtml(photosTabLabel(detail.photo_count))}</summary>
@@ -92,7 +94,8 @@ listEl?.addEventListener(
 
 listEl?.addEventListener("click", (event) => {
   const btn = event.target.closest?.("[data-photo-add]");
-  if (btn) btn.closest(".wo-photos-section").querySelector(".wo-photo-input").click();
+  // Take photo -> the camera input (phones open the rear camera); Add photos -> the gallery.
+  if (btn) btn.closest(".wo-photos-section").querySelector(`#${btn.dataset.photoAdd}`).click();
 });
 
 listEl?.addEventListener("change", (event) => {
