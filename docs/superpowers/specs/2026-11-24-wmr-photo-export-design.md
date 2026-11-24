@@ -164,7 +164,7 @@ Stdlib only (`zipfile`, `shutil`, `pathlib`), so the boss's PC needs no `pip ins
 
 1. Double-click → console window. Finds the newest `export_*.zip` in `Downloads` (or
    takes a zip dragged onto the script).
-2. Extracts it into the folder the script lives in (e.g. `Desktop/Photo_Export`); with no zip it uses what is already extracted there.
+2. Uses only the newest zip in the script's own folder (e.g. `Desktop/Photo_Export`) and extracts it there; no zip → it says so and stops.
 3. Asks: *Paste the Google Drive folder path (e.g. `G:\My Drive`)*. Remembers the
    last answer in a small `.txt` next to the script; Enter reuses it.
 4. Checks the path exists, then creates `<drive>\<Service-Type>\…` folders as needed.

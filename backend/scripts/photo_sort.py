@@ -4,9 +4,8 @@ Keep this script in the photo-export folder on the office PC (e.g.
 Desktop\\Photo_Export) and double-click it, or drag a zip onto it. Stdlib
 only, so the PC needs nothing installed beyond Python.
 
-1. Takes the dragged zip, or the newest ``export_*.zip`` in this folder or in
-   Downloads, and extracts it here (no zip is fine: whatever is already
-   extracted here is used).
+1. Takes the newest zip in this same folder (or one dragged onto the script)
+   and extracts it here. Put the export zip from TechFM in this folder first.
 2. Asks for the Drive folder (remembered next to this script; Enter reuses it).
 3. Copies every photo here into ``<drive>/<Service-Type>/...``, creating
    folders as needed. It never overwrites or deletes anything in Drive.
@@ -25,7 +24,7 @@ REMEMBER = HERE / "photo_sort_last_path.txt"
 def find_zip(argv: list, folders: list) -> Optional[Path]:
     if len(argv) > 1:
         return Path(argv[1])
-    zips = [z for folder in folders if folder.is_dir() for z in folder.glob("export_*.zip")]
+    zips = [z for folder in folders if folder.is_dir() for z in folder.glob("*.zip")]
     return max(zips, key=lambda p: p.stat().st_mtime) if zips else None
 
 
@@ -70,12 +69,11 @@ def copy_photos(src: Path, drive: Path) -> tuple:
 
 def main() -> None:
     try:
-        zip_path = find_zip(sys.argv, [HERE, Path.home() / "Downloads"])
-        if zip_path:
-            print(f"Unzipping {zip_path.name}")
-            extract(zip_path, HERE)
-        else:
-            print("No export zip found; using the photos already in this folder.")
+        zip_path = find_zip(sys.argv, [HERE])
+        if not zip_path:
+            raise SystemExit(f"No zip in {HERE}. Download the export from TechFM and put it in this folder.")
+        print(f"Unzipping {zip_path.name}")
+        extract(zip_path, HERE)
         drive = ask_drive()
         copied, skipped, unsorted = copy_photos(HERE, drive)
         print()
