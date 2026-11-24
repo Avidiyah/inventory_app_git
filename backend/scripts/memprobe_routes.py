@@ -242,6 +242,8 @@ EXCLUDED = (
     "POST /work-orders/smr/workers",          # adds a vendor worker no route deletes
     "POST /work-orders/smr/blocks/regenerate",    # rewrites the block of every real SMR order
     "DELETE /work-orders/smr/blocks/regenerate",  # and its undo deletes them
+    "POST /work-orders/{work_order_id}/photos",   # adds photos no per-photo route deletes
+    "POST /work-order-photos/clear-exported",     # deletes real dev-DB photos
 )
 WO_LIFECYCLE = ["PATCH /work-orders/{work_order_id}", "POST /work-orders/{work_order_id}/start",
                 "POST /work-orders/{work_order_id}/hold", "POST /work-orders/{work_order_id}/resume",
@@ -261,6 +263,8 @@ CATALOGUE: dict[str, Entry] = {k: Entry(exclude="see EXCLUDED") for k in EXCLUDE
     "GET /tools/{barcode}": Entry(path="/tools/{tool_barcode}"),
     "GET /work-orders/{work_order_id}/signature.png": Entry(path="/work-orders/{signed_work_order_id}/signature.png"),
     "GET /workorder_card/{number}": Entry(path="/workorder_card/{work_order_number}"),
+    "GET /work-orders/{work_order_id}/photos": Entry(path="/work-orders/{active_work_order_id}/photos"),
+    "GET /work-order-photos/{photo_id}/preview": Entry(token={"photo_id": NIL}, expect=404),
     "GET /work-orders/lookup": Entry(path="/work-orders/lookup?number={work_order_number}"),
     "GET /integrations/netfacilities/work-orders/enrich/{job_id}": Entry(
         token={"job_id": "00000000-0000-4000-8000-000000000000"}, expect=404),
