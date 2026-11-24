@@ -885,7 +885,7 @@ Code owns the route table (`app.openapi()`), contracts and error catalog. What
 stays here is behavior the code does not state in one place:
 
 - **Tutorial progress.** `GET /tutorials/progress/me`, `PUT
-  /tutorials/progress/{key}` (body `{event: seen|completed}`, 204, key regex
+  /tutorials/progress/{key}` (body `{event: seen|completed}` → 200 `{first}` = this call set it, key regex
   above, first write wins), `GET /tutorials/progress/users` (Team Lead+,
   `{user_id: [completed keys]}`, active users, row-capped).
 - All routes except `POST /auth/login`, `GET /`, `GET /workorder_card/*`, and
@@ -949,6 +949,7 @@ Tutorials ("How this page works" pill, `tutorial.js`):
 - `nav.showPage` to another page and `showLoginScreen` end a tutorial without a reload.
 - `tests/frontend/views/tutorialGuard.test.js` is the rule for new scripts (targets per role, one sentence per box, ≤ 3 per step, ≤ 120 chars, id prefix); `describe("starter scripts")` walks every starter on the real nav per role.
 - Progress: `tutorialProgress.js` caches `GET /tutorials/progress/me` once per sign-in and is cleared on sign-out and any 401; the player sends `seen` on start and `completed` on the last step. `tutorials/catalogue.js` flattens the registry; `tutorials/relevance.js` decides who a script is for from the live role (`PAGE_ACCESS` plus `minRole`).
+- Welcome (`tutorials/welcome.js`, standalone: real data, no reload, centred targetless step 1): `auth.enterApp` → `views/welcome.js` `runWelcomeThenClockIn`; plain sign-ins only (not resumed batch / deep link); once per person ever via `claimSeen` (server `first`); clock-in prompt after it ends; Done lands on the Starter sub-tab. A manual run before it fired also uses it up (accepted). `startTutorial(page, key, { onEnd })` reports "done"/"ended".
 - Red dot (`tutorialDots.js`): a page's button is dotted while any script relevant to the signed-in role is not completed; nobody signed in = no dot.
 - `views/hubTutorials.js`: User Hub "Tutorials" tab (To do / Completed / Starter sub-tabs, tab dot; `setTutorialsSub(name)` picks the opening one); tapping plays the script, Replay records nothing. `views/usersTutorials.js`: Users row "N of M tutorials" and a profile list of unfinished ones; totals are computed in the browser from the `users` map.
 
