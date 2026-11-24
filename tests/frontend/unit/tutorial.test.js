@@ -76,7 +76,7 @@ describe("runSteps", () => {
     expect(act("back")).toBeNull();
     tap(); tap(); tap();
     expect(count()).toBe("3 of 3");
-    expect(pill().hidden).toBe(true);
+    expect(pill().textContent).toBe("Tutorial complete");
     act("end").click();
     await expect(done).resolves.toEqual({ result: "end" });
   });
@@ -112,11 +112,12 @@ describe("runSteps", () => {
     expect(text()).toBe("<b>x</b>");
   });
 
-  it("last step stays up with Done", async () => {
+  it("last step: no buttons, 'Tutorial complete', any tap closes as done", async () => {
     const done = tut.runSteps({ key: "demo.z", title: "Z", steps: [{ target: "#a", text: "Only." }] }, "owner");
+    expect(act("done")).toBeNull();
+    expect(act("next")).toBeNull();
+    expect(pill().textContent).toBe("Tutorial complete");
     tap();
-    expect(box().hidden).toBe(false);
-    act("done").click();
     await expect(done).resolves.toEqual({ result: "done" });
   });
 
@@ -169,7 +170,7 @@ describe("session", () => {
     expect(showPage).toHaveBeenCalledTimes(1);
     await expect(api.apiListWorkOrders({ status: "x" })).resolves.toEqual([1]);
     await expect(api.apiGetHub()).resolves.toEqual(["real"]);
-    act("done").click();
+    tap();
     await started;
     expect(showPage).toHaveBeenCalledTimes(2);
     expect(overlay()).toBeNull();
@@ -228,24 +229,6 @@ describe("session", () => {
     const s = { key: "demo.q", title: "Q", open: ["?#absent", "#f1"], steps: [{ target: "#tg", text: "t" }] };
     await expect(tut.runOpen(s, "owner")).resolves.toBe(true);
     expect(order).toEqual(["focus", "click"]);
-  });
-
-  it("offers Next only when a later script's tab exists; Next runs it without a reload", async () => {
-    const d = demo();
-    d.scripts[1].here = "#t2:not([hidden])"; // `here` = its tab is selected; not yet
-    install({ demo: d });
-    const host = document.getElementById("host");
-    host.insertAdjacentHTML("beforeend", '<button id="tab2">tab</button><div id="t2" hidden>t2</div>');
-    document.getElementById("tab2").addEventListener("click", () => { document.getElementById("t2").hidden = false; });
-    const started = tut.startTutorial("demo", "demo.one");
-    await vi.waitFor(() => expect(act("next")).not.toBeNull());
-    expect(act("next").textContent).toBe("Next: Two");
-    act("next").click();
-    await vi.waitFor(() => expect(text()).toBe("Two."));
-    expect(showPage).toHaveBeenCalledTimes(1);
-    expect(act("next")).toBeNull();
-    act("done").click();
-    await started;
   });
 
   it("no visible step ends quietly and restores", async () => {
@@ -317,25 +300,6 @@ describe("page button", () => {
   });
 });
 
-describe("minRole and Next", () => {
-  it("skips a later script above the person's role", () => {
-    document.getElementById("host").insertAdjacentHTML("beforeend", '<button id="tb">b</button><button id="tc">c</button>');
-    const a = { key: "demo.a", title: "A", steps: [{ target: "#a", text: "A." }] };
-    const b = { key: "demo.b", title: "B", minRole: "supervisor", open: ["#tb"], steps: [{ target: "#b", text: "B." }] };
-    const c = { key: "demo.c", title: "C", open: ["#tc"], steps: [{ target: "#c", text: "C." }] };
-    tut.runSteps(a, "technician", { scripts: [a, b] });
-    expect(act("next")).toBeNull();
-    tut.endTutorial({ restore: false });
-    act("done")?.click();
-    tut.runSteps(a, "technician", { scripts: [a, b, c] });
-    expect(act("next").textContent).toBe("Next: C");
-    act("done").click();
-    tut.runSteps(a, "supervisor", { scripts: [a, b, c] });
-    expect(act("next").textContent).toBe("Next: B");
-    act("done").click();
-  });
-});
-
 describe("progress recording", () => {
   let tp;
   beforeEach(async () => { tp = await import("../../../backend/static/tutorialProgress.js"); });
@@ -357,19 +321,6 @@ describe("progress recording", () => {
     act("end").click();
     expect(tp.hasSeen("demo.p")).toBe(true);
     expect(tp.isDone("demo.p")).toBe(false);
-  });
-
-  it("a Next jump marks the next script seen", async () => {
-    document.getElementById("host").insertAdjacentHTML("beforeend", '<button id="tn">n</button>');
-    const a = { key: "demo.a", title: "A", steps: [{ target: "#a", text: "A." }] };
-    const b = { key: "demo.b", title: "B", open: ["#tn"], steps: [{ target: "#b", text: "B." }] };
-    const out = tut.runSteps(a, "technician", { scripts: [a, b] });
-    expect(tp.isDone("demo.a")).toBe(true);
-    act("next").click();
-    expect((await out).script).toBe(b);
-    tut.runSteps(b, "technician");
-    expect(tp.hasSeen("demo.b")).toBe(true);
-    act("done").click();
   });
 });
 
@@ -413,7 +364,7 @@ describe("startTutorial by key", () => {
     const showPage = install({ starter: mk() });
     const started = tut.startTutorial("starter", "demo.b");
     await vi.waitFor(() => expect(text()).toBe("B."));
-    act("done").click();
+    tap();
     await started;
     expect(showPage).not.toHaveBeenCalled();
   });
@@ -618,7 +569,7 @@ describe("starter entry (no sample)", () => {
     await vi.waitFor(() => expect(text()).toBe("A."));
     expect(confirmOverlay().hidden).toBe(true);
     await expect(api.apiListWorkOrders()).resolves.toEqual(["server"]);
-    act("done").click();
+    tap();
     await started;
     expect(showPage).not.toHaveBeenCalled();
     expect(document.getElementById("note").value).toBe("typed words");

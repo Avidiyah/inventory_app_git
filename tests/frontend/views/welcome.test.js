@@ -164,8 +164,8 @@ describe("walking the tour", () => {
     await playToLast();
     expect(events(app.requests)).toEqual(["seen", "completed"]);
     expect(document.querySelector(".tut-title").textContent).toBe("On every page");
-    await vi.waitFor(() => expect(document.querySelector('[data-tut-act="done"]')).not.toBeNull());
-    document.querySelector('[data-tut-act="done"]').click();
+    expect(document.querySelector(".tut-pill").textContent).toBe("Tutorial complete");
+    enter(); // any tap on the last box closes it as done
     await vi.waitFor(() => expect(document.getElementById("hub-tab-tutorials").getAttribute("aria-selected")).toBe("true"));
     await vi.waitFor(() => expect(document.querySelector('[data-tut-sub="starter"]').classList.contains("active")).toBe(true));
     await vi.waitFor(() => expect(modal()).not.toBeNull());
@@ -188,7 +188,7 @@ describe("walking the tour", () => {
     const { SCRIPTS } = await import("../../../backend/static/tutorials/welcome.js");
     for (const role of ["technician", "supervisor", "techfm_oa", "admin", "owner"]) {
       const app = await boot(role);
-      app.tut.installTutorials({ getActivePage: app.nav.getActivePage, showPage: app.nav.showPage, tutorials: { "user-hub": (await import("../../../backend/static/tutorials/index.js")).TUTORIALS["user-hub"] } });
+      app.tut.installTutorials({ getActivePage: app.nav.getActivePage, showPage: app.nav.showPage, tutorials: (await import("../../../backend/static/tutorials/index.js")).TUTORIALS }); // the full registry: later tests start "welcome"
       document.getElementById("hub-tab-tutorials").click();
       for (const step of SCRIPTS[0].steps) {
         const sel = step.waitTap || step.target;

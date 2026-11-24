@@ -89,13 +89,6 @@ export function pickScript(scripts, role = getCurrentUser()?.role) {
   return pick;
 }
 
-// A later script for this role whose tab is reachable now (its last `open`
-// selector exists).
-function nextScript(scripts, current, role) {
-  const later = scripts.slice(scripts.indexOf(current) + 1);
-  return later.find((s) => (!s.minRole || roleAtLeast(role, s.minRole)) &&
-    s.open?.length && document.querySelector(strip(s.open[s.open.length - 1]))) || null;
-}
 
 // --- placement (pure) -------------------------------------------------------
 
@@ -145,14 +138,6 @@ function teardown() {
   nodes = null;
 }
 
-function button(act, label) {
-  const b = document.createElement("button");
-  b.type = "button";
-  b.className = act === "next" || act === "done" ? "tut-act primary" : "tut-act";
-  b.dataset.tutAct = act;
-  b.textContent = label;
-  return b;
-}
 
 // The element the current step lights (a wait step's is re-resolved each time).
 function litEl() {
@@ -192,14 +177,11 @@ function render({ scroll = false } = {}) {
   nodes.count.textContent = `${i + 1} of ${list.length}`;
   nodes.actions.replaceChildren();
   const end = last && s === lines.length - 1;
-  if (end) {
-    if (run.next) nodes.actions.appendChild(button("next", `Next: ${run.next.title}`));
-    nodes.actions.appendChild(button("done", "Done"));
-  }
   nodes.box.hidden = run.boxHidden;
-  nodes.pill.hidden = wait || end; // a tap anywhere does something on every other step
-  nodes.pill.textContent = `${window.matchMedia?.("(pointer: coarse)").matches ? "Tap" : "Click"} anywhere for the next step`;
-  if (scroll && !wait && !isTargetless(step)) document.querySelector(step.target)?.scrollIntoView?.({ block: "center" });
+  nodes.pill.hidden = wait; // a wait step's tap belongs to the lit control
+  nodes.pill.textContent = end ? "Tutorial complete"
+    : `${window.matchMedia?.("(pointer: coarse)").matches ? "Tap" : "Click"} anywhere for the next step`;
+  if (scroll && !wait && !isTargetless(step)) document.querySelector(step.target)?.scrollIntoView?.({ block: "nearest", inline: "nearest" }); // least scroll; none when on screen
   place();
   requestAnimationFrame(place);
   if (!run.boxHidden) (nodes.actions.querySelector("button") || nodes.box).focus();
@@ -221,7 +203,7 @@ function tap(event) {
   if (isWaitStep(run.list[run.i].step)) { forward(event); return; }
   const { list, i, s } = run;
   if (s < list[i].lines.length - 1) { run.s += 1; render(); return; }
-  if (i === list.length - 1) return;
+  if (i === list.length - 1) { finish({ result: "done" }); return; } // "Tutorial complete": any tap closes
   if (!run.boxHidden) { run.boxHidden = true; render(); return; }
   show(i + 1);
 }
@@ -265,8 +247,7 @@ function onOverlayClick(event) {
   event.stopPropagation();
   const act = event.target.closest?.("[data-tut-act]")?.dataset.tutAct;
   if (!act) { tap(event); return; }
-  if (act === "next") finish({ result: "next", script: run.next });
-  else finish({ result: act }); // "done" | "end"
+  finish({ result: act }); // "done" | "end"
 }
 
 function onKey(event) {
@@ -288,14 +269,14 @@ function onKey(event) {
   event.preventDefault();
 }
 
-// Plays one script's visible steps. Resolves { result: "done" | "end" | "next",
-// script? } when the box closes; "empty" when no step is visible.
-export function runSteps(script, role, { scripts = [script] } = {}) {
+// Plays one script's visible steps. Resolves { result: "done" | "end" } when
+// the box closes; "empty" when no step is visible.
+export function runSteps(script, role) {
   const list = visibleSteps(script, role);
   if (!list.length) return Promise.resolve({ result: "empty" });
   ensureNodes();
   return new Promise((resolve) => {
-    run = { list, i: 0, s: 0, boxHidden: false, resolve, key: script.key, next: nextScript(scripts, script, role) };
+    run = { list, i: 0, s: 0, boxHidden: false, resolve, key: script.key };
     if (script.key) mark(script.key, "seen");
     show(0);
     if (list.some(({ step }) => isWaitStep(step))) run.timer = setInterval(tickWait, POLL_MS);
@@ -365,7 +346,7 @@ function hasUnsavedText(page) {
   const root = document.getElementById(`${page}-page`);
   if (!root) return false;
   return [...root.querySelectorAll("textarea, input")].some((el) =>
-    (el.tagName === "TEXTAREA" || TEXT_TYPES.has(el.type)) && el.value.trim() !== "");
+    (el.tagName === "TEXTAREA" || TEXT_TYPES.has(el.type)) && el.value.trim() !== el.defaultValue.trim()); // pre-filled defaults (quantity 0/1) aren't typing
 }
 
 // `onEnd(reason)`: "done" (Done tapped) or "ended" (End, Esc, leaving, nothing to
@@ -392,12 +373,7 @@ export async function startTutorial(page, key = null, { onEnd } = {}) {
   const role = getCurrentUser()?.role;
   const hubTab = entry.standalone ? snapshotHubTab() : null;
   let last = "end";
-  while (running && script) {
-    if (!(await runOpen(script, role)) || !running) break;
-    const out = await runSteps(script, role, { scripts: entry.scripts });
-    last = out.result;
-    script = out.result === "next" ? out.script : null;
-  }
+  if (script && (await runOpen(script, role)) && running) last = (await runSteps(script, role)).result;
   endTutorial();
   if (entry.standalone) restoreHubTab(hubTab);
   onEnd?.(endReason(last));

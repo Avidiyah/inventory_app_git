@@ -7123,6 +7123,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     vertical-align: middle;
     white-space: nowrap;
 }
+.tut-btn[hidden] { display: none; }
 .tut-btn-dot { position: relative; }
 .tut-btn-dot::after {
     content: "";

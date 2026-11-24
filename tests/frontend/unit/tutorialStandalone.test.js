@@ -75,8 +75,7 @@ describe("standalone run", () => {
     const started = tut.startTutorial("welcome", "welcome", { onEnd });
     await vi.waitFor(() => expect(box()).not.toBeNull());
     await expect(api.apiListWorkOrders()).resolves.toEqual(["server"]);
-    for (let i = 0; i < 6; i += 1) tap();
-    act("done").click();
+    for (let i = 0; i < 7; i += 1) tap(); // the tap on "Tutorial complete" closes it
     await started;
     expect(onEnd).toHaveBeenCalledExactlyOnceWith("done");
     expect(showPage).not.toHaveBeenCalled();
