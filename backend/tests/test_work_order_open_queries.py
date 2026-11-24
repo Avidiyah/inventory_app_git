@@ -23,8 +23,10 @@ from app.services import work_orders as wos
 from app.services import work_orders_smr_lines as lines_service
 
 # Measured 2026-11-12 on the 12-line seed below (12 lines with edit history,
-# 12 distinct workers, 2 labor entries with sessions by 2 other technicians).
-BUDGET = 16
+# 12 distinct workers, 2 labor entries with sessions by 2 other technicians);
+# +1 on 2026-11-24 for the photo count (`routers/work_orders._photo_count`),
+# one fixed query, not per line.
+BUDGET = 17
 
 _TX_CONTROL = ("SAVEPOINT", "RELEASE", "ROLLBACK")
 

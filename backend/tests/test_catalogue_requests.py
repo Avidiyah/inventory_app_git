@@ -473,6 +473,9 @@ def test_the_hub_dashboard_lists_stocked_requests_first_and_refreshes_live():
     assert "Requested material in stock" in tech
     assert "stockedRequestsHtml(payload.stocked_requests)" in tech
     assert "hub-stocked-requests" in tech
-    hub = _src("views/userHub.js")
-    assert 'const USER_REQUEST_CHANGED_EVENT = "user_request.changed";' in hub
-    assert "subscribe(USER_REQUEST_CHANGED_EVENT" in hub
+    # The hub's live wiring moved to hubLive.js (W7): an event -> feeds map it
+    # subscribes over, with userHub.js handing it the personal feed.
+    live = _src("views/hubLive.js")
+    assert '"user_request.changed": ["personal"]' in live
+    assert "for (const [type, names] of Object.entries(ROUTES))" in live
+    assert "personal: personalFeed" in _src("views/userHub.js")
