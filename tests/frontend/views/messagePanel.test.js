@@ -187,6 +187,39 @@ describe("New chat and New group", () => {
     expect(m.createGroup).toHaveBeenCalledWith("Bldg 4 flood", ["p1", "p2"]);
     await vi.waitFor(() => expect(m.mountChat.mock.calls[0][1].conversationId).toBe("g1"));
   });
+
+  it("New chat filters people by name on every keystroke, from one request", async () => {
+    const user = userEvent.setup();
+    await mount();
+    button("New chat").click();
+    await vi.waitFor(() => expect(host.querySelectorAll(".msg-conv")).toHaveLength(3));
+    const box = host.querySelector('input[aria-label="Search people"]');
+    await user.type(box, "l");
+    expect(rowNames()).toEqual(["Luis Romero", "Tom Keller"]);
+    await user.type(box, "u");
+    expect(rowNames()).toEqual(["Luis Romero"]);
+    expect(host.querySelector("mark").textContent).toBe("Lu");
+    await user.type(box, "x");
+    expect(host.querySelector(".msg-empty").textContent).toBe('No one matches "lux".');
+    expect(m.people).toHaveBeenCalledTimes(1);
+    expect(m.search).not.toHaveBeenCalled();
+  });
+
+  it("New group filter hides people without unticking them, and counts the picks", async () => {
+    const user = userEvent.setup();
+    await mount({ role: "supervisor" });
+    button("New group").click();
+    await vi.waitFor(() => expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(3));
+    const boxes = host.querySelectorAll('input[type="checkbox"]');
+    await user.click(boxes[0]);
+    await user.type(host.querySelector('input[aria-label="Search people"]'), "tom");
+    const visible = [...host.querySelectorAll(".msg-pick")].filter((l) => !l.hidden);
+    expect(visible).toHaveLength(1);
+    expect(visible[0].textContent).toContain("Tom Keller");
+    expect(boxes[0].checked).toBe(true);
+    await user.click(boxes[2]);
+    expect(host.querySelector(".msg-sec").textContent).toBe("Pick at least two people · 2 picked");
+  });
 });
 
 describe("chat hand-off, Escape and the close button", () => {

@@ -48,6 +48,17 @@ function marked(text, q) {
   return [text.slice(0, i), hit, text.slice(i + q.length)];
 }
 
+// Live, client-side people filter: name only, case-insensitive, anywhere.
+const nameMatches = (name, q) => !q || String(name || "").toLowerCase().includes(q.toLowerCase());
+
+function filterField() {
+  const field = h("input", "msg-field");
+  field.type = "search";
+  field.placeholder = "Search people";
+  field.setAttribute("aria-label", "Search people");
+  return field;
+}
+
 function timeLabel(iso) {
   if (!iso) return "";
   const then = new Date(iso);
@@ -246,14 +257,27 @@ export function mountMessagePanel(host, { onClose = null } = {}) {
   }
 
   async function showPeople() {
+    const filter = filterField();
+    const tools = h("div", "msg-p-tools");
+    tools.append(filter);
     const scroll = h("div", "msg-p-scroll");
     scroll.append(h("p", "msg-empty", "Loading..."));
-    show(header("New chat", true), scroll);
+    show(header("New chat", true), tools, scroll);
+    // A phone keyboard popping up unasked would cover the list (same rule as the chat).
+    if (window.matchMedia?.("(pointer: fine)").matches) filter.focus();
     const people = await loadPeople();
     if (destroyed || host.lastChild !== scroll) return;
     if (typeof people === "string") return scroll.replaceChildren(h("p", "msg-empty", people));
     if (!people.length) return scroll.replaceChildren(h("p", "msg-empty", "No one else to message."));
-    scroll.replaceChildren(h("div", "msg-sec", "Pick a person"), ...people.map((p) => personRow(p, "")));
+    const render = () => {
+      const q = filter.value.trim();
+      const shown = people.filter((p) => nameMatches(p.name, q));
+      scroll.replaceChildren(...(shown.length
+        ? [h("div", "msg-sec", "Pick a person"), ...shown.map((p) => personRow(p, q))]
+        : [h("p", "msg-empty", `No one matches "${q}".`)]));
+    };
+    filter.addEventListener("input", render);
+    render();
   }
 
   async function openDirect(userId) {
@@ -279,14 +303,18 @@ export function mountMessagePanel(host, { onClose = null } = {}) {
     scroll.append(h("p", "msg-empty", "Loading..."));
     const bar = h("div", "msg-composer");
     bar.append(create);
+    const filter = filterField();
     const tools = h("div", "msg-p-tools");
-    tools.append(name);
+    tools.append(name, filter);
     show(header("New group", true), tools, scroll, bar);
 
     let boxes = [];
+    const sec = h("div", "msg-sec", "Pick at least two people");
     const picked = () => boxes.filter((b) => b.checked);
     const check = () => {
-      create.disabled = !name.value.trim() || picked().length < 2 || picked().length > MAX_GROUP_MEMBERS;
+      const n = picked().length;
+      sec.textContent = n ? `Pick at least two people · ${n} picked` : "Pick at least two people";
+      create.disabled = !name.value.trim() || n < 2 || n > MAX_GROUP_MEMBERS;
     };
     name.addEventListener("input", check);
 
@@ -315,14 +343,31 @@ export function mountMessagePanel(host, { onClose = null } = {}) {
       box.addEventListener("change", check);
       return box;
     });
+    const names = people.map(() => h("span", ""));
     const rows = people.map((p, i) => {
       const label = h("label", "msg-pick");
-      const text = h("span", "", `${p.name} `);
-      text.append(h("small", "", p.role_label || ""));
+      const text = h("span", "");
+      text.append(names[i], " ", h("small", "", p.role_label || ""));
       label.append(boxes[i], text);
       return label;
     });
-    scroll.replaceChildren(h("div", "msg-sec", "Pick at least two people"), ...rows);
+    const none = h("p", "msg-empty");
+    // Hiding, not rebuilding, so a ticked person stays ticked while filtered out.
+    const applyFilter = () => {
+      const q = filter.value.trim();
+      let shown = 0;
+      people.forEach((p, i) => {
+        const hit = nameMatches(p.name, q);
+        rows[i].hidden = !hit;
+        names[i].replaceChildren(...marked(p.name, hit ? q : ""));
+        if (hit) shown += 1;
+      });
+      none.textContent = `No one matches "${q}".`;
+      none.hidden = shown > 0;
+    };
+    filter.addEventListener("input", applyFilter);
+    scroll.replaceChildren(sec, ...rows, none);
+    applyFilter();
   }
 
   // ---------- chat ----------
