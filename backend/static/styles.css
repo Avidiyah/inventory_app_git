@@ -7339,17 +7339,15 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-body[data-wo-tab] > .wo-section-card:not([open]) { display: none; }
 .wo-body[data-wo-tab] > .wo-section-card > .wo-section-summary { display: none; }
 .wo-actionbar {
-    position: sticky;
-    bottom: 0;
-    z-index: 2;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-2);
-    margin: var(--space-4) calc(-1 * var(--space-4)) 0;
-    padding: var(--space-3) var(--space-4);
-    background: var(--color-header);
-    border-top: 1px solid var(--panel-rule);
+    margin: var(--space-3) 0;
+    padding: var(--space-3);
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
 }
 .wo-actionbar > button { margin: 0; min-height: var(--btn-h-sm); }
 .wo-actionbar > button:not(.secondary-btn):not(.btn-danger) { flex: 1 1 200px; min-height: var(--btn-h); }
@@ -7371,7 +7369,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-more-menu {
     position: absolute;
     right: 0;
-    bottom: calc(100% + 6px);
+    top: calc(100% + 6px);
     z-index: 5;
     display: flex;
     flex-direction: column;

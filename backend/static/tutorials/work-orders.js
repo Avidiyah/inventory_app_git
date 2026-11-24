@@ -28,13 +28,13 @@ export const SCRIPTS = [
     steps: [
       { target: "details.wo-solo > summary.wo-summary", title: "The card",
         text: ["One card per job.", "The colour is the status: yellow means In-Progress."] },
+      { target: "#wo-act-start-tracking-wo", title: "Begin Charging",
+        text: ["This starts your clock on this job and puts you on the crew.", "Tap Stop Charging when you stop."] },
+      { target: ".wo-more-btn", title: "More", text: "Less common actions live behind this button." },
       { target: "#wo-sec-tabs", title: "Tabs",
         text: ["Everything about the job sits under these tabs.", "The numbers show how much is logged so far."] },
       { target: "#wo-sec-details .wo-details", title: "Details",
         text: "Where the job is, what was asked for, and who is on the crew." },
-      { target: "#wo-act-start-tracking-wo", title: "Begin Charging",
-        text: ["This starts your clock on this job and puts you on the crew.", "Tap Stop Charging when you stop."] },
-      { target: ".wo-more-btn", title: "More", text: "Less common actions live behind this button." },
     ],
   },
   {

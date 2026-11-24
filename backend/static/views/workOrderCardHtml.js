@@ -554,7 +554,7 @@ export function renderBody(detail, bodyEl) {
     .map(([key, label]) => `<button type="button" class="wo-tab" role="tab" data-wo-tab="${key}" aria-selected="false">${escapeHtml(label)}</button>`)
     .join("")}</div>`;
 
-  // The bottom bar: the lifecycle's next step and its siblings, then a "More"
+  // The next-step card above the tabs: the lifecycle's next step and its siblings, then a "More"
   // menu holding the Admin tools and Edit details.
   const more = (tools || sup)
     ? `<details class="wo-more"><summary class="wo-more-btn" aria-label="More actions">⋯</summary>
@@ -567,6 +567,7 @@ export function renderBody(detail, bodyEl) {
     chargingStripHtml(detail) +
     crewLockHtml(detail) +
     priorWorkBannerHtml(detail) +
+    (statusActions ? `<div class="wo-actionbar" id="wo-sec-actions">${statusActions}</div>` : "") +
     tabBar +
     `<div class="wo-tab-details" id="wo-sec-details">` +
     (detail.smr ? readyRowHtml(detail, canEditSmrLines()) : "") +
@@ -607,7 +608,6 @@ export function renderBody(detail, bodyEl) {
     (showLabor ? laborSectionHtml(detail) : "") +
     photosSectionHtml(detail) +
     invoice +
-    (statusActions ? `<div class="wo-actionbar" id="wo-sec-actions">${statusActions}</div>` : "") +
     // Stays the body's last child: setMessage replaces its class, and the
     // action handler finds it by position after that. `data-live-keep`: a live
     // patch leaves its text alone; the role is there before any text arrives.

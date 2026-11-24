@@ -758,10 +758,10 @@ describe("the whole card body", () => {
     expect(body.querySelector(".wo-materials-section .wo-mode-select")).not.toBeNull();
   });
 
-  it("keeps the message as the body's last child, under the action bar", async () => {
+  it("keeps the message as the body's last child, with the action bar above the tabs", async () => {
     const { cardEl } = await renderBody({}, { role: "supervisor" });
     const body = cardEl.querySelector(".wo-body");
     expect(body.lastElementChild.className).toBe("wo-message");
-    expect(body.lastElementChild.previousElementSibling.className).toBe("wo-actionbar");
+    expect(body.querySelector(".wo-actionbar").nextElementSibling.className).toBe("wo-tabs");
   });
 });
