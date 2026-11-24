@@ -158,7 +158,7 @@ script doesn't re-parse anything; it trusts the zip paths.
   - At ≥ 80% the title becomes "Photo storage is full — uploads are stopped".
 - Follows the CSP rules (no inline styles) and the no-horizontal-scroll rule.
 
-## Sort script (`scripts/wmr_sort.py`)
+## Sort script (`backend/scripts/photo_sort.py`)
 
 Stdlib only (`zipfile`, `shutil`, `pathlib`), so the boss's PC needs no `pip install`.
 
@@ -181,7 +181,7 @@ Run locally against the dev database on port 8124, and the user checks it by han
    (A, C and Misc), one Academics hall and one blank location.
 2. Upload photos from your own computer, including two on the same order and day to
    test `_1`.
-3. Download the zip, run `wmr_sort.py` against a fake folder
+3. Download the zip, run `photo_sort.py` against a fake folder
    (`Desktop\fake-drive`).
 4. Run it a second time → everything shows as skipped.
 5. Click Clear exported → photos are gone from the database and the Drive copies stay.
@@ -201,7 +201,7 @@ Production rollout comes after the proof of concept passes and you give the go-a
 - Storage: 507 at ≥ 80% (monkeypatched size); Vitest — warning shows at 50% for
   Admin/Owner only, after the clock-in prompt closes, not for a Technician, not below
   50%, quiet on a failed lookup; the button lands on `#integrations-image-export`.
-- Script: a small `test_wmr_sort.py` with a temporary zip and a fake Drive folder —
+- Script: a small `test_photo_sort.py` with a temporary zip and a fake Drive folder —
   copies new files, skips existing ones, never overwrites.
 
 ## Out of scope (v1)

@@ -1,7 +1,7 @@
 # WMR photo export — implementation plan
 
 Spec: `docs/superpowers/specs/2026-11-24-wmr-photo-export-design.md` (don't restate it
-here). Status 2026-11-24: not started.
+here). Status 2026-11-24: Phase A (Tasks 1–9) built; awaiting the PoC check.
 
 **Phases and gates**
 
@@ -138,11 +138,11 @@ asking. Commit after each task once its tests pass.
 
 ### Task 9 — Sort script + PoC run
 - **Goal:** the double-click script, then the full local proof of concept.
-- **Files:** `scripts/wmr_sort.py` (new), `backend/tests/test_wmr_sort.py` (new).
+- **Files:** `backend/scripts/photo_sort.py` (new), `backend/tests/test_photo_sort.py` (new).
 - **Steps:**
   1. Stdlib only. Zip = argv[1] (dragged on) or newest `export_*.zip` in
      `~/Downloads`; extract to `tempfile.mkdtemp()`.
-  2. Prompt for the Drive path; remember it in `wmr_sort_last_path.txt` next to the
+  2. Prompt for the Drive path; remember it in `photo_sort_last_path.txt` next to the
      script; Enter reuses it; refuse a path that doesn't exist.
   3. Walk the extracted tree (skip `manifest.csv`) into `<drive>/`; `mkdir(parents=True, exist_ok=True)`; copy with `shutil.copy2`
      only if the target doesn't exist; never overwrite/delete.
@@ -156,7 +156,7 @@ asking. Commit after each task once its tests pass.
      Young Hall (A, C, Misc), one Academics hall, one blank location; include two
      same-day photos on one order and one iPhone HEIC if available.
   2. Check the thumbnails, then download the zip.
-  3. Run `wmr_sort.py` against `Desktop\fake-drive` → check folders and names.
+  3. Run `photo_sort.py` against `Desktop\fake-drive` → check folders and names.
   4. Run it again → all skipped.
   5. Clear exported → usage line drops; `fake-drive` files untouched.
   6. Set `DB_DISK_BYTES` low (e.g. 100 MB) and sign in as Admin → warning shows and
@@ -178,7 +178,7 @@ asking. Commit after each task once its tests pass.
 - **Steps:**
   1. Ask, then push main (push = deploy); migration runs on deploy.
   2. User uploads a few real photos, downloads the zip.
-  3. On the boss's PC: copy `wmr_sort.py` to the Desktop; check that double-clicking
+  3. On the boss's PC: copy `photo_sort.py` to the Desktop; check that double-clicking
      a `.py` opens Python (if not: right-click → Open with → Python, "always"); run it;
      paste the Drive path (e.g. `G:\My Drive`); confirm Drive syncs the service-type folders.
   4. Clear exported in production; usage line drops.

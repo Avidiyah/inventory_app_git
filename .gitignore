@@ -34,3 +34,6 @@ coverage/
 
 # brainstorm/sdd scratch (superpowers skills)
 .superpowers/
+
+# photo_sort.py remembers the Drive path next to itself
+backend/scripts/photo_sort_last_path.txt
