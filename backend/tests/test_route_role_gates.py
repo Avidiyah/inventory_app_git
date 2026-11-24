@@ -587,6 +587,11 @@ def test_no_route_gate_is_left_at_the_admin_floor():
         "undo_regenerate",
         # The Hours view named above (spec 2026-11-04 D12); missed here when e54d60b added the route.
         "weekly_hours",
+        # 2026-11-24 photo export spec: Owner/Admin export, clear (irreversible
+        # delete) and read the disk figures; the warning goes to them only.
+        "photo_storage",
+        "export_photos",
+        "clear_exported_photos",
     }
 
 
