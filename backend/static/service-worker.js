@@ -35,6 +35,8 @@ function readPayload(event) {
     return {
       title: parsed.title || FALLBACK.title,
       body: parsed.body || FALLBACK.body,
+      // Chat pushes carry the conversation id so a click can open it.
+      chat: parsed.chat || null,
     };
   } catch (err) {
     // Malformed or non-JSON payload. Still show something -- see below.
@@ -43,7 +45,23 @@ function readPayload(event) {
 }
 
 self.addEventListener("push", (event) => {
-  const { title, body } = readPayload(event);
+  const { title, body, chat } = readPayload(event);
+  const options = {
+    body,
+    icon: "/static/icon-180.png",
+    badge: "/static/icon-180.png",
+    // Collapses repeats into one entry instead of stacking a queue of
+    // identical alerts on the lock screen.
+    tag: "inventory-notification",
+  };
+  // A chat push gets its own tag per conversation, and renotify so a
+  // second message in the same chat still alerts instead of replacing
+  // the first silently.
+  if (chat) {
+    options.tag = `chat-${chat}`;
+    options.renotify = true;
+    options.data = { chat };
+  }
 
   // `showNotification` is not optional on iOS. A push that resolves
   // without displaying anything is treated as a misbehaving app: Safari
@@ -51,19 +69,35 @@ self.addEventListener("push", (event) => {
   // site's push permission revoked with no way to re-prompt in-app. So
   // every path through this handler ends in a visible notification.
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body,
-      icon: "/static/icon-180.png",
-      badge: "/static/icon-180.png",
-      // Collapses repeats into one entry instead of stacking a queue of
-      // identical alerts on the lock screen.
-      tag: "inventory-notification",
-    })
+    self.registration.showNotification(title, options)
   );
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
+  const chat = event.notification.data && event.notification.data.chat;
+
+  if (chat) {
+    // Hand the open page the conversation id; launch the app on it when
+    // no window exists.
+    event.waitUntil(
+      self.clients
+        .matchAll({ type: "window", includeUncontrolled: true })
+        .then(async (clientList) => {
+          const client = clientList.find((c) => c.focused) || clientList[0];
+          if (client) {
+            if ("focus" in client) await client.focus();
+            client.postMessage({ type: "open-chat", chat });
+            return undefined;
+          }
+          if (self.clients.openWindow) {
+            return self.clients.openWindow("/?chat=" + encodeURIComponent(chat));
+          }
+          return undefined;
+        })
+    );
+    return;
+  }
 
   // Prefer an already-open window over launching a second one.
   // `includeUncontrolled` matters on the first launch after install,

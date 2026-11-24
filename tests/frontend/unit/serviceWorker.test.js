@@ -14,8 +14,8 @@ import { importView } from "../helpers/shell.js";
 const FALLBACK_TITLE = "Inventory";
 const FALLBACK_BODY = "You have a new notification.";
 
-function fakeClient({ focus = true, id = "c1" } = {}) {
-  const client = { id };
+function fakeClient({ focus = true, id = "c1", focused = false } = {}) {
+  const client = { id, focused, postMessage: vi.fn() };
   if (focus) client.focus = vi.fn(async () => `focused:${id}`);
   return client;
 }
@@ -126,6 +126,27 @@ describe("push", () => {
     expect(shown(self)[1].body).toBe(FALLBACK_BODY);
   });
 
+  it("a chat push is tagged per conversation, renotifies and carries the chat id", async () => {
+    const { self, fire } = await mountServiceWorker();
+    await fire("push", payload(() => ({ title: "TechFM", body: "New message from Sam", chat: "abc" })));
+    expect(shown(self)).toEqual(["TechFM", {
+      body: "New message from Sam",
+      icon: "/static/icon-180.png",
+      badge: "/static/icon-180.png",
+      tag: "chat-abc",
+      renotify: true,
+      data: { chat: "abc" },
+    }]);
+  });
+
+  it("a push without chat has no renotify or data", async () => {
+    const { self, fire } = await mountServiceWorker();
+    await fire("push", payload(() => ({ title: "WO 412", body: "x" })));
+    expect(shown(self)[1]).not.toHaveProperty("renotify");
+    expect(shown(self)[1]).not.toHaveProperty("data");
+    expect(shown(self)[1].tag).toBe("inventory-notification");
+  });
+
   it("holds the event until the notification is on screen", async () => {
     const { event } = await mountServiceWorker().then((m) => m.fire("push", { data: null }));
     expect(event.waitUntil).toHaveBeenCalledTimes(1);
@@ -171,5 +192,35 @@ describe("notificationclick", () => {
     const { fire } = await mountServiceWorker({ clients: [], openWindow: false });
     const { result } = await fire("notificationclick", clickEvent());
     expect(result).toBeUndefined();
+  });
+
+  const chatClick = (chat = "abc") => ({ notification: { close: vi.fn(), data: { chat } } });
+
+  it("a chat click focuses the focused window and posts open-chat to it", async () => {
+    const other = fakeClient({ id: "other" });
+    const front = fakeClient({ id: "front", focused: true });
+    const { self, fire } = await mountServiceWorker({ clients: [other, front] });
+    await fire("notificationclick", chatClick());
+    expect(front.focus).toHaveBeenCalled();
+    expect(front.postMessage).toHaveBeenCalledWith({ type: "open-chat", chat: "abc" });
+    expect(other.postMessage).not.toHaveBeenCalled();
+    expect(self.clients.openWindow).not.toHaveBeenCalled();
+  });
+
+  it("a chat click with no focused window uses the first one", async () => {
+    const first = fakeClient({ id: "first" });
+    const second = fakeClient({ id: "second" });
+    const { fire } = await mountServiceWorker({ clients: [first, second] });
+    await fire("notificationclick", chatClick());
+    expect(first.focus).toHaveBeenCalled();
+    expect(first.postMessage).toHaveBeenCalledWith({ type: "open-chat", chat: "abc" });
+    expect(second.postMessage).not.toHaveBeenCalled();
+  });
+
+  it("a chat click with no window opens the app on that chat", async () => {
+    const { self, fire } = await mountServiceWorker({ clients: [] });
+    const { result } = await fire("notificationclick", chatClick("a b"));
+    expect(self.clients.openWindow).toHaveBeenCalledWith("/?chat=a%20b");
+    expect(result).toBe("opened");
   });
 });

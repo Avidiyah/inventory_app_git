@@ -424,6 +424,17 @@ def build_message(
         ) from exc
 
 
+def build_chat_message(sender_name: str) -> tuple[str, str]:
+    """The `(title, body)` for a chat message push.
+
+    Names the sender and nothing else: message text and group names never
+    reach a lock screen, a push payload, or a log line. Not a
+    `build_message` template and not in `ALL_EVENTS` -- it takes a person's
+    name rather than a work-order identifier.
+    """
+    return "TechFM", f"New message from {sender_name}"
+
+
 def build_netfacilities_chain_message(
     *,
     ok: bool,

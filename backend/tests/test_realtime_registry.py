@@ -251,6 +251,64 @@ def test_dispatch_delivers_only_to_the_permitted_audience():
     asyncio.run(scenario())
 
 
+def test_targeted_emit_reaches_only_the_listed_users():
+    """Chat is the first per-user event: `user_ids` narrows fan-out, and an
+    emit without it still reaches everyone the audience map allows."""
+    first = _conn(user_id="user-1", role="technician")
+    second = _conn(user_id="user-2", role="technician")
+    envelope = policy.build_envelope(
+        event_type=policy.EVENT_MESSAGE_CHANGED, entity_id="c-1", request_id="r1"
+    )
+
+    async def scenario():
+        service.register(first)
+        service.register(second)
+        service.start_dispatch()
+
+        service.emit(envelope, user_ids=["user-1"])
+        assert await _settle(lambda: first.queue.qsize() == 1)
+        assert second.queue.qsize() == 0
+
+        service.emit(envelope)
+        assert await _settle(lambda: second.queue.qsize() == 1)
+        assert first.queue.qsize() == 2
+
+        await _stop_cleanly()
+
+    asyncio.run(scenario())
+
+    delivered = first.queue.get_nowait()
+    assert set(delivered) == {"type", "id", "req"}
+    assert delivered == {"type": "message.changed", "id": "c-1", "req": "r1"}
+
+
+def test_targeted_emit_stringifies_user_ids():
+    """Callers hold UUIDs; connections hold strings."""
+    import uuid
+
+    user = uuid.uuid4()
+    mine = _conn(user_id=user, role="technician")
+    other = _conn(user_id="user-2", role="technician")
+
+    async def scenario():
+        service.register(mine)
+        service.register(other)
+        service.start_dispatch()
+        service.emit({"type": policy.EVENT_MESSAGE_CHANGED, "id": "c"}, user_ids=[user])
+        assert await _settle(lambda: mine.queue.qsize() == 1)
+        assert other.queue.qsize() == 0
+        await _stop_cleanly()
+
+    asyncio.run(scenario())
+
+
+def test_message_changed_audience_is_every_role():
+    for role in ("technician", "admin", "owner"):
+        assert policy.audience_allows("message.changed", role)
+    assert policy.EVENT_MESSAGE_CHANGED == "message.changed"
+    assert "EVENT_MESSAGE_CHANGED" in policy.__all__
+
+
 def test_dispatch_drains_events_emitted_before_the_loop_existed():
     """`emit` works with no running loop -- that is what makes the
     fullness decision synchronous -- so the queue can already hold events

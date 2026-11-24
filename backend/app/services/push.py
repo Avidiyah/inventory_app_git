@@ -212,7 +212,9 @@ def subscriptions_for_users(db: Session, user_ids) -> list[PushSubscription]:
     )
 
 
-def _fan_out(db: Session, subscriptions, title: str, body: str) -> dict:
+def _fan_out(
+    db: Session, subscriptions, title: str, body: str, chat: str | None = None
+) -> dict:
     """Deliver one message to a resolved set of devices.
 
     The single send-and-classify body, shared by every entry point.
@@ -230,7 +232,12 @@ def _fan_out(db: Session, subscriptions, title: str, body: str) -> dict:
     requests; it would need a queue before this grew to hundreds of
     devices.
     """
-    payload = json.dumps({"title": title, "body": body})
+    # `chat` is a conversation id for the service worker's click routing;
+    # it is only ever present on a chat push and never carries message text.
+    data = {"title": title, "body": body}
+    if chat is not None:
+        data["chat"] = chat
+    payload = json.dumps(data)
 
     sent = dropped = failed = 0
     dead: list[str] = []
@@ -278,7 +285,9 @@ def send_to_min_role(db: Session, minimum: str, title: str, body: str) -> dict:
     return _fan_out(db, subscriptions_for_min_role(db, minimum), title, body)
 
 
-def send_to_users(db: Session, user_ids, title: str, body: str) -> dict:
+def send_to_users(
+    db: Session, user_ids, title: str, body: str, *, chat: str | None = None
+) -> dict:
     """Fan one notification out to the devices of specific people.
 
     The per-user entry point: work orders are assigned to people, not to
@@ -287,5 +296,8 @@ def send_to_users(db: Session, user_ids, title: str, body: str) -> dict:
 
     Both entry points share `_fan_out`, so the delete-on-404/410 rule and
     the endpoint allowlist re-check apply identically here.
+
+    `chat` (a conversation id) rides in the payload so a tap on the
+    notification can open that conversation.
     """
-    return _fan_out(db, subscriptions_for_users(db, user_ids), title, body)
+    return _fan_out(db, subscriptions_for_users(db, user_ids), title, body, chat)

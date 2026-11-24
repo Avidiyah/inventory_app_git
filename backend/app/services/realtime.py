@@ -31,7 +31,7 @@ import logging
 import threading
 import uuid
 from collections import deque
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from app.domain import realtime as policy
 
@@ -197,8 +197,12 @@ def all_connections() -> list["Connection"]:
     return [c for group in _connections.values() for c in group]
 
 
-def emit(envelope: dict[str, Any]) -> bool:
+def emit(envelope: dict[str, Any], *, user_ids: Optional[Iterable] = None) -> bool:
     """Hand one event from a request thread to the event loop.
+
+    `user_ids` narrows delivery to those users' connections (still subject to
+    the audience map); None, the default, is the existing broadcast. Ids are
+    stringified to match `Connection.user_id`.
 
     Returns False when the handoff is full and the event was dropped.
     Never blocks and never raises -- an emit failure must not turn a
@@ -222,7 +226,9 @@ def emit(envelope: dict[str, Any]) -> bool:
                 extra={"fields": {"total_dropped": _dropped_events}},
             )
             return False
-        _handoff.append(envelope)
+        _handoff.append(
+            (envelope, None if user_ids is None else frozenset(str(u) for u in user_ids))
+        )
 
     # Both handles are read **once**, into locals, and only the locals are
     # used below. Read twice -- once to guard and again to call -- a
@@ -405,12 +411,15 @@ async def _dispatch_loop() -> None:
             with _handoff_lock:
                 if not _handoff:
                     break
-                envelope = _handoff.popleft()
-            _fan_out(envelope)
+                envelope, user_ids = _handoff.popleft()
+            _fan_out(envelope, user_ids)
 
 
-def _fan_out(envelope: dict[str, Any]) -> None:
-    """Deliver one envelope to every connection whose role may see it.
+def _fan_out(
+    envelope: dict[str, Any], user_ids: Optional[frozenset] = None
+) -> None:
+    """Deliver one envelope to every connection whose role may see it
+    (and, when `user_ids` is given, whose user is listed).
 
     Synchronous on purpose: `enqueue` is non-blocking, so fan-out to
     hundreds of connections costs no awaits and cannot interleave with a
@@ -419,6 +428,8 @@ def _fan_out(envelope: dict[str, Any]) -> None:
     event_type = envelope.get("type")
 
     for connection in all_connections():
+        if user_ids is not None and connection.user_id not in user_ids:
+            continue
         if not policy.audience_allows(event_type, connection.role):
             continue
         if connection.enqueue(envelope):

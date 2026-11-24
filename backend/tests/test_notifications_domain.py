@@ -555,3 +555,69 @@ def test_material_request_audience_floor_is_techfm_oa():
 def test_material_request_events_are_registered():
     assert notif.EVENT_MATERIAL_REQUEST_FILED in notif.ALL_EVENTS
     assert notif.EVENT_MATERIAL_REQUEST_STOCKED in notif.ALL_EVENTS
+
+
+def test_the_chat_message_names_the_sender_and_nothing_else():
+    assert notif.build_chat_message("Dana Ortiz") == (
+        "TechFM",
+        "New message from Dana Ortiz",
+    )
+
+
+def test_the_chat_message_is_not_a_registered_work_order_event():
+    assert not any("chat" in event for event in notif.ALL_EVENTS)
+
+
+def test_notify_chat_message_only_queues_a_task(monkeypatch):
+    """Queues one background task with plain values and never sends itself:
+    delivery happens after the response, on the task's own session."""
+    from fastapi import BackgroundTasks
+
+    from app.services import notifications as notifications_service
+    from app.services import push as push_service
+
+    def explode(*args, **kwargs):  # pragma: no cover - must not run
+        raise AssertionError("send_to_users must not run inside the request")
+
+    monkeypatch.setattr(push_service, "VAPID_PRIVATE_KEY", "test-private-key")
+    monkeypatch.setattr(push_service, "send_to_users", explode)
+
+    recipient = uuid.uuid4()
+    conversation_id = uuid.uuid4()
+    background = BackgroundTasks()
+
+    notifications_service.notify_chat_message(
+        background,
+        recipient_ids=[recipient],
+        sender_name="Dana Ortiz",
+        conversation_id=conversation_id,
+    )
+
+    assert len(background.tasks) == 1
+    task = background.tasks[0]
+    assert task.func is notifications_service._deliver
+    assert task.args == (
+        [recipient],
+        "TechFM",
+        "New message from Dana Ortiz",
+        str(conversation_id),
+    )
+
+
+def test_notify_chat_message_with_no_recipients_queues_nothing(monkeypatch):
+    from fastapi import BackgroundTasks
+
+    from app.services import notifications as notifications_service
+    from app.services import push as push_service
+
+    monkeypatch.setattr(push_service, "VAPID_PRIVATE_KEY", "test-private-key")
+    background = BackgroundTasks()
+
+    notifications_service.notify_chat_message(
+        background,
+        recipient_ids=[],
+        sender_name="Dana Ortiz",
+        conversation_id=uuid.uuid4(),
+    )
+
+    assert background.tasks == []

@@ -37,6 +37,7 @@ registered device of each recipient, and shown on a locked screen.
 | `item.low_stock` | any stock write, or a threshold raise | the stock-writing routes (drained by `flush_stock_events`) and `PATCH /items/{id}/low-stock-threshold` | everyone at `LOW_STOCK_AUDIENCE_MIN_ROLE` (**TechFM OA**+), **including the actor** |
 | `material_request.filed` | any user who can see the work order (Technician+) | `POST /user-requests/material-request`, **new rows only** — a duplicate filing pushes nobody | everyone at `MATERIAL_REQUEST_AUDIENCE_MIN_ROLE` (**TechFM OA**+), **including the actor** |
 | `material_request.stocked` | any stock write, or TechFM OA+ pressing **Mark stocked & notify** | the stock-writing sites (as `item.low_stock`, minus the threshold route); `POST /user-requests/{id}/mark-stocked` | the work order's assigned technicians + routed Team Lead **at stocking time** + the original filer, **actor kept** |
+| chat message (not in `ALL_EVENTS`; `build_chat_message`) | any chat member | `POST /messages/conversations/{id}/messages` | the conversation's other members, **sender excluded**. Title "TechFM", body "New message from `{sender_name}`" — never message text or a group name. Payload carries `chat` (conversation id); tag `chat-<id>` with `renotify`, so a busy chat re-alerts as one notification; tap opens that chat |
 
 **Actor handling.** Every other rule suppresses the acting user **by id, never
 by role** (a Team Lead completing on someone's behalf is the actor too),

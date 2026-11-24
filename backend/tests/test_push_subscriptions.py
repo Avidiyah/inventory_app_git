@@ -523,3 +523,54 @@ def test_the_committed_public_key_is_a_valid_p256_point():
 
     # Raises if the bytes are not actually on the curve.
     ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), raw)
+
+
+# --- chat payload ---------------------------------------------------------
+
+def _capture_payloads(monkeypatch):
+    seen = []
+
+    def send(subscription, payload):
+        seen.append(payload)
+        return push_policy.PUSH_OK
+
+    monkeypatch.setattr(push_service, "_send_one", send)
+    return seen
+
+
+def test_a_chat_push_payload_carries_the_chat_id_and_no_message_text(
+    db, monkeypatch, configured, only_seeded_subscriptions
+):
+    """The payload is built from title, body and chat id alone, so a message
+    "SECRET" in a group "HIDDEN" cannot appear in it."""
+    import json
+    from app.domain import notifications as notif
+
+    user = _seed_user(db, roles.ROLE_TECHNICIAN)
+    push_service.save_subscription(db, user.id, _endpoint(), "k", "a")
+    seen = _capture_payloads(monkeypatch)
+
+    title, body = notif.build_chat_message("Dana Ortiz")
+    push_service.send_to_users(db, [user.id], title, body, chat="conv-1")
+
+    assert len(seen) == 1
+    assert "SECRET" not in seen[0] and "HIDDEN" not in seen[0]
+    assert json.loads(seen[0]) == {
+        "title": "TechFM",
+        "body": "New message from Dana Ortiz",
+        "chat": "conv-1",
+    }
+
+
+def test_the_payload_has_no_chat_key_unless_one_is_given(
+    db, monkeypatch, configured, only_seeded_subscriptions
+):
+    import json
+
+    user = _seed_user(db, roles.ROLE_TECHNICIAN)
+    push_service.save_subscription(db, user.id, _endpoint(), "k", "a")
+    seen = _capture_payloads(monkeypatch)
+
+    push_service.send_to_users(db, [user.id], "t", "b")
+
+    assert json.loads(seen[0]) == {"title": "t", "body": "b"}

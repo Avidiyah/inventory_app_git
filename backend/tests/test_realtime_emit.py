@@ -767,3 +767,47 @@ def test_a_failed_punch_in_emits_nothing(monkeypatch):
     with pytest.raises(HTTPException):
         attendance_router.punch_in(user=user, db=None)
     assert envelopes == []
+
+
+# --- messages -----------------------------------------------------------
+
+
+def test_emit_message_changed_is_targeted_and_carries_no_text(monkeypatch):
+    from app.routers import _message_events
+
+    calls = []
+    monkeypatch.setattr(
+        _message_events.realtime_service,
+        "emit",
+        lambda envelope, *, user_ids=None: calls.append((envelope, user_ids)) or True,
+    )
+    conversation_id = uuid.uuid4()
+    members = [uuid.uuid4(), uuid.uuid4()]
+
+    _message_events.emit_message_changed(conversation_id, members)
+
+    assert calls == [
+        (
+            {
+                "type": realtime_policy.EVENT_MESSAGE_CHANGED,
+                "id": str(conversation_id),
+                "req": REQUEST_ID,
+            },
+            members,
+        )
+    ]
+
+
+def test_the_message_emitter_set_is_exactly_the_chat_writes():
+    """Sending, reading, starting and ending a group change what members
+    see; opening a direct chat (no message yet) and every read do not."""
+    from app.routers import messages as messages_router
+
+    emitters = {
+        route.endpoint.__name__
+        for route in messages_router.router.routes
+        if route.endpoint.__module__ == messages_router.__name__
+        and "emit_message_changed(" in inspect.getsource(route.endpoint)
+    }
+
+    assert emitters == {"send_message", "mark_read", "create_group", "end_group"}

@@ -1,4 +1,4 @@
-"""Work-order notification triggers: resolve who, then hand off delivery.
+"""Work-order and chat notification triggers: resolve who, then hand off delivery.
 
 Layer: services. The rules are pure and live in
 `app.domain.notifications`; this module resolves them against the
@@ -16,14 +16,10 @@ in a real deployment: a test driving the handler synchronously never sees
 it. So `_deliver` receives plain ids and strings, and opens its own
 session for the one write delivery can imply.
 
-Delivery is best-effort, on the same rule `services/realtime.py::emit`
-follows: the durable write already happened, and a push problem must
-never turn a successful request into an error. Nothing here raises and
-no caller checks a result.
+Delivery is best-effort, like `services/realtime.py::emit`: the write already
+happened, so nothing here raises and no caller checks a result.
 
-Adding a trigger is a documented three-step procedure --
-`docs/adding-a-notification-trigger.md` -- and should not require reading
-this module.
+Adding a trigger: `docs/adding-a-notification-trigger.md`.
 """
 
 import logging
@@ -42,7 +38,9 @@ from app.services import work_orders as wo_service
 logger = logging.getLogger(__name__)
 
 
-def _deliver(user_ids: Sequence[uuid.UUID], title: str, body: str) -> None:
+def _deliver(
+    user_ids: Sequence[uuid.UUID], title: str, body: str, chat: Optional[str] = None
+) -> None:
     """Send one already-decided notification. Runs after the response.
 
     Opens its own session: the request's is closed by the time this runs
@@ -52,7 +50,8 @@ def _deliver(user_ids: Sequence[uuid.UUID], title: str, body: str) -> None:
     """
     session = SessionLocal()
     try:
-        result = push_service.send_to_users(session, user_ids, title, body)
+        extra = {"chat": chat} if chat else {}  # work-order pushes keep the old call shape
+        result = push_service.send_to_users(session, user_ids, title, body, **extra)
         logger.info(
             "notification delivered to %s user(s): sent=%s dropped=%s failed=%s",
             len(user_ids),
@@ -67,10 +66,8 @@ def _deliver(user_ids: Sequence[uuid.UUID], title: str, body: str) -> None:
 
 
 def _schedule(
-    background: BackgroundTasks,
-    user_ids: Sequence[uuid.UUID],
-    title: str,
-    body: str,
+    background: BackgroundTasks, user_ids: Sequence[uuid.UUID], title: str, body: str,
+    chat: Optional[str] = None,
 ) -> None:
     """Queue a send for after the response, when there is one to make.
 
@@ -81,11 +78,9 @@ def _schedule(
     - **Push not configured.** A deployment with no VAPID key would queue
       a task that can only fail, once per device, after every response.
     """
-    if not user_ids:
-        return
-    if not push_service.is_configured():
-        return
-    background.add_task(_deliver, list(user_ids), title, body)
+    if user_ids and push_service.is_configured():
+        extra = [chat] if chat else []  # work-order pushes keep their 3-arg task shape
+        background.add_task(_deliver, list(user_ids), title, body, *extra)
 
 
 def _dispatch(
@@ -230,6 +225,18 @@ def notify_supervisor_assigned(
             actor_id=actor_id,
         ),
     )
+
+
+def notify_chat_message(
+    background: BackgroundTasks,
+    *,
+    recipient_ids: Sequence[uuid.UUID],
+    sender_name: str,
+    conversation_id: uuid.UUID | str,
+) -> None:
+    """Queue a name-only push to the other members: never the text or a group name."""
+    title, body = policy.build_chat_message(sender_name)
+    _schedule(background, recipient_ids, title, body, str(conversation_id))
 
 
 def notify_netfacilities_chain_finished(

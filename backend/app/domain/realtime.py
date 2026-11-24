@@ -28,6 +28,7 @@ from app.domain.rate_limit import is_over_limit, retry_after_seconds, window_sta
 __all__ = [
     "EVENT_ATTENDANCE_CHANGED",
     "EVENT_ITEM_LOW_STOCK_CHANGED",
+    "EVENT_MESSAGE_CHANGED",
     "EVENT_LABOR_SESSION_CHANGED",
     "EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED",
     "EVENT_WORK_ORDER_STATUS_CHANGED",
@@ -101,6 +102,12 @@ EVENT_USER_REQUEST_CHANGED = "user_request.changed"
 # of the envelope.
 EVENT_ATTENDANCE_CHANGED = "attendance.changed"
 
+# A conversation changed: a message was sent, a read mark moved, a group
+# started or ended. `id` is the conversation id; the envelope never carries
+# message text (P2). Always emitted with `user_ids` -- the conversation's
+# members -- so only they are woken; the audience map is the floor, every role.
+EVENT_MESSAGE_CHANGED = "message.changed"
+
 _AUDIENCE_MIN_ROLE = {
     EVENT_WORK_ORDER_REVIEW_QUEUE_CHANGED: roles.ROLE_TECHFM_OA,
     # Every role that can open the Work Orders page. Not a security boundary:
@@ -120,6 +127,8 @@ _AUDIENCE_MIN_ROLE = {
     # Timesheets (Team Lead+) and, since W7, the worker's own Home tab on
     # another device, so every role. Not a security boundary (P2).
     EVENT_ATTENDANCE_CHANGED: roles.ROLE_TECHNICIAN,
+    # Targeted to the conversation's members by `user_ids`; every role chats.
+    EVENT_MESSAGE_CHANGED: roles.ROLE_TECHNICIAN,
 }
 
 # --- thresholds --------------------------------------------------------
