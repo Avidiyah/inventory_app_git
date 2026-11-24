@@ -5,7 +5,7 @@ Status: draft for review · 2026-11-24
 ## Goal
 
 Crews attach photos to work orders in TechFM. Once a day, someone downloads every
-photo not yet exported as one zip laid out as `export_<date>/<Service-Type>/…`. A
+photo not yet exported as one zip (`export_<date>_<HHMM>.zip`) laid out as `<Service-Type>/…`. A
 double-click Python script on the office PC copies **only new files** into the
 Google Drive desktop folder, which then syncs them to Drive. After checking Drive,
 the Owner clicks **Clear exported**, which deletes those photos from the database.
@@ -29,7 +29,7 @@ No Drive API, service account or OAuth: the Drive desktop app handles the upload
 
 ## Folder tree
 
-Root `export_<YYYY-MM-DD>/`, then one folder per service type (`safe_name` of the free-text `service_type`; blank → `Unspecified`), created from the data so a new service type needs no code change. Below each service type the same community tree; community folders are fixed, folders below them come from the data.
+One fixed tree in Drive (the date is only on the zip name, so re-downloads never duplicate): one folder per service type (`safe_name` of the free-text `service_type`; blank → `Unspecified`), created from the data so a new service type needs no code change. Below each service type the same community tree; community folders are fixed, folders below them come from the data.
 
 | Location starts with | Folder | Rule |
 |---|---|---|
@@ -67,7 +67,7 @@ and spaces are trimmed.
   suffix.
 - The same cleanup rule as folders applies to every part.
 
-Example: `export_2026-11-24/WMR27/Scholars/16/12345_2026-11-24_Scholars_16_1633.jpg`.
+Example: `WMR27/Scholars/16/12345_2026-11-24_Scholars_16_1633.jpg`.
 
 ## Backend
 
@@ -110,7 +110,7 @@ editing or delete-per-photo in v1.
 - All photos with `exported_at IS NULL` *or* exported and not yet cleared, so a lost
   zip can be downloaded again.
 - Streams a zip of the **originals** (stdlib `zipfile`, `ZIP_STORED` since JPEGs don't
-  compress, written one photo at a time so memory stays flat) under `export_<date>/<Service-Type>/…`.
+  compress, written one photo at a time so memory stays flat) under `<Service-Type>/…` (zip named `export_<date>_<HHMM>.zip`).
 - Adds `manifest.csv` (path, WO#, location raw text, folder rule used) so `_Unsorted`
   rows are easy to look into.
 - Stamps `exported_at` on every photo it included.
@@ -167,7 +167,7 @@ Stdlib only (`zipfile`, `shutil`, `pathlib`), so the boss's PC needs no `pip ins
 2. Extracts it to a temporary folder.
 3. Asks: *Paste the Google Drive folder path (e.g. `G:\My Drive`)*. Remembers the
    last answer in a small `.txt` next to the script; Enter reuses it.
-4. Checks the path exists, then creates `<drive>\export_<date>\…` folders as needed.
+4. Checks the path exists, then creates `<drive>\<Service-Type>\…` folders as needed.
 5. For each file: if the target name exists → skip; otherwise copy. **It never
    overwrites or deletes anything in Drive.**
 6. Prints `Copied N, skipped M (already there), unsorted K` and waits for Enter.

@@ -83,7 +83,7 @@ asking. Commit after each task once its tests pass.
   4. `GET /work-order-photos/storage` — `require_min_role("admin")`.
   5. `GET /work-order-photos/export.zip` — admin; `StreamingResponse` writing a
      `zipfile.ZipFile` (`ZIP_STORED`) into a spooled temp file one row at a time
-     (`yield_per`, load `original` per row); path = `export_<YYYY-MM-DD>/<folder>/<filename>`;
+     (`yield_per`, load `original` per row); path = `<folder>/<filename>` (no dated root);
      `manifest.csv`; stamp `exported_at` for the included ids after the zip is written;
      filename `export_<YYYY-MM-DD_HHMM>.zip`.
   6. `POST /work-order-photos/clear-exported` — admin; delete where `exported_at` is set,
@@ -144,7 +144,7 @@ asking. Commit after each task once its tests pass.
      `~/Downloads`; extract to `tempfile.mkdtemp()`.
   2. Prompt for the Drive path; remember it in `wmr_sort_last_path.txt` next to the
      script; Enter reuses it; refuse a path that doesn't exist.
-  3. Walk `export_*/`; `mkdir(parents=True, exist_ok=True)`; copy with `shutil.copy2`
+  3. Walk the extracted tree (skip `manifest.csv`) into `<drive>/`; `mkdir(parents=True, exist_ok=True)`; copy with `shutil.copy2`
      only if the target doesn't exist; never overwrite/delete.
   4. Print `Copied N, skipped M (already there), unsorted K`; remove the temp folder;
      `input("Press Enter to close")`. Any exception → print it and wait (the window
@@ -180,7 +180,7 @@ asking. Commit after each task once its tests pass.
   2. User uploads a few real photos, downloads the zip.
   3. On the boss's PC: copy `wmr_sort.py` to the Desktop; check that double-clicking
      a `.py` opens Python (if not: right-click → Open with → Python, "always"); run it;
-     paste the Drive path (e.g. `G:\My Drive`); confirm Drive syncs `export_<date>/`.
+     paste the Drive path (e.g. `G:\My Drive`); confirm Drive syncs the service-type folders.
   4. Clear exported in production; usage line drops.
 - **Test:** the user's in-app check + the files showing on drive.google.com.
 
