@@ -7206,3 +7206,10 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .users-profile-tut-list { margin: 0; padding-left: var(--space-4); }
 .tut-targetless .tut-spot { outline: none; }
 .tut-targetless .tut-box { left: 50%; top: 50%; transform: translate(-50%, -50%); }
+/* Phone / narrow menu: the top-right corner holds the menu, so End sits bottom-right beside the hint. */
+@media (max-width: 639px) {
+    .tut-end { top: auto; bottom: calc(var(--space-6) + env(safe-area-inset-bottom, 0px)); }
+    .tut-pill { left: var(--space-3); transform: none; max-width: calc(100vw - 11rem); text-align: left; }
+}
+html.nav-mobile .tut-end { top: auto; bottom: calc(var(--space-6) + env(safe-area-inset-bottom, 0px)); }
+html.nav-mobile .tut-pill { left: var(--space-3); transform: none; max-width: calc(100vw - 11rem); text-align: left; }
