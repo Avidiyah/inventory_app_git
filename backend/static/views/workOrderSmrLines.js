@@ -9,7 +9,7 @@
 
 import { escapeHtml, formatMoney } from "../format.js";
 import { roleAtLeast } from "../roles.js";
-import { getRole } from "../state.js";
+import { getRole, isSmrEnabled } from "../state.js";
 import { tipHtml } from "../tooltip.js";
 import { targetLaborHtml } from "./workOrderPresenters.js";
 
@@ -22,7 +22,8 @@ const KIND_LABELS = { field: "Labor" };
 const kindLabel = (kind) => KIND_LABELS[kind] || kind.replace(/(^|\s)\S/g, (c) => c.toUpperCase());
 const kindSlug = (kind) => kind.replace(/[^a-z]+/g, "-");
 
-export const canEditSmrLines = () => roleAtLeast(getRole(), "admin");
+// Read-only while the Owner has SMR27 switched off: the server 404s the writes.
+export const canEditSmrLines = () => roleAtLeast(getRole(), "admin") && isSmrEnabled();
 
 const hours = (n) => `${Number(n || 0).toFixed(1)} h`;
 // ISO date -> MM/DD/YY, the form the block prints.

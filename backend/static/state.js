@@ -66,6 +66,11 @@ export function getCurrentUser() { return currentUser; }
 export function setCurrentUser(user) { currentUser = user; }
 // Convenience accessor used pervasively by the role-gated views.
 export function getRole() { return currentUser ? currentUser.role : null; }
+// The Owner's Dev Tools switch, carried on `/auth/me`. Off hides the SMR27 pages.
+export function isSmrEnabled() { return Boolean(currentUser && currentUser.smr_enabled); }
+export function setSmrEnabled(enabled) {
+  if (currentUser) currentUser = { ...currentUser, smr_enabled: enabled };
+}
 
 // History state is returned by copy so callers cannot mutate the
 // internal object by reference. Use `updateHistoryState({...})`

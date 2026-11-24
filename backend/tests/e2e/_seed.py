@@ -36,6 +36,7 @@ from app.models import (
 )
 from app.services import attendance as attendance_service
 from app.services import auth as auth_service
+from app.services import feature_switches
 from app.services import items as items_service
 from app.services import mass_staging
 from app.services import tools as tools_service
@@ -87,6 +88,7 @@ class Seed:
     punch_id: str = ""
     labor_id: str = ""
     wo_item_id: str = ""
+    smr_was_on: bool = False
 
 
 def _purge(db: Session, pattern: str) -> int:
@@ -279,6 +281,9 @@ def build(db: Session) -> Seed:
     # journey is about it, so every seeded user has already seen it.
     db.add_all([TutorialProgress(user_id=u.id, script_key="welcome") for u in (owner, admin, tech)])
     db.commit()
+    # The smoke pages and the memprobe SMR entries need SMR27 on; destroy puts it back.
+    seed.smr_was_on = feature_switches.is_enabled(db, feature_switches.SMR)
+    feature_switches.set_enabled(db, feature_switches.SMR, True)
     return seed
 
 
@@ -286,3 +291,4 @@ def destroy(db: Session, seed: Seed) -> None:
     """Remove exactly what `build` created, plus anything the run attached to
     it -- a labor session, for one: the Task 6 journey starts a clock."""
     _purge(db, f"{seed.prefix}%")
+    feature_switches.set_enabled(db, feature_switches.SMR, seed.smr_was_on)

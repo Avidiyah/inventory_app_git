@@ -15,6 +15,9 @@ from app.models import User, WorkOrder
 from app.services import auth as auth_service
 from app.services import work_orders as wos
 from app.services import work_orders_smr as smr_service
+import pytest
+
+pytestmark = pytest.mark.usefixtures("smr_on")  # SMR27 is off by default
 
 
 def _user(db, role="technician"):

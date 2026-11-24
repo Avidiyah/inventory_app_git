@@ -6,6 +6,9 @@ from app.database import get_db
 from app.domain.work_orders_smr_lines import stage_for
 from app.main import app
 from tests.test_smr_ready import _client, _smr_order, _user
+import pytest
+
+pytestmark = pytest.mark.usefixtures("smr_on")  # SMR27 is off by default
 
 NOW = datetime(2026, 11, 13, tzinfo=timezone.utc)
 DATED = SimpleNamespace(week=2)

@@ -24,11 +24,14 @@ const PAGES = [
   "dev-tools",
 ];
 const ALL_BUT_DEV = PAGES.filter((page) => page !== "dev-tools");
+const SMR_PAGES = ["smr", "smr-admin-review"];
+const withoutSmr = (pages) => pages.filter((page) => !SMR_PAGES.includes(page));
 
-// Who may see what, written out per role rather than computed. This is the
-// backend's route gate mirrored in the UI, so it is exactly the thing a test
-// must state independently.
-const VISIBLE_BY_ROLE = {
+// Who may see what with SMR27 switched on, written out per role rather than
+// computed. This is the backend's route gate mirrored in the UI, so it is
+// exactly the thing a test must state independently. SMR27 is off by default
+// (the Owner's Dev Tools switch), which drops SMR_PAGES for every role.
+const VISIBLE_BY_ROLE_SMR_ON = {
   technician: ["user-hub", "saved-items", "transaction", "work-orders", "tools", "smr"],
   supervisor: [
     "user-hub", "saved-items", "saved-users", "transaction",
@@ -38,6 +41,9 @@ const VISIBLE_BY_ROLE = {
   admin: ALL_BUT_DEV,
   owner: PAGES,
 };
+const VISIBLE_BY_ROLE = Object.fromEntries(
+  Object.entries(VISIBLE_BY_ROLE_SMR_ON).map(([role, pages]) => [role, withoutSmr(pages)]),
+);
 
 // The six task-domain groups in `shell-head.html`, and which pages sit in
 // each. `user-hub` is in none of them -- the identity button sits beside the
@@ -106,6 +112,13 @@ describe("canAccessPage", () => {
   it.each(ROLES)("%s sees exactly the pages the table allows", (role) => {
     const allowed = PAGES.filter((page) => nav.canAccessPage(role, page));
     expect(allowed).toEqual(VISIBLE_BY_ROLE[role]);
+  });
+
+  it.each(ROLES)("with SMR27 switched on, %s also sees the SMR pages", async (role) => {
+    const state = await import("../../../backend/static/state.js");
+    state.setSmrEnabled(true);
+    const allowed = PAGES.filter((page) => nav.canAccessPage(role, page));
+    expect(allowed).toEqual(VISIBLE_BY_ROLE_SMR_ON[role]);
   });
 
   it("refuses an unknown page and an unknown role", () => {

@@ -18,6 +18,8 @@ from app.models import SmrLaborLine, SmrVendorInvoice, User, WorkOrder
 from app.services import auth as auth_service
 from app.services import work_orders_smr_weekly as weekly
 
+pytestmark = pytest.mark.usefixtures("smr_on")  # SMR27 is off by default
+
 HEADER = "Invoice,Date,Vendor,Worker,Rate,Hours\r\n"
 
 

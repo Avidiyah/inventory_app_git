@@ -244,6 +244,7 @@ EXCLUDED = (
     "DELETE /work-orders/smr/blocks/regenerate",  # and its undo deletes them
     "POST /work-orders/{work_order_id}/photos",   # adds photos no per-photo route deletes
     "POST /work-order-photos/clear-exported",     # deletes real dev-DB photos
+    "PUT /feature-switches/smr",  # flips SMR27 for everyone; the /work-orders/smr/* entries need it on
 )
 WO_LIFECYCLE = ["PATCH /work-orders/{work_order_id}", "POST /work-orders/{work_order_id}/start",
                 "POST /work-orders/{work_order_id}/hold", "POST /work-orders/{work_order_id}/resume",

@@ -48,9 +48,10 @@ function cloudStatus(overrides = {}) {
 const SESSION = "/integrations/netfacilities/cloud/session";
 
 // Mount, then run the Integrations page entry point with a given capability.
-async function mountIntegrations({ role = "admin", session = capability() } = {}) {
+// `smr` is the Owner's Dev Tools switch; the SMR imports exist only while it is on.
+async function mountIntegrations({ role = "admin", session = capability(), smr = true } = {}) {
   stubScroll();
-  const mounted = await mountWorkOrders({ role });
+  const mounted = await mountWorkOrders({ role, smr });
   if (session) respond("get", SESSION, session);
   await mounted.mod.loadIntegrationsPage();
   // `loadIntegrationsPage` fires the session read with `void`, so the
@@ -280,6 +281,13 @@ describe("the SMR import (spec 2026-10-23 D2)", () => {
   it("is hidden for an Admin and shown for an Owner", async () => {
     await mountIntegrations({ role: "admin" });
     expect(el("wo-smr-import-btn").hidden).toBe(true);
+  });
+
+  it("hides all four SMR imports from an Owner while SMR27 is switched off", async () => {
+    await mountIntegrations({ role: "owner", smr: false });
+    for (const id of ["wo-smr-import-btn", "wo-smr-targets-btn", "wo-smr-invoices-btn", "wo-smr-paper-btn"]) {
+      expect(el(id).hidden).toBe(true);
+    }
   });
 
   it("opens the SMR file picker for an Owner", async () => {

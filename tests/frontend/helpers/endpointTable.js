@@ -260,6 +260,10 @@ export const ENDPOINTS = [
     body: { endpoint: "https://push/e" } },
   { fn: "apiPushTest", args: [], method: "POST", url: "/push/test" },
 
+  // --- Feature switches ---
+  { fn: "apiSetSmrSwitch", args: [true], method: "PUT", url: "/feature-switches/smr",
+    body: { enabled: true } },
+
   // --- Tutorial progress ---
   { fn: "apiGetTutorialProgress", args: [], url: "/tutorials/progress/me" },
   { fn: "apiSetTutorialProgress", args: ["k.a", "completed"], method: "PUT",

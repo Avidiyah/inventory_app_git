@@ -6,7 +6,7 @@
 // function here answers from its arguments plus the current session.
 
 import { escapeHtml, formatMoney } from "../format.js";
-import { getCurrentUser, getRole } from "../state.js";
+import { getCurrentUser, getRole, isSmrEnabled } from "../state.js";
 import { roleAtLeast } from "../roles.js";
 import { CLOCK_GLYPH, WARNING_GLYPH, statusGlyph } from "./workOrderGlyphs.js";
 
@@ -115,7 +115,7 @@ export function targetMaterialsHtml(detail) {
 // Paper check (spec 2026-10-27-smr-paper-check): one button under the
 // materials target line, every role. Clearing is the undo; no confirm.
 export function paperCheckHtml(detail) {
-  if (!detail?.smr) return "";
+  if (!detail?.smr || !isSmrEnabled()) return ""; // no button while SMR27 is switched off
   const check = detail.smr_paper_check;
   if (!check) {
     return `<div class="wo-paper-check"><button type="button" class="secondary-btn" id="wo-act-smr-paper-check" data-action="smr-paper-check" data-checked="true">Mark paper checked</button></div>`;

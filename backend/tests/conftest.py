@@ -44,3 +44,12 @@ def db():
         session.close()
         trans.rollback()
         connection.close()
+
+
+@pytest.fixture
+def smr_on(db):
+    """Switch SMR27 on inside the test's transaction; it is off by default and
+    every `/work-orders/smr/*` route answers 404 while off."""
+    from app.services import feature_switches
+
+    feature_switches.set_enabled(db, feature_switches.SMR, True)

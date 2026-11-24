@@ -29,9 +29,17 @@ from app.models import User
 from app.routers._errors import to_http
 from app.schemas.auth import LoginRequest, MeResponse
 from app.services import auth as auth_service
+from app.services import feature_switches
 from app.services import login_throttle
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _me(db: Session, user: User) -> MeResponse:
+    """The identity plus the app-wide switches the SPA gates pages on."""
+    out = MeResponse.model_validate(user)
+    out.smr_enabled = feature_switches.is_enabled(db, feature_switches.SMR)
+    return out
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +143,7 @@ def login(
         secure=COOKIE_SECURE,
         path="/",
     )
-    return user
+    return _me(db, user)
 
 
 @router.post("/logout", status_code=204)
@@ -154,8 +162,8 @@ def logout(
 
 
 @router.get("/me", response_model=MeResponse)
-def me(user: User = Depends(get_current_user)):
+def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Return the logged-in user's identity, role, and profile timestamps.
     The frontend calls this on boot to decide whether to show the app, gate
     the UI by role, and populate self-service profile cards."""
-    return user
+    return _me(db, user)

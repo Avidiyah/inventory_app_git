@@ -144,6 +144,9 @@ export async function mountWorkOrders({
   lookup = { found: false },
   load = true,
   mine = true,
+  // The Owner's SMR27 switch. On here so SMR cards stay editable for Admin+;
+  // pass false to see the read-only card.
+  smr = true,
 } = {}) {
   state.cards = cards;
   state.details = new Map(details.map((detail) => [String(detail.id), detail]));
@@ -154,7 +157,7 @@ export async function mountWorkOrders({
   state.lookup = lookup;
   state.listResponder = null;
 
-  const currentUser = await setTestUser({ role });
+  const currentUser = await setTestUser({ role, smr_enabled: smr });
   installHandlers();
   startRecording();
   // Adding a material scrolls the search back into view; jsdom has no layout.

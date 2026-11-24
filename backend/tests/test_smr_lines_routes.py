@@ -19,6 +19,9 @@ from app.models import User
 from app.services import auth as auth_service
 from app.services import work_orders as wos
 from app.services import work_orders_smr as smr_service
+import pytest
+
+pytestmark = pytest.mark.usefixtures("smr_on")  # SMR27 is off by default
 
 READING_COLUMNS = ["reading_id", "wo", "printing_no", "work_date", "hours_as_read", "raw_note", "reviewer", "csv_row"]
 LINE_COLUMNS = ["line_id", "reading_id", "wo", "work_date", "date_basis", "week", "vendor", "worker", "alias_on_paper",

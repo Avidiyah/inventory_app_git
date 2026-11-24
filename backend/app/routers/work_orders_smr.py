@@ -53,11 +53,19 @@ from app.schemas.work_orders_smr_lines import (
 )
 from app.services import work_orders_smr as smr_service
 from app.services import work_orders_smr_import as smr_import
+from app.services import feature_switches
 from app.services import work_orders_smr_lines as lines_service
 from app.services import work_orders_smr_weekly as weekly_service
 from app.services import work_orders_smr_xlsx as smr_xlsx
 
-router = APIRouter(prefix="/work-orders/smr", tags=["work-orders-smr"])
+def _require_smr_enabled(db: Session = Depends(get_db)) -> None:
+    """While the Owner has SMR switched off (Dev Tools) every route here is 404."""
+    if not feature_switches.is_enabled(db, feature_switches.SMR):
+        raise HTTPException(status_code=404, detail="SMR27 is switched off.")
+
+
+router = APIRouter(prefix="/work-orders/smr", tags=["work-orders-smr"],
+                   dependencies=[Depends(_require_smr_enabled)])
 
 
 def _forbidden(role: str) -> dict:

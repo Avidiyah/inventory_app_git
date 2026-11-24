@@ -51,6 +51,7 @@ from app.routers import (
     attendance,
     auth,
     barcodes,
+    feature_switches,
     hub,
     items,
     mass_stages,
@@ -334,6 +335,7 @@ async def log_request(request, call_next):
 app.include_router(attendance.router)
 app.include_router(auth.router)
 app.include_router(barcodes.router)
+app.include_router(feature_switches.router)
 app.include_router(hub.router)
 app.include_router(items.router)
 app.include_router(mass_stages.router)

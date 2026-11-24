@@ -27,9 +27,9 @@ const BLOCK = {
 };
 const KEYED = { id: "e1", technician_id: "t", technician_name: "Pat", minutes: 90 };
 
-async function open({ role = "admin", detail: overrides = {} } = {}) {
+async function open({ role = "admin", detail: overrides = {}, smr = true } = {}) {
   const detail = workOrderDetail({ smr: true, smr_readings: [READING], smr_lines: [LINE], smr_block: BLOCK, ...overrides });
-  await mountWorkOrders({ role, cards: [workOrderCard({ id: detail.id, number: detail.number })], details: [detail] });
+  await mountWorkOrders({ role, smr, cards: [workOrderCard({ id: detail.id, number: detail.number })], details: [detail] });
   await openCard(0);
   return detail;
 }
@@ -73,6 +73,15 @@ describe("who sees what", () => {
     expect(invoice().open).toBe(false);
     expect(section().querySelector("[data-action], input, .tip-btn")).toBeNull();
     expect(invoice().querySelector("[data-action]")).toBeNull();
+  });
+
+  it("is read-only for an Admin too while SMR27 is switched off: no buttons, no paper check", async () => {
+    await open({ role: "admin", smr: false });
+    expect(section().textContent).toContain("Skilled Technician ×2");
+    expect(section().querySelector("[data-action], input, .tip-btn")).toBeNull();
+    expect(invoice().querySelector("[data-action]")).toBeNull();
+    expect(card().querySelector(".wo-smr-ready [data-action]")).toBeNull();
+    expect(card().querySelector('[data-action="smr-paper-check"]')).toBeNull();
   });
 
   it("an order whose only labor was keyed in the app keeps the original Labor card", async () => {

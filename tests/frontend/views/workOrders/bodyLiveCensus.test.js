@@ -60,7 +60,7 @@ async function setup() {
 }
 
 async function detailFor(f) {
-  const me = await setTestUser({ role: f.who.role });
+  const me = await setTestUser({ role: f.who.role, smr_enabled: true }); // SMR27 on: the editable SMR card
   const technicianId = "20000000-0000-4000-8000-000000000001";
   const crew = f.who.crew ? [me.id] : [technicianId];
   return workOrderDetail({

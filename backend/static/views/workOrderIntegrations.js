@@ -23,7 +23,7 @@ import {
 import { setMessage } from "../dom.js";
 import { friendlyError } from "../format.js";
 import { isAdminPlus } from "./workOrderPresenters.js";
-import { getRole } from "../state.js";
+import { getRole, isSmrEnabled } from "../state.js";
 import { roleAtLeast } from "../roles.js";
 import { invalidateUsers } from "./workOrderReferenceData.js";
 import { currentFilters, invalidateFilterOptions } from "./workOrderFilters.js";
@@ -61,10 +61,11 @@ let netFacilitiesPollingJobId = null;
 export async function loadIntegrationsPage() {
   if (importSection) importSection.hidden = !isAdminPlus();
   // SMR Import is the Owner's: it restores archived orders (spec 2026-10-23 D2).
-  if (smrImportBtn) smrImportBtn.hidden = !roleAtLeast(getRole(), "owner");
-  if (smrTargetsBtn) smrTargetsBtn.hidden = !roleAtLeast(getRole(), "owner");
-  if (smrInvoicesBtn) smrInvoicesBtn.hidden = !roleAtLeast(getRole(), "owner");
-  if (smrPaperBtn) smrPaperBtn.hidden = !roleAtLeast(getRole(), "owner");
+  // All four disappear while SMR27 is switched off (Dev Tools).
+  const smrOwner = roleAtLeast(getRole(), "owner") && isSmrEnabled();
+  for (const btn of [smrImportBtn, smrTargetsBtn, smrInvoicesBtn, smrPaperBtn]) {
+    if (btn) btn.hidden = !smrOwner;
+  }
   void loadImageExport();
   if (!isAdminPlus()) return;
   void refreshNetFacilitiesCloudSession();

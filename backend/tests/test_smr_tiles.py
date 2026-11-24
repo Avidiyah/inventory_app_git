@@ -17,6 +17,9 @@ from app.services import work_orders_smr as smr_service
 from app.domain import work_orders_smr_lines as rules
 from app.schemas.work_orders_smr_lines import SmrLineEditIn, SmrLineIn
 from app.services import work_orders_smr_lines as lines_service
+import pytest
+
+pytestmark = pytest.mark.usefixtures("smr_on")  # SMR27 is off by default
 
 
 def _user(db, role=roles.ROLE_OWNER):

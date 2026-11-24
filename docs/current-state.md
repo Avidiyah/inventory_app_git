@@ -75,7 +75,7 @@ traps.
 | Work Orders UI | `tests/frontend/views/workOrders/`, `backend/tests/e2e/test_work_orders.py` |
 | User Hub Report | **Admin-only**; completed closed rows are a **frozen record**, `New Work Orders` is selected live by `created_at`, blocked by community, always last in Excel; contract `HubReportResponse`; manual Excel check |
 | Attendance / Timesheets / Leaderboards | Role floors in Hard Invariants → Attendance and Roles And Access; `GET /hub/performance` is admin only |
-| SMR27 audit | Specs `docs/superpowers/specs/2026-10-23-smr-audit-workflow-design.md` … `2026-11-06-smr-paper-stage-design.md`; tables in `models_smr.py` |
+| SMR27 audit | **Switched off by default** (audit done, invoice sent): Owner's Dev Tools switch (`feature_switches` row `smr`, `PUT /feature-switches/smr`, `smr_enabled` on `/auth/me`); off = every `/work-orders/smr/*` route 404, SMR27 / SMR Admin Review pages and Integrations SMR imports hidden, SMR cards read-only; records kept. Tests use the `smr_on` fixture; the e2e seed turns it on and restores it. Specs `docs/superpowers/specs/2026-10-23-smr-audit-workflow-design.md` … `2026-11-06-smr-paper-stage-design.md`; tables in `models_smr.py` |
 | NetFacilities | `test_netfacilities_*.py`; behavior under API Surface |
 | Real-time | `test_realtime_*.py`, `test_logging.py`, all-JavaScript syntax check, manual browser check |
 | Mass staging UI | `massStageActionCoverage.test.js` names all thirteen `data-action` branches; manual UI check |

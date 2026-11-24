@@ -1053,6 +1053,16 @@ export async function apiPushTest() {
   }));
 }
 
+// --- Feature switches (Owner) ------------------------------------
+export async function apiSetSmrSwitch(enabled) {
+  return parseResponse(await rawFetch("/feature-switches/smr", {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  }));
+}
+
 // --- Tutorial progress -------------------------------------------
 export async function apiGetTutorialProgress() {
   return parseResponse(await rawFetch("/tutorials/progress/me", { credentials: "include" }));

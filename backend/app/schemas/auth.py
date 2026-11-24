@@ -44,6 +44,8 @@ class MeResponse(BaseModel):
     role: str
     created_at: datetime
     archived_at: Optional[datetime] = None
+    # The Owner's Dev Tools switch; while False the SPA hides the SMR27 pages.
+    smr_enabled: bool = False
 
     model_config = {"from_attributes": True}
 

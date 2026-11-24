@@ -24,6 +24,8 @@ import { itemsScanner, itemScanWidget } from "./items.js";
 import { closeTip } from "../tooltip.js";
 import { endTutorial } from "../tutorial.js";
 import { clearProfileOrigin } from "./profileOrigin.js";
+import { loadDevTools } from "./devTools.js";
+import { isSmrEnabled } from "../state.js";
 
 const navButtons = document.querySelectorAll(".nav-btn");
 const navGroups = document.querySelectorAll(".nav-group");
@@ -134,6 +136,7 @@ const PAGE_LOADERS = {
   "tools": () => loadTools(),
   "integrations": () => loadIntegrationsPage(),
   "smr": () => loadSmr(),
+  "dev-tools": () => loadDevTools(),
 };
 
 let activePage = null;
@@ -200,7 +203,11 @@ export const PAGE_ACCESS = {
   "dev-tools": ["owner"],
 };
 
+// Pages that exist only while the Owner has SMR27 switched on (Dev Tools).
+const SMR_PAGES = new Set(["smr", "smr-admin-review"]);
+
 export function canAccessPage(role, pageName) {
+  if (SMR_PAGES.has(pageName) && !isSmrEnabled()) return false;
   return (PAGE_ACCESS[pageName] || []).includes(role);
 }
 

@@ -1353,6 +1353,18 @@ class DispenseExport(Base):
     )
 
 
+class FeatureSwitch(Base):
+    """An app-wide on/off switch the Owner flips on the Dev Tools page.
+
+    A missing row means off. See `services.feature_switches` for the keys.
+    """
+
+    __tablename__ = "feature_switches"
+
+    key = Column(Text, primary_key=True)
+    enabled = Column(Boolean, nullable=False, default=False)
+
+
 # The SMR27 paper-correction tables live in their own module (this file is
 # past 1,200 lines); importing them here registers them on `Base.metadata`
 # and keeps `from app.models import SmrLaborLine` working.
