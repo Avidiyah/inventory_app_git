@@ -71,7 +71,7 @@ function assertLocked({ nav, requests }, { clickOutside = false } = {}) {
       logout.dispatchEvent(e);
       expect(e.defaultPrevented, `${type} ${JSON.stringify(k)}`).toBe(true);
     }
-    if (k === "Tab" && !box().hidden) expect(box().contains(document.activeElement)).toBe(true);
+    if (k === "Tab" && !box().hidden) expect(cover.contains(document.activeElement)).toBe(true); // box or the End pill
   }
   expect(sent(requests)).toEqual([]);
   expect(nav.getActivePage()).toBe(page);

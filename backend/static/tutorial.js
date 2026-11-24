@@ -121,14 +121,15 @@ function ensureNodes() {
     '<div class="tut-spot"></div>' +
     '<div class="tut-box" tabindex="-1"><p class="tut-title"></p><p class="tut-text"></p>' +
     '<div class="tut-foot"><span class="tut-count"></span><span class="tut-actions"></span></div></div>' +
-    '<p class="tut-pill" hidden>Tap anywhere for the next step</p>';
+    '<p class="tut-pill" hidden>Tap anywhere for the next step</p>' +
+    '<button type="button" class="tut-act primary tut-end" data-tut-act="end">End tutorial</button>';
   overlay.addEventListener("click", onOverlayClick);
   overlay.addEventListener("wheel", (e) => e.preventDefault(), { passive: false });
   overlay.addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
   document.body.appendChild(overlay);
   const q = (c) => overlay.querySelector(c);
   nodes = { overlay, spot: q(".tut-spot"), box: q(".tut-box"), title: q(".tut-title"), text: q(".tut-text"),
-    count: q(".tut-count"), actions: q(".tut-actions"), pill: q(".tut-pill") };
+    count: q(".tut-count"), actions: q(".tut-actions"), pill: q(".tut-pill"), end: q(".tut-end") };
   unblockKeys = blockKeys(onKey);
   window.addEventListener("resize", place);
   window.addEventListener("scroll", place, { capture: true, passive: true });
@@ -194,8 +195,6 @@ function render({ scroll = false } = {}) {
   if (last && s === lines.length - 1) {
     if (run.next) nodes.actions.appendChild(button("next", `Next: ${run.next.title}`));
     nodes.actions.appendChild(button("done", "Done"));
-  } else {
-    nodes.actions.appendChild(button("end", "End"));
   }
   nodes.box.hidden = run.boxHidden;
   nodes.pill.hidden = !run.boxHidden;
@@ -278,7 +277,7 @@ function onKey(event) {
   if (event.key === "Enter" && onButton) return; // the button's own click
   if (event.key === "Enter" || event.key === "ArrowRight") { event.preventDefault(); tap(); return; }
   if (event.key === "Tab") {
-    const btns = [...nodes.actions.querySelectorAll("button")];
+    const btns = [...nodes.actions.querySelectorAll("button"), nodes.end];
     if (!btns.length) { event.preventDefault(); return; }
     const at = btns.indexOf(document.activeElement);
     const to = event.shiftKey ? (at <= 0 ? btns.length - 1 : at - 1) : (at + 1) % btns.length;
