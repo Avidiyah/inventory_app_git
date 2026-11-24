@@ -33,6 +33,8 @@ describe("work-order Photos section", () => {
     server.use(http.get(`/work-orders/${detail.id}/photos`, () => HttpResponse.json(PHOTOS)));
     const { section } = await mount(detail);
     expect(section.querySelector("summary").textContent).toBe("Photos · 2");
+    // Add photos opens the rear camera on phones (same as the barcode inputs).
+    expect(section.querySelector(".wo-photo-input").getAttribute("capture")).toBe("environment");
     expect(section.querySelectorAll(".wo-photo-thumb")).toHaveLength(0);
     section.open = true;
     section.dispatchEvent(new Event("toggle"));

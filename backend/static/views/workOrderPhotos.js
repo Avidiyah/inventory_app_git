@@ -20,7 +20,7 @@ export function photosSectionHtml(detail) {
     ? ""
     : `<div class="wo-notes-actions">
          <button type="button" class="secondary-btn" id="wo-photo-add" data-photo-add>Add photos</button>
-         <input type="file" class="wo-photo-input" id="wo-photo-input" accept="image/*,.heic,.heif" multiple hidden>
+         <input type="file" class="wo-photo-input" id="wo-photo-input" accept="image/*,.heic,.heif" capture="environment" multiple hidden>
        </div>`;
   return `<details class="wo-section-card wo-photos-section" id="wo-sec-photos">
             <summary class="wo-section-summary">${escapeHtml(photosTabLabel(detail.photo_count))}</summary>
