@@ -51,7 +51,7 @@ export function walkWaits(script, role, canAccessPage) {
       }
       if (!visible(btn)) {
         expect(step.via, `${script.key}: ${page} needs a via`).toBeTruthy();
-        const via = document.querySelector(step.via);
+        const via = [...document.querySelectorAll(step.via)].find(visible);
         expect(via && via.classList.contains("nav-group-toggle"), `${script.key} via shape`).toBe(true);
         expect(visible(via), `${script.key}: via not visible for ${role}`).toBe(true);
         via.click();

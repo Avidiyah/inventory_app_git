@@ -101,7 +101,7 @@ describe("starter scripts", () => {
   const entry = TUTORIALS.starter;
   const KEYS = ["starter.menu", "starter.inventory", "starter.field", "starter.people", "starter.review"];
   const GROUP = { "starter.inventory": "inventory", "starter.field": "field", "starter.people": "people", "starter.review": "review" };
-  const OVERVIEW = ["#main-nav", "#auth-user-indicator", "#logout-btn"];
+  const OVERVIEW = ["#main-nav", "#auth-user-indicator"];
   const sentences = (l) => l.split(/[.!?]+(\s|$)/).filter((x) => x && x.trim() && !/^\s*$/.test(x)).length;
   afterEach(() => restoreRects());
 
@@ -123,7 +123,7 @@ describe("starter scripts", () => {
       for (const step of s.steps) {
         if (step.waitTap) {
           expect(step.waitTap).toMatch(/^\.nav-btn\[data-page="[a-z-]+"\]$/);
-          if (step.via) expect(step.via).toMatch(/^\[data-nav-group="[a-z]+"\] \.nav-group-toggle$/);
+          if (step.via) expect(step.via).toMatch(/^html\.nav-mobile #nav-title,\[data-nav-group="[a-z]+"\] \.nav-group-toggle$/);
           if (step.via) expect(sentences(step.viaText), `${s.key} viaText`).toBe(1);
           expect(lines(step.text).length, `${s.key} wait text`).toBe(1);
           expect(sentences(step.text), `${s.key} wait text`).toBe(1);

@@ -25,8 +25,9 @@ export function resolveWait(step) {
   const tap = document.querySelector(step.waitTap);
   if (!roleVisible(tap)) return { el: null, kind: "skip" };
   if (hasRects(tap)) return { el: tap, kind: "tap" };
-  const via = step.via ? document.querySelector(step.via) : null;
-  if (roleVisible(via) && hasRects(via)) return { el: via, kind: "via" };
+  // `via` may list several selectors (desktop toggle, phone picker): first one on screen wins.
+  const via = step.via ? [...document.querySelectorAll(step.via)].find((v) => roleVisible(v) && hasRects(v)) : null;
+  if (via) return { el: via, kind: "via" };
   return { el: null, kind: "none" };
 }
 

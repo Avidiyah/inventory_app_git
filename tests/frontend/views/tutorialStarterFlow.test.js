@@ -57,7 +57,7 @@ async function play(app, key, role) {
     expect(events(app.requests), `before step ${k + 1}`).toEqual(["seen"]);
     if (step.waitTap) {
       const btn = document.querySelector(step.waitTap);
-      if (!btn.getClientRects().length) clickAt(document.querySelector(step.via));
+      if (!btn.getClientRects().length) clickAt([...document.querySelectorAll(step.via)].find((v) => v.getClientRects().length));
       clickAt(btn);
       opened.push(btn.dataset.page);
     } else {

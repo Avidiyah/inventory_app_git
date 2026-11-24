@@ -4,8 +4,9 @@
 
 const wait = (page, group, groupName, label, extra = {}) => ({
   waitTap: `.nav-btn[data-page="${page}"]`,
-  via: `[data-nav-group="${group}"] .nav-group-toggle`,
-  viaText: `Tap ${groupName} to open it.`,
+  // Phone/narrow mode (html.nav-mobile): the menu opens from #nav-title; group toggles are headings there.
+  via: `html.nav-mobile #nav-title,[data-nav-group="${group}"] .nav-group-toggle`,
+  viaText: `Tap here to open the ${groupName} menu.`,
   text: `Now tap ${label}.`,
   ...extra,
 });
@@ -30,8 +31,7 @@ export const SCRIPTS = [
       },
       wait("saved-items", "inventory", "Inventory", "Find Item", { text: "Tap Find Item to try it." }),
       { target: "#main-nav", text: "The button for the page you are on stays marked." },
-      { target: "#auth-user-indicator", text: "Your name takes you back to your Hub." },
-      { target: "#logout-btn", text: "Log Out signs you out of this device." },
+      { target: "#auth-user-indicator", text: ["Your name takes you back to your Hub.", "Log Out is at the bottom of the Hub's Home tab."] },
     ],
   },
   {
