@@ -1192,6 +1192,8 @@ export const apiMarkConversationRead = (id, upTo) => jsonRequest(`${msgPath(id)}
 export const apiOpenDirect = (userId) => jsonRequest("/messages/direct", "POST", { user_id: userId });
 export const apiCreateGroup = (name, memberIds) =>
   jsonRequest("/messages/groups", "POST", { name, member_ids: memberIds });
+export const apiBroadcastMessage = (userIds, body) =>
+  jsonRequest("/messages/broadcast", "POST", { user_ids: userIds, body });
 export const apiEndGroup = async (id) =>
   parseResponse(await rawFetch(`/messages/groups/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include" }));
 export const apiSearchMessages = (q) => liveGet(`/messages/search?q=${encodeURIComponent(q)}`);

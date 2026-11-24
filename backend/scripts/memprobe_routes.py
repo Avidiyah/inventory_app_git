@@ -324,6 +324,7 @@ CATALOGUE: dict[str, Entry] = {k: Entry(exclude="see EXCLUDED") for k in EXCLUDE
     "DELETE /messages/groups/{conversation_id}": Entry(token={"conversation_id": NIL}, expect=404),
     "GET /messages/search": Entry(path="/messages/search?q=memprobe"),
     "GET /messages/people": Entry(),
+    "POST /messages/broadcast": Entry(body=J({"user_ids": [], "body": "memprobe"}), expect=422),
     # --- push ---
     "POST /push/test": Entry(),            # add expect=503 if the container has no VAPID keys (acceptance run decides)
     # --- tutorials ---

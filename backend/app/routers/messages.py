@@ -28,12 +28,14 @@ from app.models import User
 from app.routers import _message_events
 from app.routers._errors import to_http
 from app.schemas.messages import (
+    BroadcastRequest,
     CreateGroupRequest,
     MarkReadRequest,
     OpenDirectRequest,
     SendMessageRequest,
 )
 from app.services import messages as messages_service
+from app.services import messages_broadcast
 from app.services import notifications as notifications_service
 
 router = APIRouter(prefix="/messages", tags=["messages"])
@@ -98,6 +100,30 @@ def send_message(
         conversation_id=str(conversation_id),
     )
     return message
+
+
+@router.post("/broadcast", status_code=201)
+def broadcast(
+    payload: BroadcastRequest,
+    background: BackgroundTasks,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Admin+: one text as a separate direct message to each person."""
+    try:
+        pairs = messages_broadcast.broadcast(db, user, payload.user_ids, payload.body)
+    except DomainError as exc:
+        raise to_http(exc)
+    # ponytail: one push task per recipient; batch into one task if lists grow past ~100.
+    for conversation_id, recipient_id in pairs:
+        _message_events.emit_message_changed(str(conversation_id), [user.id, recipient_id])
+        notifications_service.notify_chat_message(
+            background,
+            recipient_ids=[recipient_id],
+            sender_name=user.full_name,
+            conversation_id=str(conversation_id),
+        )
+    return {"sent": len(pairs)}
 
 
 @router.post("/conversations/{conversation_id}/read")

@@ -29,7 +29,7 @@ export function activate(panel) {
   if (handle && host === panel) return;
   deactivate();
   host = panel;
-  handle = mountMessagePanel(panel);
+  handle = mountMessagePanel(panel, { broadcast: true });
   if (pending) {
     handle.openChat(pending);
     pending = null;

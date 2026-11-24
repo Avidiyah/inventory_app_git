@@ -60,6 +60,7 @@ describe("Hub Messages tab", () => {
     const [host, options] = m.mountMessagePanel.mock.calls[0];
     expect(host).toBe(el.panel("messages"));
     expect(options?.onClose ?? null).toBeNull();
+    expect(options.broadcast).toBe(true); // Message many lives in the Hub tab only
     expect(host.querySelector(".stub-panel")).not.toBeNull();
 
     await show("home");

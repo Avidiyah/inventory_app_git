@@ -31,6 +31,11 @@ def can_start_group(role: str) -> bool:
     return roles.role_at_least(role, roles.ROLE_SUPERVISOR)
 
 
+def can_broadcast(role: str) -> bool:
+    """Admin and Owner may send one message to many people as separate direct chats."""
+    return roles.role_at_least(role, roles.ROLE_ADMIN)
+
+
 def direct_key(a, b) -> str:
     """Order-free key for the one direct chat between two users."""
     low, high = sorted((str(a), str(b)))

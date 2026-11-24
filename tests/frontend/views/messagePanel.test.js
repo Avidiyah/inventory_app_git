@@ -14,6 +14,7 @@ const m = vi.hoisted(() => ({
   people: vi.fn(),
   openDirect: vi.fn(),
   createGroup: vi.fn(),
+  broadcast: vi.fn(),
   mountChat: vi.fn(),
 }));
 vi.mock("../../../backend/static/messagesStore.js", () => ({
@@ -26,6 +27,7 @@ vi.mock("../../../backend/static/api.js", () => ({
   apiListMessagePeople: (...a) => m.people(...a),
   apiOpenDirect: (...a) => m.openDirect(...a),
   apiCreateGroup: (...a) => m.createGroup(...a),
+  apiBroadcastMessage: (...a) => m.broadcast(...a),
 }));
 vi.mock("../../../backend/static/views/messagePanelChat.js", () => ({
   mountChat: (...a) => m.mountChat(...a),
@@ -47,12 +49,13 @@ const conv = (id, name, last, extra = {}) => ({
 let host;
 let destroy;
 
-async function mount({ role = "technician", onClose } = {}) {
+async function mount({ role = "technician", onClose, broadcast = false } = {}) {
   await setTestUser({ role, id: "me" });
   const { mountMessagePanel } = await importView("views/messagePanel.js");
   host = document.createElement("div");
   document.body.append(host);
-  const panel = mountMessagePanel(host, onClose === undefined ? {} : { onClose });
+  const opts = onClose === undefined ? {} : { onClose };
+  const panel = mountMessagePanel(host, broadcast ? { ...opts, broadcast } : opts);
   destroy = panel.destroy;
   return panel;
 }
@@ -260,5 +263,55 @@ describe("chat hand-off, Escape and the close button", () => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(onClose).not.toHaveBeenCalled();
     expect(host.children).toHaveLength(0);
+  });
+});
+
+describe("Message many (Admin+, Hub tab)", () => {
+  it("shows only with the broadcast option and an Admin+ role", async () => {
+    await mount({ role: "admin" });
+    expect(button("Message many")).toBeUndefined();
+    destroy();
+    vi.resetModules();
+    await mount({ role: "techfm_oa", broadcast: true });
+    expect(button("Message many")).toBeUndefined();
+    destroy();
+    vi.resetModules();
+    await mount({ role: "admin", broadcast: true });
+    expect(button("Message many")).toBeTruthy();
+  });
+
+  it("select all acts on the people shown, keeps hidden picks, and sends once", async () => {
+    let finish;
+    m.broadcast.mockReturnValue(new Promise((r) => { finish = r; }));
+    const user = userEvent.setup();
+    await mount({ role: "owner", broadcast: true });
+    button("Message many").click();
+    await vi.waitFor(() => expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(3));
+    const boxes = [...host.querySelectorAll('input[type="checkbox"]')];
+    const filter = host.querySelector('input[aria-label="Search people"]');
+    const send = button("Send");
+
+    await user.click(boxes[2]);                       // Tom, before filtering
+    await user.type(filter, "o");                     // all three contain an "o"
+    await user.clear(filter);
+    await user.type(filter, "ro");                    // Luis Romero only
+    await user.click(button("Select all"));
+    expect(boxes.map((b) => b.checked)).toEqual([false, true, true]);
+    await user.click(button("Deselect all"));
+    expect(boxes.map((b) => b.checked)).toEqual([false, false, true]);  // hidden Tom kept
+    await user.clear(filter);
+    await user.click(button("Select all"));
+    expect(boxes.every((b) => b.checked)).toBe(true);
+    expect(host.querySelector(".msg-sec").textContent).toBe("Pick people · 3 picked");
+
+    expect(send.disabled).toBe(true);                 // no text yet
+    await user.type(host.querySelector('input[aria-label="Message to send"]'), "Shop closes at 3");
+    expect(send.disabled).toBe(false);
+    await user.click(send);
+    await user.click(send);
+    expect(m.broadcast).toHaveBeenCalledTimes(1);
+    expect(m.broadcast).toHaveBeenCalledWith(["p1", "p2", "p3"], "Shop closes at 3");
+    finish({ sent: 3 });
+    await vi.waitFor(() => expect(host.querySelector(".msg-note")?.textContent).toBe("Sent to 3 people."));
   });
 });

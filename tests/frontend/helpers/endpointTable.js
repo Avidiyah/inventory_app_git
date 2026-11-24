@@ -273,6 +273,7 @@ export const ENDPOINTS = [
   { fn: "apiMarkConversationRead", args: ["c1", 9], method: "POST", url: "/messages/conversations/c1/read", body: { up_to: 9 } },
   { fn: "apiOpenDirect", args: ["u1"], method: "POST", url: "/messages/direct", body: { user_id: "u1" } },
   { fn: "apiCreateGroup", args: ["Crew", ["u1", "u2"]], method: "POST", url: "/messages/groups", body: { name: "Crew", member_ids: ["u1", "u2"] } },
+  { fn: "apiBroadcastMessage", args: [["u1", "u2"], "hi"], method: "POST", url: "/messages/broadcast", body: { user_ids: ["u1", "u2"], body: "hi" } },
   { fn: "apiEndGroup", args: ["c1"], method: "DELETE", url: "/messages/groups/c1" },
   { fn: "apiSearchMessages", args: ["pat s"], url: "/messages/search?q=pat%20s", cache: "no-store" },
   { fn: "apiListMessagePeople", args: [], url: "/messages/people", cache: "no-store" },

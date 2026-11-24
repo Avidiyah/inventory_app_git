@@ -30,3 +30,8 @@ class OpenDirectRequest(BaseModel):
 class CreateGroupRequest(BaseModel):
     name: str
     member_ids: list[uuid.UUID]
+
+
+class BroadcastRequest(BaseModel):
+    user_ids: list[uuid.UUID]
+    body: str

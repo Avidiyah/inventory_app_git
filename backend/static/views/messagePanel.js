@@ -9,55 +9,23 @@
 // per list render; typing only swaps the results beneath it, so focus stays.
 
 import {
-  apiCreateGroup, apiListMessagePeople, apiOpenDirect, apiSearchMessages,
+  apiBroadcastMessage, apiCreateGroup, apiListMessagePeople, apiOpenDirect, apiSearchMessages,
 } from "../api.js";
 import { friendlyError } from "../format.js";
 import { onChange, getState, refresh } from "../messagesStore.js";
 import { roleAtLeast } from "../roles.js";
 import { getCurrentUser, getRole } from "../state.js";
 import { mountChat } from "./messagePanelChat.js";
+import { button, filterField, h, marked, nameMatches, pickList } from "./messagePanelPicker.js";
 
 const SEARCH_MIN_CHARS = 2;
 const SEARCH_DELAY_MS = 250;
 const MAX_GROUP_NAME = 60;
 const MAX_GROUP_MEMBERS = 30;
-
-function h(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined && text !== null) node.textContent = text;
-  return node;
-}
-
-function button(className, text, onClick, label) {
-  const node = h("button", className, text);
-  node.type = "button";
-  if (label) node.setAttribute("aria-label", label);
-  node.addEventListener("click", onClick);
-  return node;
-}
+const MAX_BODY = 2000;
 
 const initials = (name) => String(name || "?").split(/\s+/).filter(Boolean)
   .map((w) => w[0]).join("").slice(0, 2).toUpperCase();
-
-// `text` as an array of nodes with the first match of `q` wrapped in <mark>.
-function marked(text, q) {
-  const i = q ? text.toLowerCase().indexOf(q.toLowerCase()) : -1;
-  if (i < 0) return [text];
-  const hit = h("mark", "", text.slice(i, i + q.length));
-  return [text.slice(0, i), hit, text.slice(i + q.length)];
-}
-
-// Live, client-side people filter: name only, case-insensitive, anywhere.
-const nameMatches = (name, q) => !q || String(name || "").toLowerCase().includes(q.toLowerCase());
-
-function filterField() {
-  const field = h("input", "msg-field");
-  field.type = "search";
-  field.placeholder = "Search people";
-  field.setAttribute("aria-label", "Search people");
-  return field;
-}
 
 function timeLabel(iso) {
   if (!iso) return "";
@@ -73,7 +41,8 @@ function timeLabel(iso) {
   return then.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-export function mountMessagePanel(host, { onClose = null } = {}) {
+// `broadcast` (the Hub tab passes it) offers Admin+ "Message many".
+export function mountMessagePanel(host, { onClose = null, broadcast = false } = {}) {
   let chat = null;
   let destroyed = false;
   let searchTimer = null;
@@ -176,6 +145,7 @@ export function mountMessagePanel(host, { onClose = null } = {}) {
     const buttons = h("div", "msg-row-btns");
     buttons.append(button("msg-btn primary", "New chat", showPeople));
     if (canGroup()) buttons.append(button("msg-btn", "New group", showGroupForm));
+    if (broadcast && roleAtLeast(getRole(), "admin")) buttons.append(button("msg-btn", "Message many", showBroadcast));
     tools.append(search, buttons);
 
     const nodes = [header("Messages", false)];
@@ -303,17 +273,13 @@ export function mountMessagePanel(host, { onClose = null } = {}) {
     scroll.append(h("p", "msg-empty", "Loading..."));
     const bar = h("div", "msg-composer");
     bar.append(create);
-    const filter = filterField();
     const tools = h("div", "msg-p-tools");
-    tools.append(name, filter);
+    tools.append(name);
     show(header("New group", true), tools, scroll, bar);
 
-    let boxes = [];
-    const sec = h("div", "msg-sec", "Pick at least two people");
-    const picked = () => boxes.filter((b) => b.checked);
+    let pick = null;
     const check = () => {
-      const n = picked().length;
-      sec.textContent = n ? `Pick at least two people · ${n} picked` : "Pick at least two people";
+      const n = pick ? pick.picked().length : 0;
       create.disabled = !name.value.trim() || n < 2 || n > MAX_GROUP_MEMBERS;
     };
     name.addEventListener("input", check);
@@ -322,7 +288,7 @@ export function mountMessagePanel(host, { onClose = null } = {}) {
       create.disabled = true;
       status.textContent = "";
       try {
-        const { id } = await apiCreateGroup(name.value.trim(), picked().map((b) => b.value));
+        const { id } = await apiCreateGroup(name.value.trim(), pick.picked());
         refresh().catch(() => {});
         if (!destroyed) openChat(id);
       } catch (err) {
@@ -336,38 +302,59 @@ export function mountMessagePanel(host, { onClose = null } = {}) {
     const people = await loadPeople();
     if (destroyed || host.lastChild !== bar) return;
     if (typeof people === "string") return scroll.replaceChildren(h("p", "msg-empty", people));
-    boxes = people.map((p) => {
-      const box = document.createElement("input");
-      box.type = "checkbox";
-      box.value = p.id;
-      box.addEventListener("change", check);
-      return box;
-    });
-    const names = people.map(() => h("span", ""));
-    const rows = people.map((p, i) => {
-      const label = h("label", "msg-pick");
-      const text = h("span", "");
-      text.append(names[i], " ", h("small", "", p.role_label || ""));
-      label.append(boxes[i], text);
-      return label;
-    });
-    const none = h("p", "msg-empty");
-    // Hiding, not rebuilding, so a ticked person stays ticked while filtered out.
-    const applyFilter = () => {
-      const q = filter.value.trim();
-      let shown = 0;
-      people.forEach((p, i) => {
-        const hit = nameMatches(p.name, q);
-        rows[i].hidden = !hit;
-        names[i].replaceChildren(...marked(p.name, hit ? q : ""));
-        if (hit) shown += 1;
-      });
-      none.textContent = `No one matches "${q}".`;
-      none.hidden = shown > 0;
+    pick = pickList(people, { title: "Pick at least two people", onChange: check });
+    tools.append(...pick.tools);
+    scroll.replaceChildren(...pick.list);
+  }
+
+  // ---------- message many (Admin+, Hub tab only) ----------
+  async function showBroadcast() {
+    const text = h("input", "msg-field");
+    text.placeholder = "Message";
+    text.maxLength = MAX_BODY;
+    text.setAttribute("aria-label", "Message to send");
+    const status = h("p", "msg-note");
+    status.setAttribute("role", "status");
+    let sending = false;
+    const send = button("msg-btn primary", "Send", () => submit());
+    send.disabled = true;
+    const scroll = h("div", "msg-p-scroll");
+    scroll.append(h("p", "msg-empty", "Loading..."));
+    const bar = h("div", "msg-composer");
+    bar.append(text, send);
+    const tools = h("div", "msg-p-tools");
+    show(header("Message many", true), tools, scroll, bar);
+
+    let pick = null;
+    const check = () => {
+      send.disabled = sending || !text.value.trim() || !pick || !pick.picked().length;
     };
-    filter.addEventListener("input", applyFilter);
-    scroll.replaceChildren(sec, ...rows, none);
-    applyFilter();
+    text.addEventListener("input", check);
+
+    async function submit() {
+      if (sending) return;
+      sending = true;
+      check();
+      status.textContent = "";
+      try {
+        const { sent } = await apiBroadcastMessage(pick.picked(), text.value.trim());
+        refresh().catch(() => {});
+        if (!destroyed) showList(`Sent to ${sent} ${sent === 1 ? "person" : "people"}.`);
+      } catch (err) {
+        if (destroyed) return;
+        sending = false;
+        status.textContent = friendlyError(err, "Could not send. Try again.");
+        tools.append(status);
+        check();
+      }
+    }
+
+    const people = await loadPeople();
+    if (destroyed || host.lastChild !== bar) return;
+    if (typeof people === "string") return scroll.replaceChildren(h("p", "msg-empty", people));
+    pick = pickList(people, { title: "Pick people", bulk: true, onChange: check });
+    tools.append(...pick.tools);
+    scroll.replaceChildren(...pick.list);
   }
 
   // ---------- chat ----------

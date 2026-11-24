@@ -888,6 +888,7 @@ curve is pure, in `domain/login_throttle.py`.
 | Fact | Rule |
 |---|---|
 | Kinds | `direct` (unique `direct_key` = `"<low id>:<high id>"`, race-safe get-or-create) or temporary `group` (Team Lead+ starts, 2–29 others, name ≤ 60; only the starter ends it = hard delete) |
+| Message many | Admin+ only, Hub Messages tab only: `POST /messages/broadcast` saves the text as a separate direct message per person (reusing each direct chat); every id is checked before any write. Select all / Deselect all act on the people the filter shows |
 | Read mark | `conversation_members.last_read_message_id` (no FK), only rises, capped at the newest message; a read emits only when it moved (stops two-reader loops). Client posts reads only while the page is visible and the chat is on screen |
 | Unread / Seen | unread = messages past my mark not sent by me; badge = distinct senders. "Seen" (direct only) = the other member's mark ≥ my last message |
 | Retention | direct messages 90 days; a group quiet 7 days (`coalesce(last_message_at, created_at)`) is deleted. Swept by the first `GET /messages/conversations` per 24 h per process — no lifespan job |

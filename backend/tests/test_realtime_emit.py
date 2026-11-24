@@ -810,4 +810,4 @@ def test_the_message_emitter_set_is_exactly_the_chat_writes():
         and "emit_message_changed(" in inspect.getsource(route.endpoint)
     }
 
-    assert emitters == {"send_message", "mark_read", "create_group", "end_group"}
+    assert emitters == {"send_message", "broadcast", "mark_read", "create_group", "end_group"}
