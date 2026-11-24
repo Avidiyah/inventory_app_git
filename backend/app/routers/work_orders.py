@@ -54,7 +54,7 @@ from app.domain import work_orders_smr_lines as smr_rules
 from app.domain.errors import DomainError
 from app.domain.list_limits import MAX_LIST_ROWS
 from app.logging_config import current_request_id
-from app.models import User, WorkOrder, WorkOrderItem, WorkOrderLabor
+from app.models import User, WorkOrder, WorkOrderItem, WorkOrderLabor, WorkOrderPhoto
 from app.routers._errors import to_http
 from app.routers._stock_events import flush_stock_events
 from app.routers._uploads import MAX_CSV_UPLOAD_BYTES, read_capped
@@ -509,6 +509,12 @@ def _signature_out(work_order: WorkOrder) -> Optional[WorkOrderSignatureOut]:
     )
 
 
+def _photo_count(db: Optional[Session], work_order: WorkOrder) -> int:
+    if db is None:
+        return 0
+    return db.query(WorkOrderPhoto.id).filter_by(work_order_id=work_order.id).count()
+
+
 def _detail(
     work_order: WorkOrder,
     *,
@@ -580,6 +586,7 @@ def _detail(
         labor_rate=wo.LABOR_RATE if include_price else None,
         labor_total=figures.labor_total if include_price else None,
         signature=_signature_out(work_order),
+        photo_count=_photo_count(db, work_order),
         smr_target=SmrTargetOut.from_gap(gap, include_price=include_price) if gap else None,
         smr_paper_check=SmrPaperCheckOut.from_order(work_order) if is_smr else None,
         smr_ready=SmrReadyOut.from_order(work_order) if is_smr else None,

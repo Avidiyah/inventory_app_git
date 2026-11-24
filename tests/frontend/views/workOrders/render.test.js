@@ -748,7 +748,7 @@ describe("the whole card body", () => {
     const { cardEl } = await renderBody({}, { role: "supervisor" });
     const body = cardEl.querySelector(".wo-body");
     const tabs = [...body.querySelectorAll(".wo-tab")].map((t) => t.dataset.woTab);
-    expect(tabs).toEqual(["details", "notes", "materials", "labor"]);
+    expect(tabs).toEqual(["details", "notes", "materials", "labor", "photos"]);
     expect(body.dataset.woTab).toBe("details");
     body.querySelector('[data-wo-tab="materials"]').click();
     expect(body.querySelector(".wo-materials-section").open).toBe(true);

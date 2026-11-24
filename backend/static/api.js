@@ -991,6 +991,34 @@ export async function apiSaveWorkOrderSignature(workOrderId, { image, witnessNam
   });
 }
 
+// --- Work-order photos (spec 2026-11-24) ------------------------------
+export async function apiListWorkOrderPhotos(workOrderId) {
+  return liveGet(`/work-orders/${workOrderId}/photos`);
+}
+
+// One file per request so the card can show "Uploading 2 of 5". Multipart:
+// no Content-Type by hand, as apiImportWorkOrders.
+export async function apiUploadWorkOrderPhoto(workOrderId, file) {
+  const form = new FormData();
+  form.append("files", file);
+  return parseResponse(await rawFetch(`/work-orders/${workOrderId}/photos`, {
+    method: "POST",
+    body: form,
+    credentials: "include",
+  }));
+}
+
+export async function apiPhotoStorage() {
+  return liveGet("/work-order-photos/storage");
+}
+
+export async function apiClearExportedPhotos() {
+  return parseResponse(await rawFetch("/work-order-photos/clear-exported", {
+    method: "POST",
+    credentials: "include",
+  }));
+}
+
 export async function apiClearWorkOrderSignature(workOrderId) {
   return parseResponse(await rawFetch(`/work-orders/${workOrderId}/signature`, {
     method: "DELETE",

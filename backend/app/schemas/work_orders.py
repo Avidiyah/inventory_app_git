@@ -535,6 +535,8 @@ class WorkOrderDetail(WorkOrderCard):
     labor_total: Optional[Decimal] = None
     # None until a witness signs; one per work order, locked after save (S1).
     signature: Optional[WorkOrderSignatureOut] = None
+    # Photos held for export (spec 2026-11-24); the card lists them on open.
+    photo_count: int = 0
     # The client's target and the gap to it; SMR orders with a target only.
     smr_target: Optional[SmrTargetOut] = None
     # Paper check mark; SMR orders only, None until someone sets it.

@@ -179,3 +179,12 @@ def test_admin_routes_403_for_technician(db, people, method, path):
     _, tech = people
     with _Client(db, tech) as c:
         assert getattr(c, method)(path).status_code == 403
+
+
+def test_detail_carries_photo_count(db, people):
+    admin, tech = people
+    wo = _work_order(db, admin, tech)
+    with _Client(db, tech) as c:
+        assert c.get(f"/work-orders/{wo.id}").json()["photo_count"] == 0
+        _upload(c, wo.id)
+        assert c.get(f"/work-orders/{wo.id}").json()["photo_count"] == 1

@@ -246,6 +246,10 @@ export const ENDPOINTS = [
   { fn: "apiSaveWorkOrderSignature",
     args: [12, { image: "data:x", witnessName: "Pat", witnessPhone: "5555551234" }], method: "POST",
     url: "/work-orders/12/signature", body: { image: "data:x", witness_name: "Pat", witness_phone: "5555551234" } },
+  { fn: "apiListWorkOrderPhotos", args: [12], url: "/work-orders/12/photos", cache: "no-store" },
+  { fn: "apiUploadWorkOrderPhoto", args: [12, uploadFile()], method: "POST", url: "/work-orders/12/photos", multipart: true },
+  { fn: "apiPhotoStorage", args: [], url: "/work-order-photos/storage", cache: "no-store" },
+  { fn: "apiClearExportedPhotos", args: [], method: "POST", url: "/work-order-photos/clear-exported" },
   { fn: "apiClearWorkOrderSignature", args: [12], method: "DELETE", url: "/work-orders/12/signature" },
 
   // --- Web Push ---

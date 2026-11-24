@@ -50,6 +50,7 @@ import { getAllSupervisors, getAllTechnicians } from "./workOrderReferenceData.j
 import { livePriorityValues } from "./workOrderFilters.js";
 import { canEditSmrLines, readyRowHtml, smrInvoiceSectionHtml, smrLaborSectionHtml } from "./workOrderSmrLines.js";
 import { comboHtml } from "../menus.js";
+import { photosSectionHtml, photosTabLabel } from "./workOrderPhotos.js";
 
 function renderLaborEntryHtml(entry) {
   const actions = canEditLaborEntry(entry)
@@ -546,6 +547,7 @@ export function renderBody(detail, bodyEl) {
     ["notes", "Notes"],
     ["materials", itemCount ? `Materials · ${itemCount}` : "Materials"],
     ...(showLabor ? [["labor", laborMinutes ? `Labor · ${hoursInputValue(laborMinutes)} h` : "Labor"]] : []),
+    ["photos", photosTabLabel(detail.photo_count)],
     ...(invoice ? [["invoice", "Invoice"]] : []),
   ];
   const tabBar = `<div class="wo-tabs" id="wo-sec-tabs" role="tablist" aria-label="Work order sections">${tabs
@@ -603,6 +605,7 @@ export function renderBody(detail, bodyEl) {
      </details>` +
     // An SMR order shows Labor to everyone, then its Invoice section.
     (showLabor ? laborSectionHtml(detail) : "") +
+    photosSectionHtml(detail) +
     invoice +
     (statusActions ? `<div class="wo-actionbar" id="wo-sec-actions">${statusActions}</div>` : "") +
     // Stays the body's last child: setMessage replaces its class, and the
@@ -618,6 +621,7 @@ const SECTION_BY_TAB = {
   notes: ".wo-notes-section",
   materials: ".wo-materials-section",
   labor: ".wo-labor-section",
+  photos: ".wo-photos-section",
   invoice: ".wo-smr-invoice",
 };
 
