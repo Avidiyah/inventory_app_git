@@ -63,8 +63,6 @@ describe("targetless step", () => {
     expect(overlay().classList.contains("tut-targetless")).toBe(false);
     tap(); tap();
     expect(document.querySelector(".tut-title").textContent).toBe("Last");
-    act("back").click();
-    expect(document.querySelector(".tut-title").textContent).toBe("Tabs");
   });
 });
 

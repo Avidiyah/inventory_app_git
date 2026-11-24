@@ -7155,9 +7155,10 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     position: fixed;
     left: var(--space-3);
     top: var(--space-3);
-    width: 340px;
+    width: 452px; /* 340 x 1.33, user 2026-11-23 */
     max-width: calc(100vw - 2 * var(--space-3));
-    padding: var(--space-4);
+    padding: calc(var(--space-4) * 1.33);
+    font-size: 1.33em;
     border: 1px solid var(--gray-700);
     border-radius: var(--radius-md);
     background-color: var(--color-header);

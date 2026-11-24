@@ -51,7 +51,7 @@ describe("runSteps", () => {
     tap();
     expect(box().hidden).toBe(true);
     expect(pill().hidden).toBe(false);
-    expect(pill().textContent).toBe("Tap anywhere for the next step");
+    expect(pill().textContent).toBe("Click anywhere for the next step"); // fine pointer
     tap();
     expect(box().hidden).toBe(false);
     expect(document.querySelector(".tut-title").textContent).toBe("Two");
@@ -69,12 +69,14 @@ describe("runSteps", () => {
     expect(box().hidden).toBe(true);
   });
 
-  it("offers Back after step 1, and End removes everything", async () => {
+  it("has no Back; the hint stays up until the last box; End removes everything", async () => {
     const done = tut.runSteps(three, "technician");
-    expect(act("back")).toBeNull();
+    expect(pill().hidden).toBe(false);
     tap(); tap();
-    act("back").click();
-    expect(count()).toBe("1 of 3");
+    expect(act("back")).toBeNull();
+    tap(); tap(); tap();
+    expect(count()).toBe("3 of 3");
+    expect(pill().hidden).toBe(true);
     act("end").click();
     await expect(done).resolves.toEqual({ result: "end" });
   });
@@ -552,10 +554,8 @@ describe("wait steps", () => {
     clickAt(t2);
     vi.advanceTimersByTime(50);
     expect(text()).toBe("After.");
-    expect(act("back")).toBeNull();
     tap(); tap();
     expect(text()).toBe("Last.");
-    expect(act("back")).not.toBeNull();
   });
 
   it("a text list and a textFor list give one sentence per tap", () => {

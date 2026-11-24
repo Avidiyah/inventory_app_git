@@ -191,13 +191,14 @@ function render({ scroll = false } = {}) {
   nodes.text.textContent = lines[s];
   nodes.count.textContent = `${i + 1} of ${list.length}`;
   nodes.actions.replaceChildren();
-  if (i > 0 && !isWaitStep(list[i - 1].step)) nodes.actions.appendChild(button("back", "Back"));
-  if (last && s === lines.length - 1) {
+  const end = last && s === lines.length - 1;
+  if (end) {
     if (run.next) nodes.actions.appendChild(button("next", `Next: ${run.next.title}`));
     nodes.actions.appendChild(button("done", "Done"));
   }
   nodes.box.hidden = run.boxHidden;
-  nodes.pill.hidden = !run.boxHidden;
+  nodes.pill.hidden = wait || end; // a tap anywhere does something on every other step
+  nodes.pill.textContent = `${window.matchMedia?.("(pointer: coarse)").matches ? "Tap" : "Click"} anywhere for the next step`;
   if (scroll && !wait && !isTargetless(step)) document.querySelector(step.target)?.scrollIntoView?.({ block: "center" });
   place();
   requestAnimationFrame(place);
@@ -264,8 +265,7 @@ function onOverlayClick(event) {
   event.stopPropagation();
   const act = event.target.closest?.("[data-tut-act]")?.dataset.tutAct;
   if (!act) { tap(event); return; }
-  if (act === "back") show(run.i - 1);
-  else if (act === "next") finish({ result: "next", script: run.next });
+  if (act === "next") finish({ result: "next", script: run.next });
   else finish({ result: act }); // "done" | "end"
 }
 
