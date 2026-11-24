@@ -1,6 +1,7 @@
 """Work-order photo bytes: validate, date, HEIC -> JPEG, preview (pure, no DB)."""
 
 import io
+import os
 from datetime import date, datetime
 from typing import Optional
 
@@ -10,6 +11,20 @@ from pillow_heif import register_heif_opener
 register_heif_opener()
 
 PREVIEW_EDGE = 800
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+WARN_RATIO = 0.5  # Admin/Owner sign-in warning
+FULL_RATIO = 0.8  # uploads refused (507)
+
+
+def disk_bytes() -> int:
+    """Render DB disk size; Postgres can't see it, so it's a setting (default 1 GB)."""
+    return int(os.getenv("DB_DISK_BYTES", "1073741824"))
+
+
+def storage_flags(used: int, disk: int) -> dict:
+    ratio = used / disk if disk > 0 else 1.0
+    return {"used": used, "disk": disk, "ratio": ratio,
+            "warn": ratio >= WARN_RATIO, "full": ratio >= FULL_RATIO}
 _DATETIME_ORIGINAL = 36867  # EXIF sub-IFD tag
 _EXIF_IFD = 0x8769
 

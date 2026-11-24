@@ -11,7 +11,7 @@ from datetime import date
 import pytest
 from PIL import Image
 
-from app.domain.photos import PREVIEW_EDGE, prepare
+from app.domain.photos import PREVIEW_EDGE, disk_bytes, prepare, storage_flags
 
 TODAY = date(2026, 11, 24)
 
@@ -53,3 +53,19 @@ def test_heic_becomes_jpeg_with_date():
     assert taken_on == date(2026, 9, 1)
     assert prepare(original, TODAY)[2] == date(2026, 9, 1)  # EXIF survives conversion
     assert Image.open(io.BytesIO(preview)).format == "JPEG"
+
+
+@pytest.mark.parametrize(
+    "used, warn, full",
+    [(49, False, False), (50, True, False), (79, True, False), (80, True, True)],
+)
+def test_storage_flags(used, warn, full):
+    flags = storage_flags(used, 100)
+    assert (flags["warn"], flags["full"]) == (warn, full)
+
+
+def test_disk_bytes_setting(monkeypatch):
+    monkeypatch.delenv("DB_DISK_BYTES", raising=False)
+    assert disk_bytes() == 1_073_741_824
+    monkeypatch.setenv("DB_DISK_BYTES", "5000")
+    assert disk_bytes() == 5000
