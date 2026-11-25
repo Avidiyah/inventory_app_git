@@ -7950,3 +7950,70 @@ label.msg-pick {
 }
 .msg-pick span { min-width: 0; overflow-wrap: anywhere; }
 .msg-pick small { color: var(--text-panel-mute); }
+
+/* Flagged time flow */
+/* The shell's time picker is earlier in the document than the flow (appended
+   to the body at open), so at the shared z-index 1000 the flow would cover it.
+   One step above, no second picker. */
+#prompt-time-overlay { z-index: 1100; }
+
+.flagged-flow-box {
+    max-width: 460px;
+    max-height: 100%;
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+}
+
+.flagged-flow-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+
+.flagged-flow-heading:focus { outline: none; }
+
+.flagged-flow-close {
+    flex: 0 0 auto;
+    margin-top: 0;
+    padding-inline: var(--space-3);
+}
+
+.flagged-flow-step {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.flagged-flow-who {
+    margin: 0;
+    font-weight: var(--fw-bold);
+}
+
+.flagged-flow-reason,
+.flagged-flow-summary,
+.flagged-flow-step .hub-hours-punch-note {
+    margin: 0;
+}
+
+.flagged-flow-summary { font-size: var(--fs-lg); font-weight: var(--fw-bold); }
+
+.flagged-flow-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.flagged-flow-actions button {
+    margin-top: 0;
+    padding-inline: var(--space-3);
+}
+
+.flagged-flow-error {
+    margin: 0;
+    min-height: 1em;
+    font-size: var(--fs-sm);
+    color: var(--color-error);
+}
+
+.flagged-flow .punch-editor { margin-top: 0; }
