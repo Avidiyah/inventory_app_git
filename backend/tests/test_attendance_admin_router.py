@@ -69,16 +69,21 @@ def test_an_admin_adds_a_punch(db):
     assert response.json()["end_source"] == "admin_edit"
 
 
-def test_techfm_oa_is_refused(db):
+def test_techfm_oa_may_look_right_but_not_waive_lunch(db):
+    # Team Lead+ (OA outranks Team Lead) accepts a flag; the waiver is Admin+.
     oa, tech = _seed_user(db, "techfm_oa"), _seed_user(db)
-    punch = _punch(db, tech, hours_ago=6); db.commit()
+    punch = _punch(db, tech, hours_ago=6)
+    punch.needs_review = True; db.commit()
     try:
         with _as(db, oa) as client:
-            response = client.patch(f"/hub/attendance/punches/{punch.id}",
-                                    json={"needs_review": False})
+            looks_right = client.patch(f"/hub/attendance/punches/{punch.id}",
+                                       json={"needs_review": False})
+            waiver = client.patch(f"/hub/attendance/punches/{punch.id}",
+                                  json={"lunch_waived": True})
     finally:
         del app.dependency_overrides[get_db]
-    assert response.status_code == 403
+    assert looks_right.status_code == 200
+    assert waiver.status_code == 403
 
 
 def test_a_future_end_is_400(db):
@@ -168,3 +173,126 @@ def test_technician_patches_own_punch_200(db):
         del app.dependency_overrides[get_db]
     assert response.status_code == 200
     assert response.json()["end_source"] == "self_edit"
+
+
+# --- Accepting one auto-stopped work-order clock ---------------------------
+
+def _labor_session(db, tech, *, ended_hours_ago=None, started_hours_ago=14, auto_closed=True):
+    from app.models import WorkOrderLaborSession
+    from app.services import work_orders as wos
+    now = datetime.now(timezone.utc)
+    order = wos.get_or_create_work_order(
+        db, number=f"WO-{uuid.uuid4().hex[:8]}", created_by_id=tech.id,
+        assigned_to_id=tech.id)
+    ended = None if ended_hours_ago is None else now - timedelta(hours=ended_hours_ago)
+    session = WorkOrderLaborSession(
+        id=uuid.uuid4(), work_order_id=order.id, technician_id=tech.id,
+        started_at=now - timedelta(hours=started_hours_ago), ended_at=ended,
+        auto_closed_at=ended if auto_closed else None)
+    db.add(session); db.commit()
+    return session
+
+
+def _review(db, actor, session_id):
+    try:
+        with _as(db, actor) as client:
+            return client.post(f"/hub/attendance/sessions/{session_id}/review")
+    finally:
+        del app.dependency_overrides[get_db]
+
+
+def test_a_team_lead_accepts_an_auto_stopped_clock(db):
+    from app.models import WorkOrderLaborSession
+    lead, tech = _seed_user(db, "supervisor"), _seed_user(db)
+    session = _labor_session(db, tech, ended_hours_ago=2)
+
+    response = _review(db, lead, session.id)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["session_id"] == str(session.id) and body["reviewed_at"]
+    db.expire_all()
+    assert db.get(WorkOrderLaborSession, session.id).reviewed_at is not None
+
+
+def test_a_technician_cannot_accept_a_clock(db):
+    tech = _seed_user(db)
+    session = _labor_session(db, tech, ended_hours_ago=2)
+    assert _review(db, tech, session.id).status_code == 403
+
+
+def test_accepting_an_unknown_clock_is_404(db):
+    lead = _seed_user(db, "supervisor"); db.commit()
+    assert _review(db, lead, uuid.uuid4()).status_code == 404
+
+
+def test_accepting_a_clock_twice_is_404(db):
+    lead, tech = _seed_user(db, "supervisor"), _seed_user(db)
+    session = _labor_session(db, tech, ended_hours_ago=2)
+    assert _review(db, lead, session.id).status_code == 200
+    assert _review(db, lead, session.id).status_code == 404
+
+
+def test_accepting_a_manually_stopped_clock_is_404(db):
+    lead, tech = _seed_user(db, "supervisor"), _seed_user(db)
+    session = _labor_session(db, tech, ended_hours_ago=2, auto_closed=False)
+    assert _review(db, lead, session.id).status_code == 404
+
+
+def test_a_running_over_cap_clock_is_swept_then_accepted(db):
+    from app.models import WorkOrderLaborSession
+    lead, tech = _seed_user(db, "supervisor"), _seed_user(db)
+    session = _labor_session(db, tech, started_hours_ago=20, auto_closed=False)
+
+    response = _review(db, lead, session.id)
+
+    assert response.status_code == 200
+    db.expire_all()
+    row = db.get(WorkOrderLaborSession, session.id)
+    assert row.ended_at is not None and row.auto_closed_at is not None
+    assert row.reviewed_at is not None
+
+
+def test_a_running_clock_inside_the_cap_is_404(db):
+    lead, tech = _seed_user(db, "supervisor"), _seed_user(db)
+    session = _labor_session(db, tech, started_hours_ago=2, auto_closed=False)
+    assert _review(db, lead, session.id).status_code == 404
+
+
+def test_a_team_lead_clears_a_punch_flag_over_http(db):
+    lead, tech = _seed_user(db, "supervisor"), _seed_user(db)
+    punch = _punch(db, tech, hours_ago=6)
+    punch.needs_review = True; db.commit()
+    try:
+        with _as(db, lead) as client:
+            looks_right = client.patch(f"/hub/attendance/punches/{punch.id}",
+                                       json={"needs_review": False})
+            waiver = client.patch(f"/hub/attendance/punches/{punch.id}",
+                                  json={"lunch_waived": True})
+    finally:
+        del app.dependency_overrides[get_db]
+    assert looks_right.status_code == 200
+    assert waiver.status_code == 403
+
+
+def test_a_technician_is_refused_looks_right_over_http(db):
+    tech = _seed_user(db)
+    punch = _punch(db, tech, hours_ago=2, length_hours=1, room_hours=2)
+    punch.needs_review = True; db.commit()
+    try:
+        with _as(db, tech) as client:
+            response = client.patch(f"/hub/attendance/punches/{punch.id}",
+                                    json={"needs_review": False})
+    finally:
+        del app.dependency_overrides[get_db]
+    assert response.status_code == 403
+
+
+def test_bulk_review_route_is_gone(db):
+    admin = _seed_user(db, "admin"); db.commit()
+    try:
+        with _as(db, admin) as client:
+            response = client.post("/hub/attendance/week/review")
+    finally:
+        del app.dependency_overrides[get_db]
+    assert response.status_code in (404, 405)

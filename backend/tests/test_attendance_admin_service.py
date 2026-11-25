@@ -213,7 +213,21 @@ def test_worker_cannot_touch_another_persons_punch(db):
             ended_at=_TUE_9 + timedelta(hours=5), now=_NOW)
 
 
-def test_team_lead_edits_anyones_punch_but_not_look_right_or_lunch(db):
+def test_team_lead_looks_right_clears_the_flag_with_one_audit_row(db):
+    lead, peer = _seed_user(db, "supervisor"), _seed_user(db)
+    punch = _punch_at(db, peer, _TUE_9, _TUE_9 + timedelta(hours=8), needs_review=True)
+    db.commit()
+
+    attendance_service.admin_edit_punch(
+        db, actor=lead, punch_id=punch.id, needs_review=False, now=_NOW)
+
+    assert punch.needs_review is False
+    rows = db.query(AttendancePunchEdit).filter_by(punch_id=punch.id).all()
+    assert [(r.field, r.old_value, r.new_value, r.edited_by_id) for r in rows] == [
+        ("needs_review", "true", "false", lead.id)]
+
+
+def test_team_lead_edits_anyones_punch_but_not_the_lunch_waiver(db):
     from app.domain.errors import TimeEditForbiddenError
     lead, peer = _seed_user(db, "supervisor"), _seed_user(db)
     punch = _punch_at(db, peer, _LAST_FRI_9, _LAST_FRI_9 + timedelta(hours=2)); db.commit()
@@ -228,12 +242,9 @@ def test_team_lead_edits_anyones_punch_but_not_look_right_or_lunch(db):
         ended_at=_LAST_FRI_9 + timedelta(hours=5), now=_NOW)
     attendance_service.admin_delete_punch(db, actor=lead, punch_id=punch.id, now=_NOW)
 
-    # The Admin-only extras stay Admin-only.
+    # The lunch waiver stays Admin-only.
     other = _punch_at(db, peer, _TUE_9, _TUE_9 + timedelta(hours=8), needs_review=True)
     db.commit()
-    with pytest.raises(TimeEditForbiddenError):
-        attendance_service.admin_edit_punch(
-            db, actor=lead, punch_id=other.id, needs_review=False, now=_NOW)
     with pytest.raises(TimeEditForbiddenError):
         attendance_service.admin_edit_punch(
             db, actor=lead, punch_id=other.id, lunch_waived=True, now=_NOW)

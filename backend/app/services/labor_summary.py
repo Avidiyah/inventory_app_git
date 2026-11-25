@@ -48,6 +48,7 @@ class TimelineEntry:
     """
 
     work_order_id: uuid.UUID
+    session_id: uuid.UUID
     number: str
     started_at: datetime
     ended_at: Optional[datetime]
@@ -232,6 +233,7 @@ def day_summary(
         timeline.append(
             TimelineEntry(
                 work_order_id=session.work_order_id,
+                session_id=session.id,
                 number=number,
                 started_at=labor_day.as_utc(session.started_at),
                 ended_at=(
@@ -362,6 +364,7 @@ def crew_range_summaries(
                 continue
             timeline_entry = TimelineEntry(
                 work_order_id=session.work_order_id,
+                session_id=session.id,
                 number=number,
                 started_at=labor_day.as_utc(session.started_at),
                 ended_at=(

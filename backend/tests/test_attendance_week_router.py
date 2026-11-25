@@ -148,6 +148,37 @@ def test_the_week_read_carries_the_billing_labor_rate(db):
     assert float(body["labor_rate"]) == 62.5
 
 
+def test_the_week_read_carries_flagged_sessions(db):
+    from app.models import WorkOrderLaborSession
+    from app.services import work_orders as wos
+
+    lead = _seed_user(db, role="supervisor", first="Lee", last="Lead")
+    tech = _seed_user(db)
+    order = wos.get_or_create_work_order(
+        db, number="WO-4412", created_by_id=tech.id, assigned_to_id=tech.id)
+    start = datetime(2026, 9, 14, 13, 0, tzinfo=timezone.utc)
+    end = datetime(2026, 9, 15, 1, 0, tzinfo=timezone.utc)
+    session = WorkOrderLaborSession(
+        id=uuid.uuid4(), work_order_id=order.id, technician_id=tech.id,
+        started_at=start, ended_at=end, auto_closed_at=end)
+    db.add(session)
+    db.commit()
+    try:
+        with _as(db, lead) as client:
+            body = client.get("/hub/attendance/week", params={"week": "2026-09-14"}).json()
+    finally:
+        del app.dependency_overrides[get_db]
+
+    [flagged] = [f for f in body["flagged_sessions"] if f["session_id"] == str(session.id)]
+    # Instants come back Central-offset; compare them as instants.
+    assert datetime.fromisoformat(flagged.pop("started_at")) == start
+    assert datetime.fromisoformat(flagged.pop("ended_at")) == end
+    assert flagged == {
+        "session_id": str(session.id), "user_id": str(tech.id), "date": "2026-09-14",
+        "work_order_id": str(order.id), "number": "WO-4412", "running": False,
+    }
+
+
 def test_week_rows_carry_adjustment_minutes():
     from app.schemas.attendance import AttendanceWeekRow
     assert "adjustment_minutes" in AttendanceWeekRow.model_fields

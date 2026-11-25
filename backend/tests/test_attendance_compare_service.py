@@ -246,36 +246,64 @@ def test_todays_open_punch_is_an_ordinary_shift(db):
     assert wednesday.pending_review is False
 
 
-def test_mark_week_reviewed_accepts_every_estimate_including_a_midnight_close(db):
-    from app.models import AttendancePunchEdit
-    from app.services import attendance as attendance_service
+def _auto_closed(db, tech, started_at, ended_at, *, reviewed=False):
+    session = make_session(db, tech, started_at, ended_at)
+    session.auto_closed_at = session.ended_at
+    if reviewed:
+        session.reviewed_at = NOW
+    db.flush()
+    return session
 
-    admin = make_technician(db, "Ada", "Min")
-    admin.role = "admin"
+
+def test_flagged_sessions_lists_an_auto_closed_clock(db):
     tech = make_technician(db)
-    punch = make_punch(db, tech, "2026-09-14T13:00Z", "2026-09-14T21:00Z")
-    punch.needs_review = True
-    make_running_session(db, tech, "2026-09-14T13:00Z")   # swept, then accepted
-    other = make_technician(db, "Bo", "Diaz")
-    make_punch(db, other, "2026-09-15T13:00Z")             # forgotten: swept to midnight
-    db.commit()
-
-    result = attendance_service.mark_week_reviewed(
-        db, actor=admin, week_start=MONDAY, now=NOW)
-
-    assert (result.punches, result.sessions) == (2, 1)
-    db.expire_all()
-    assert db.get(AttendancePunch, punch.id).needs_review is False
-    audit = db.query(AttendancePunchEdit).filter_by(punch_id=punch.id).one()
-    assert (audit.field, audit.reason) == ("needs_review", "Bulk reviewed")
-    session = reload_session(db, tech)
-    assert session.ended_at is not None and session.reviewed_at is not None
-
+    session = _auto_closed(db, tech, "2026-09-14T13:00Z", "2026-09-15T01:00Z")
     week = attendance_compare.week_payload(db, week_start=MONDAY, now=NOW)
-    assert week.reviewable_count == 0
-    assert _row_for(week, tech).days[0].pending_review is False
-    assert _row_for(week, other).days[1].pending_review is False
 
+    [flagged] = [f for f in week.flagged_sessions if f.session_id == session.id]
+    assert flagged.user_id == tech.id
+    assert flagged.date == MONDAY
+    assert flagged.work_order_id == session.work_order_id
+    assert flagged.number.startswith("WO-")
+    assert flagged.started_at == session.started_at
+    assert flagged.ended_at == session.ended_at
+    assert flagged.running is False
+
+
+def test_flagged_session_crossing_midnight_listed_once(db):
+    tech = make_technician(db)
+    session = _auto_closed(db, tech, "2026-09-15T02:00Z", "2026-09-15T08:00Z")  # Mon 9 PM - Tue 3 AM
+    week = attendance_compare.week_payload(db, week_start=MONDAY, now=NOW)
+
+    mine = [f for f in week.flagged_sessions if f.session_id == session.id]
+    assert len(mine) == 1
+    assert mine[0].date == MONDAY                       # the first day it touches
+
+
+def test_a_session_from_last_week_is_dated_the_first_day_in_this_week(db):
+    tech = make_technician(db)
+    session = _auto_closed(db, tech, "2026-09-14T00:00Z", "2026-09-14T08:00Z")  # Sun 7 PM - Mon 3 AM
+    week = attendance_compare.week_payload(db, week_start=MONDAY, now=NOW)
+
+    [flagged] = [f for f in week.flagged_sessions if f.session_id == session.id]
+    assert flagged.date == MONDAY
+
+
+def test_a_running_over_cap_clock_is_listed_as_running(db):
+    tech = make_technician(db)
+    session = make_running_session(db, tech, "2026-09-15T13:00Z")   # 26 h before NOW
+    week = attendance_compare.week_payload(db, week_start=MONDAY, now=NOW)
+
+    [flagged] = [f for f in week.flagged_sessions if f.session_id == session.id]
+    assert flagged.running is True and flagged.ended_at is None
+
+
+def test_reviewed_session_is_not_listed(db):
+    tech = make_technician(db)
+    session = _auto_closed(db, tech, "2026-09-14T13:00Z", "2026-09-15T01:00Z", reviewed=True)
+    week = attendance_compare.week_payload(db, week_start=MONDAY, now=NOW)
+
+    assert session.id not in {f.session_id for f in week.flagged_sessions}
 
 
 def test_delta_stays_gross_when_lunch_comes_off(db):

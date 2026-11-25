@@ -251,13 +251,13 @@ def test_an_admin_edit_across_midnight_is_refused(db):
             ended_at=MIDNIGHT + timedelta(minutes=1), now=NOW)
 
 
-def test_mark_week_reviewed_accepts_a_midnight_close(db):
-    admin, tech = _seed_user(db, "admin"), _seed_user(db)
+def test_team_lead_looks_right_on_an_unswept_past_midnight_punch_succeeds(db):
+    lead, tech = _seed_user(db, "supervisor"), _seed_user(db)
     old = _open_punch(db, tech, YESTERDAY_7AM)
-    result = attendance_service.mark_week_reviewed(
-        db, actor=admin, week_start=date(2026, 9, 14), now=NOW)   # Mon 9/14 - Sun 9/20
+    attendance_service.admin_edit_punch(db, actor=lead, punch_id=old.id,
+                                        needs_review=False, now=NOW)
     db.refresh(old)
-    assert result.punches >= 1 and old.needs_review is False
+    assert old.ended_at == MIDNIGHT and old.needs_review is False
 
 
 def test_me_payload_does_not_count_yesterdays_open_punch_into_today(db):
@@ -357,6 +357,20 @@ def test_punch_marks_self_admin_both_and_none(db):
     assert looked.id not in marks
     edit = marks[own.id].edits[0]
     assert (edit.self, edit.field, edit.old, edit.new) == (True, "ended_at", "a", "b")
+
+
+def test_week_punches_carry_end_source(db):
+    tech = _seed_user(db)
+    closed = _closed_punch(db, tech, datetime(2026, 9, 14, 14, tzinfo=timezone.utc))
+    closed.end_source = "auto_clock_out"
+    open_ = AttendancePunch(id=uuid.uuid4(), user_id=tech.id,
+                            started_at=datetime(2026, 9, 15, 14, tzinfo=timezone.utc),
+                            start_source="manual")
+    db.add(open_); db.commit()
+
+    me = attendance_service.me_payload(db, user=tech, now=_MARK_NOW)
+
+    assert [p.end_source for p in me.week_punches] == ["auto_clock_out", None]
 
 
 def test_me_payload_lists_this_weeks_punches_only(db):

@@ -53,7 +53,7 @@ from app.schemas.attendance import (
     AttendanceWeekResponse,
     PunchAddRequest,
     PunchEditRequest,
-    WeekReviewResponse,
+    SessionReviewResponse,
 )
 from app.schemas.attendance import PersonWeekResponse
 from app.schemas.performance import (
@@ -371,24 +371,22 @@ def delete_hub_attendance_punch(
     return punch
 
 
-@router.post("/attendance/week/review", response_model=WeekReviewResponse)
-def review_hub_attendance_week(
-    week: Optional[date] = Query(None),
-    user: User = Depends(require_min_role(roles.ROLE_ADMIN)),
+@router.post("/attendance/sessions/{session_id}/review",
+             response_model=SessionReviewResponse)
+def review_hub_attendance_session(
+    session_id: uuid.UUID,
+    user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
     db: Session = Depends(get_db),
 ):
-    """`Mark all reviewed`: accept every flagged punch and auto-closed
-    session touching the week, so the leaderboard ranks them again. Same
-    `week` contract and Admin floor as `GET /hub/attendance/week`."""
-    now = datetime.now(timezone.utc)
+    """Accept one auto-stopped work-order clock, so its day counts again.
+    **Team Lead+**. 404 when the clock is not an unaccepted auto-close."""
     try:
-        week_start = work_order_report.resolve_week(week, now)
+        session = attendance_service.review_session(
+            db, actor=user, session_id=session_id)
     except DomainError as exc:
         raise to_http(exc) from exc
-    result = attendance_service.mark_week_reviewed(
-        db, actor=user, week_start=week_start, now=now)
     emit_attendance_changed()
-    return result
+    return {"session_id": session.id, "reviewed_at": session.reviewed_at}
 
 
 @router.get("/attendance/export")

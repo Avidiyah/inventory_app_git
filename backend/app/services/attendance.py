@@ -12,7 +12,7 @@ work orders, work orders never imports this.
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from typing import Iterable, Optional
 
 from sqlalchemy import or_
@@ -56,6 +56,7 @@ class MyPunch:
     needs_review: bool
     tags: list[str]
     shop: bool = False
+    end_source: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -356,7 +357,7 @@ def me_payload(
                     ended_at=attendance.capped_end(p.started_at, p.ended_at, now=now),
                     needs_review=bool(p.needs_review),
                     tags=marks[p.id].tags if p.id in marks else [],
-                    shop=bool(p.shop))
+                    shop=bool(p.shop), end_source=p.end_source)
             for p in week_rows
         ],
     )
@@ -405,11 +406,15 @@ def _require_punch_editor(actor: User, *, owner_id: uuid.UUID,
     only while every start involved sits in the open Central week (spec
     U1/U4). Returns whether the actor is the punch's owner."""
     is_self = actor.id == owner_id
-    if actor.role is not None and roles.role_at_least(actor.role, roles.ROLE_SUPERVISOR):
+    if _is_team_lead_plus(actor):
         return is_self
     if not is_self or not all(labor_day.week_is_open(s, now) for s in starts):
         raise TimeEditForbiddenError(SELF_EDIT_REFUSAL)
     return True
+
+
+def _is_team_lead_plus(actor: User) -> bool:
+    return actor.role is not None and roles.role_at_least(actor.role, roles.ROLE_SUPERVISOR)
 
 
 def _is_admin(actor: User) -> bool:
@@ -476,8 +481,9 @@ def admin_edit_punch(db: Session, *, actor: User, punch_id,
     `lunch_waived` removes or restores the day's flat lunch (L2). It never
     clears `needs_review` (L4): a midnight close is still an estimate.
 
-    A Team Lead may correct anyone's times, a worker their own open-week
-    punch's (spec U1); "Looks right" alone and the lunch waiver stay
+    A Team Lead may correct anyone's times and say "Looks right"
+    (`needs_review=False`); a worker may correct their own open-week punch's
+    times (spec U1) but never sends `needs_review`. The lunch waiver stays
     Admin-only.
     """
     now = now or datetime.now(timezone.utc)
@@ -487,7 +493,9 @@ def admin_edit_punch(db: Session, *, actor: User, punch_id,
                                     starts=(punch.started_at, new_start), now=now)
     # A worker clears a flag only by changing a time (U11), never by sending
     # `needs_review` -- not even beside a resent, unchanged time.
-    if not _is_admin(actor) and (lunch_waived is not None or needs_review is not None):
+    if lunch_waived is not None and not _is_admin(actor):
+        raise TimeEditForbiddenError(SELF_EDIT_REFUSAL)
+    if needs_review is not None and not _is_team_lead_plus(actor):
         raise TimeEditForbiddenError(SELF_EDIT_REFUSAL)
     # The Admin acted on what the read showed: a punch past its midnight is
     # closed and flagged there (M1). Write that first, so "Looks right" has a
@@ -570,59 +578,23 @@ def admin_delete_punch(db: Session, *, actor: User, punch_id,
     return punch
 
 
-BULK_REVIEW_REASON = "Bulk reviewed"
+def review_session(db: Session, *, actor: User, session_id,
+                   now: Optional[datetime] = None) -> WorkOrderLaborSession:
+    """Accept one auto-stopped work-order clock (Team Lead+, gated at the route).
 
-
-@dataclass(frozen=True)
-class WeekReview:
-    punches: int
-    sessions: int
-
-
-def mark_week_reviewed(db: Session, *, actor: User, week_start: date,
-                       now: Optional[datetime] = None) -> WeekReview:
-    """`Mark all reviewed`: accept every estimate touching one Central week.
-
-    Flagged punches are cleared exactly as "Looks right" clears one -- an
-    audit row each, under `BULK_REVIEW_REASON`. Auto-closed sessions get
-    `reviewed_at`. Over-cap clocks still running are swept first, so they
-    close at the capped instant and are accepted with the rest.
-
-    Punches still open from an earlier day are swept first, so a midnight
-    close is accepted with the rest.
+    An over-cap clock still running is swept first, so it closes at the capped
+    instant and is accepted in the same call. Writes `reviewed_at` only, with no
+    audit row. Anything that is not an unaccepted auto-close -- unknown,
+    already accepted, stopped by hand -- is a 404.
     """
     now = now or datetime.now(timezone.utc)
-    wo_service.sweep_stale_sessions(db, now=now)
-    sweep_open_punches(db, now=now)
-    window_start, _ = labor_day.day_bounds(week_start)
-    _, window_end = labor_day.day_bounds(week_start + timedelta(days=6))
-
-    punches = (
-        live_punches(db)
-        .filter(
-            AttendancePunch.needs_review.is_(True),
-            AttendancePunch.started_at < window_end,
-            AttendancePunch.ended_at > window_start,
-        )
-        .all()
-    )
-    for punch in punches:
-        punch.needs_review = False
-        _audit(db, punch=punch, actor=actor, field="needs_review", old="true",
-               new="false", reason=BULK_REVIEW_REASON, now=now)
-
-    sessions = (
-        db.query(WorkOrderLaborSession)
-        .filter(
-            WorkOrderLaborSession.auto_closed_at.isnot(None),
-            WorkOrderLaborSession.reviewed_at.is_(None),
-            WorkOrderLaborSession.started_at < window_end,
-            WorkOrderLaborSession.ended_at > window_start,
-        )
-        .all()
-    )
-    for session in sessions:
-        session.reviewed_at = now
-
+    session = db.get(WorkOrderLaborSession, session_id)
+    if session is not None:
+        wo_service.sweep_stale_sessions(db, technician_id=session.technician_id, now=now)
+        db.refresh(session)
+    if session is None or session.auto_closed_at is None or session.reviewed_at is not None:
+        raise PunchNotFoundError("That clock is not waiting for review.")
+    session.reviewed_at = now
     db.commit()
-    return WeekReview(punches=len(punches), sessions=len(sessions))
+    db.refresh(session)
+    return session

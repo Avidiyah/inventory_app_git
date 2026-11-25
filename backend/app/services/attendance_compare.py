@@ -40,6 +40,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -80,6 +81,21 @@ class CompareRow:
 
 
 @dataclass(frozen=True)
+class FlaggedSession:
+    """A work-order clock awaiting acceptance, listed once on the first day of
+    the week it touches (a midnight crossing is one clock, not two)."""
+
+    session_id: uuid.UUID
+    user_id: uuid.UUID
+    date: date
+    work_order_id: uuid.UUID
+    number: str
+    started_at: datetime
+    ended_at: Optional[datetime]
+    running: bool
+
+
+@dataclass(frozen=True)
 class CompareWeek:
     week_start: date
     week_end: date
@@ -93,10 +109,10 @@ class CompareWeek:
     delta_minutes: int
     week_hours: int
     labor_rate: Decimal         # the leaderboard's $/hour; billing's own rate
-    # What "Mark all reviewed" would accept: flagged punches (midnight closes
-    # included -- review sweeps them first) plus unaccepted auto-closed
-    # sessions.
+    # Flagged punches (midnight closes included -- review sweeps them first)
+    # plus unaccepted auto-closed sessions.
     reviewable_count: int
+    flagged_sessions: list[FlaggedSession]
 
 
 def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek:
@@ -122,6 +138,7 @@ def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek
     totals_minutes = {day: 0 for day in clocked.days}
     totals_paid = {day: 0 for day in clocked.days}
     reviewable: set = set()
+    flagged_by_session: dict[uuid.UUID, FlaggedSession] = {}
     for row in clocked.rows:
         by_day = {
             summary.day: summary for summary in summaries.get(row.user.id, [])
@@ -157,6 +174,14 @@ def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek
                 if entry.needs_review
             }
             reviewable |= flagged_punches | flagged_sessions
+            for entry in (summary.timeline if summary else []):
+                if entry.needs_review:
+                    # Days run in order, so the first sighting is the first day.
+                    flagged_by_session.setdefault(entry.session_id, FlaggedSession(
+                        session_id=entry.session_id, user_id=row.user.id,
+                        date=day.date, work_order_id=entry.work_order_id,
+                        number=entry.number, started_at=entry.started_at,
+                        ended_at=entry.ended_at, running=entry.ended_at is None))
             pending = attendance.day_pending_review(
                 day.punches, summary.timeline if summary else [])
             days.append(
@@ -215,6 +240,8 @@ def week_payload(db: Session, *, week_start: date, now: datetime) -> CompareWeek
         week_hours=clocked.week_hours,
         labor_rate=wo.LABOR_RATE,
         reviewable_count=len(reviewable),
+        flagged_sessions=sorted(flagged_by_session.values(),
+                                key=lambda f: (f.date, f.started_at)),
     )
 
 

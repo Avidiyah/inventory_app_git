@@ -37,6 +37,7 @@ class AttendanceMyPunch(BaseModel):
     needs_review: bool
     tags: list[str] = Field(default_factory=list)
     shop: bool = False
+    end_source: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -139,6 +140,22 @@ class AttendanceWeekDayTotal(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AttendanceFlaggedSession(BaseModel):
+    """A work-order clock awaiting acceptance; `date` is the first day of the
+    week on screen it touches, `ended_at` is null while `running`."""
+
+    session_id: uuid.UUID
+    user_id: uuid.UUID
+    date: date
+    work_order_id: uuid.UUID
+    number: str
+    started_at: datetime
+    ended_at: Optional[datetime] = None
+    running: bool
+
+    model_config = {"from_attributes": True}
+
+
 class AttendanceWeekResponse(BaseModel):
     """Clocked time only (§8): real wall-clock on shift, never rounded.
 
@@ -167,6 +184,7 @@ class AttendanceWeekResponse(BaseModel):
     week_hours: int
     labor_rate: Decimal
     reviewable_count: int
+    flagged_sessions: list[AttendanceFlaggedSession] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
@@ -223,11 +241,11 @@ class PunchAddRequest(BaseModel):
     reason: Optional[str] = None
 
 
-class WeekReviewResponse(BaseModel):
-    """What `Mark all reviewed` accepted for one week."""
+class SessionReviewResponse(BaseModel):
+    """One auto-stopped work-order clock accepted."""
 
-    punches: int
-    sessions: int
+    session_id: uuid.UUID
+    reviewed_at: datetime
 
     model_config = {"from_attributes": True}
 
