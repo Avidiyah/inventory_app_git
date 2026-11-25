@@ -561,7 +561,6 @@ def test_no_route_gate_is_left_at_the_admin_floor():
         "get_hub_report",
         "export_hub_report",
         "export_hub_attendance",
-        "review_hub_attendance_week",
         "get_hub_performance",  # 2026-10-29: the scored board prices labor
         # 2026-11-02: the whole catalogue with prices as CSV, by design above
         # the OA-level xlsx export (test_inventory_export.py holds the 403).
@@ -623,9 +622,9 @@ def test_the_hours_routes_open_at_team_lead(endpoint_name):
     assert _min_role_for(hub_router, endpoint_name) == roles.ROLE_SUPERVISOR
 
 
-def test_bulk_review_sits_above_techfm_oa():
-    # Clearing the week's review flags stays Admin-only.
-    assert _min_role_for(hub_router, "review_hub_attendance_week") == roles.ROLE_ADMIN
+def test_accepting_a_flagged_clock_is_team_lead_plus():
+    # Fix flagged time (2026-11-25): one clock at a time, Team Lead and above.
+    assert _min_role_for(hub_router, "review_hub_attendance_session") == roles.ROLE_SUPERVISOR
 
 
 @pytest.mark.parametrize(

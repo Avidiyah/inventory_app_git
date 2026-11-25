@@ -236,7 +236,7 @@ EXCLUDED = (
     "POST /integrations/netfacilities/cloud/auth/start",
     "POST /integrations/netfacilities/work-orders/enrich",
     "POST /integrations/netfacilities/cloud/downloads/import",
-    "POST /hub/attendance/week/review",       # marks real dev-DB punches reviewed
+    "POST /hub/attendance/sessions/{session_id}/review",  # marks a real dev-DB clock reviewed
     "POST /work-orders/legacy/archive",       # archives real dev-DB rows
     "POST /work-orders/smr/import-paper",     # two uploads; the driver posts one file part
     "POST /work-orders/smr/workers",          # adds a vendor worker no route deletes

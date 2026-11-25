@@ -731,7 +731,7 @@ def test_the_attendance_emitter_set_is_exactly_the_punch_writes():
         "edit_hub_attendance_punch",
         "clock_out_hub_attendance_user",
         "delete_hub_attendance_punch",
-        "review_hub_attendance_week",
+        "review_hub_attendance_session",
     }
 
 
