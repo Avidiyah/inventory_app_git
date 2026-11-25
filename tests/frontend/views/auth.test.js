@@ -418,6 +418,8 @@ describe("resuming a held work-order editor after a session expiry", () => {
       action: "add-labor",
       payload: { technicianId: "t1", minutes: 90 },
     });
+    // The card opens on Materials; the operator moved to Labor (one section at a time).
+    document.querySelector(".wo-materials-section").open = false;
     document.querySelector(".wo-labor-section").open = true;
 
     server.use(http.get("/users/", () => HttpResponse.json({ detail: "expired" }, { status: 401 })));

@@ -116,6 +116,11 @@ export const SCRIPTS = [
         "Admin Review is the last billing check on a finished job.",
         "From here a job is closed, or sent back to In-Progress.",
       ]),
+      wait("takeoff", "review", "Review", "Takeoff"),
+      look("takeoff", [
+        "Takeoff shows the material planned for open work orders.",
+        "It also shows what is short, so you can order it.",
+      ]),
       wait("history", "review", "Review", "History", { textFor: { supervisor: "Tap History to begin." } }),
       look("history", [
         "History lists every stock transaction.",

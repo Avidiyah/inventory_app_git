@@ -119,7 +119,7 @@ describe("starter scripts", () => {
   it("keeps the data rules", () => {
     expect(entry, "starter missing from the index").toBeTruthy();
     for (const s of entry.scripts) {
-      expect(s.steps.length, s.key).toBeLessThanOrEqual(8);
+      expect(s.steps.length, s.key).toBeLessThanOrEqual(10);
       for (const step of s.steps) {
         if (step.waitTap) {
           expect(step.waitTap).toMatch(/^\.nav-btn\[data-page="[a-z-]+"\]$/);

@@ -72,6 +72,7 @@ from app.models import (
     WorkOrderLabor,
     WorkOrderLaborSession,
     WorkOrderSignature,
+    WorkOrderTakeoffLine,
     WorkOrderTechnician,
 )
 from app.models_smr import SmrCorrectionBlock, SmrLaborLine
@@ -563,6 +564,8 @@ def _get_visible(
             selectinload(WorkOrder.labor_sessions),
             selectinload(WorkOrder.labor_entries).selectinload(WorkOrderLabor.session),
             joinedload(WorkOrder.signature).joinedload(WorkOrderSignature.captured_by),
+            # Joined, not selectin: no extra round trip (card-open query budget).
+            joinedload(WorkOrder.takeoff_lines).joinedload(WorkOrderTakeoffLine.item),
         ]
     work_order = (
         db.query(WorkOrder)
