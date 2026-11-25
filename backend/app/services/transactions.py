@@ -35,6 +35,7 @@ from app.domain.quantity import apply_delta, reverse_delta
 from app.models import Item, Transaction, WorkOrder, WorkOrderItem
 from app.services import low_stock
 from app.services import material_requests
+from app.services import takeoff as takeoff_service
 from app.services import user_requests as request_service
 from app.services import work_orders as wo_service
 
@@ -92,6 +93,9 @@ def apply_transaction(
         recount_required = shortage_quantity > 0
     else:
         item.quantity = apply_delta(quantity_before, transaction_type, quantity)
+        if transaction_type == "stock":
+            # A delivery arrived: count the item's on-the-way takeoff rows down.
+            takeoff_service.count_down_purchases(db, item_id=item_id, quantity=quantity)
 
     new_txn = Transaction(
         item_id=item_id,

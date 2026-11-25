@@ -3091,6 +3091,7 @@ def add_work_order_item(
     item_id: uuid.UUID,
     quantity: Decimal,
     material_request_id: Optional[uuid.UUID] = None,
+    takeoff_line_id: Optional[uuid.UUID] = None,
 ) -> WorkOrderItem:
     """Log a material against a work order using its current `entry_mode`.
     Re-adding an item ADDS to its line (each add is its own ledger row). Writes
@@ -3105,6 +3106,15 @@ def add_work_order_item(
     work_order = _get_visible(db, work_order_id, user)
     require_crew_for_technician(work_order, user)
     item = _locked_live_item(db, item_id)
+    if takeoff_line_id is not None:
+        # First, so a stale line (409) leaves stock untouched; the count-down
+        # commits or rolls back with the dispense. Local import: takeoff imports us.
+        from app.services import takeoff as takeoff_service
+
+        takeoff_service.consume_line(
+            db, line_id=takeoff_line_id, work_order_id=work_order.id,
+            item_id=item.id, quantity=quantity,
+        )
     if material_request_id is not None:
         material_requests.resolve_from_line(
             db,

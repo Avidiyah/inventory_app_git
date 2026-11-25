@@ -59,6 +59,7 @@ from app.routers import (
     netfacilities,
     push,
     realtime,
+    takeoff,
     tools,
     tutorials,
     transactions,
@@ -352,6 +353,7 @@ app.include_router(tutorials.router)
 app.include_router(transactions.router)
 app.include_router(user_requests.router)
 app.include_router(users.router)
+app.include_router(takeoff.router)
 app.include_router(work_orders_smr.router)
 app.include_router(work_order_photos.router)
 app.include_router(work_orders.router)

@@ -13,6 +13,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.schemas.takeoff import TakeoffLineOut
 from app.schemas.work_orders_smr_lines import SmrBlockOut, SmrLineOut, SmrReadingOut
 
 
@@ -150,6 +151,9 @@ class WorkOrderItemCreate(BaseModel):
     # a stale id (not stocked, wrong work order, wrong item) is 409 and adds
     # nothing.
     material_request_id: Optional[UUID] = None
+    # Set when the Add came from a takeoff line's Dispense button; the service
+    # counts the line down in the same transaction (stale id is 409, adds nothing).
+    takeoff_line_id: Optional[UUID] = None
 
     @field_validator("quantity")
     @classmethod
@@ -539,6 +543,8 @@ class WorkOrderDetail(WorkOrderCard):
     signature: Optional[WorkOrderSignatureOut] = None
     # Photos held for export (spec 2026-11-24); the card lists them on open.
     photo_count: int = 0
+    # Predicted material still to dispense (Takeoff); never stock or billing.
+    takeoff: list[TakeoffLineOut] = Field(default_factory=list)
     # The client's target and the gap to it; SMR orders with a target only.
     smr_target: Optional[SmrTargetOut] = None
     # Paper check mark; SMR orders only, None until someone sets it.

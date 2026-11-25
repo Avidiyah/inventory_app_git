@@ -32,6 +32,7 @@ from app.domain.errors import WorkOrderAssignmentConflictError
 from app.routers import hub as hub_router
 from app.routers import items as items_router
 from app.routers import netfacilities as netfacilities_router
+from app.routers import takeoff as takeoff_router
 from app.routers import tools as tools_router
 from app.routers import tutorials as tutorials_router
 from app.routers import users as users_router
@@ -740,3 +741,18 @@ def test_tutorial_progress_users_requires_supervisor_and_documents_its_403():
         == roles.ROLE_SUPERVISOR
     )
     assert 403 in _route(tutorials_router, "tutorial_progress_users").responses
+
+
+@pytest.mark.parametrize(
+    "endpoint_name,expected",
+    [
+        ("add_takeoff_line", roles.ROLE_SUPERVISOR),
+        ("update_takeoff_line", roles.ROLE_SUPERVISOR),
+        ("delete_takeoff_line", roles.ROLE_SUPERVISOR),
+        ("takeoff_overview", roles.ROLE_TECHFM_OA),
+        ("set_takeoff_purchase", roles.ROLE_TECHFM_OA),
+    ],
+)
+def test_takeoff_routes_are_gated_and_document_403(endpoint_name, expected):
+    assert _min_role_for(takeoff_router, endpoint_name) == expected
+    assert 403 in _route(takeoff_router, endpoint_name).responses

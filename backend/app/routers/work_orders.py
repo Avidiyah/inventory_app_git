@@ -58,6 +58,7 @@ from app.models import User, WorkOrder, WorkOrderItem, WorkOrderLabor, WorkOrder
 from app.routers._errors import to_http
 from app.routers._stock_events import flush_stock_events
 from app.routers._uploads import MAX_CSV_UPLOAD_BYTES, read_capped
+from app.schemas.takeoff import TakeoffLineOut
 from app.schemas.work_orders_smr_lines import SmrLineOut, SmrReadingOut
 from app.schemas.work_orders import (
     LegacyWorkOrderArchivePreview,
@@ -588,6 +589,13 @@ def _detail(
         labor_total=figures.labor_total if include_price else None,
         signature=_signature_out(work_order),
         photo_count=_photo_count(db, work_order),
+        takeoff=[
+            TakeoffLineOut(id=t.id, item_id=t.item_id, item_name=t.item.name, quantity=t.quantity)
+            for t in sorted(
+                getattr(work_order, "takeoff_lines", None) or (),
+                key=lambda t: t.item.name.casefold(),
+            )
+        ],
         smr_target=SmrTargetOut.from_gap(gap, include_price=include_price) if gap else None,
         smr_paper_check=SmrPaperCheckOut.from_order(work_order) if is_smr else None,
         smr_ready=SmrReadyOut.from_order(work_order) if is_smr else None,
@@ -1396,6 +1404,7 @@ def add_work_order_item(
             item_id=payload.item_id,
             quantity=payload.quantity,
             material_request_id=payload.material_request_id,
+            takeoff_line_id=payload.takeoff_line_id,
         )
         flush_stock_events(db, background)
         _emit_status_changed(work_order_id)

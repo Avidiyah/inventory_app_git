@@ -427,4 +427,14 @@ CATALOGUE: dict[str, Entry] = {k: Entry(exclude="see EXCLUDED") for k in EXCLUDE
     "DELETE /work-orders/{work_order_id}/labor/{labor_id}": Entry(path="/work-orders/{active_work_order_id}/labor/{id}"),
     "PATCH /work-orders/{work_order_id}/labor/{labor_id}": Entry(
         path="/work-orders/{active_work_order_id}/labor/{labor_id}", body=J({"minutes": 6})),
+    "POST /work-orders/{work_order_id}/takeoff": Entry(
+        path="/work-orders/{active_work_order_id}/takeoff", body=J({"item_id": "{item2_id}", "quantity": 1}),
+        cycle=["POST /work-orders/{work_order_id}/takeoff", "PATCH /work-orders/{work_order_id}/takeoff/{line_id}",
+               "DELETE /work-orders/{work_order_id}/takeoff/{line_id}"]),
+    "PATCH /work-orders/{work_order_id}/takeoff/{line_id}": Entry(
+        path="/work-orders/{active_work_order_id}/takeoff/{id}", body=J({"quantity": 2})),
+    "DELETE /work-orders/{work_order_id}/takeoff/{line_id}": Entry(path="/work-orders/{active_work_order_id}/takeoff/{id}"),
+    # Quantity 0 takes the clear path, so the sweep leaves no purchase row behind.
+    "PUT /takeoff/purchases": Entry(body=J({
+        "item_id": "{item_id}", "service_type_key": "memprobe", "service_type_label": "Memprobe", "quantity": 0})),
 }
