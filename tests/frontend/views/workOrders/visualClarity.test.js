@@ -93,8 +93,9 @@ describe("C3 Overdue tag", () => {
     });
     expect(card().querySelector(".wo-tag-overdue")).toBeNull();
     await openCard(0);
-    expect(card().querySelectorAll(".wo-tag-overdue")).toHaveLength(1);
-    expect(card().querySelector(".wo-status > svg.wo-glyph")).not.toBeNull();
+    // The card page's summary row is hidden; the pin carries the chips.
+    expect(card().querySelectorAll(".wo-pin .wo-tag-overdue")).toHaveLength(1);
+    expect(card().querySelector(".wo-pin .wo-status > svg.wo-glyph")).not.toBeNull();
   });
 });
 
@@ -164,7 +165,7 @@ describe("C4 one primary action per state", () => {
 
   it("puts Netfacilities, Archive and Edit details in the trailing More menu for Admin+", async () => {
     const admin = await renderCell({ role: "admin", status: "in_progress" });
-    const more = admin.querySelector(".wo-actionbar > .wo-more");
+    const more = admin.querySelector(".wo-pin .wo-topbar > .wo-more");
     expect(more.parentElement.lastElementChild).toBe(more);
     const menu = more.querySelector(".wo-more-menu");
     expect(Array.from(menu.querySelectorAll("[data-action]"), (b) => b.dataset.action))
@@ -201,7 +202,8 @@ describe("C5 charging strip", () => {
     const strip = cardEl.querySelector(".wo-charging-strip");
     const expected = new Date("2026-09-10T14:14:00Z").toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     expect(strip.textContent).toBe(`Charging since ${expected}`);
-    expect(strip.parentElement.firstElementChild).toBe(strip);
+    // The pin leads the body; the strip is the first thing under it.
+    expect(strip.previousElementSibling.id).toBe("wo-sec-pin");
   });
 
   it("is absent with no running session", async () => {

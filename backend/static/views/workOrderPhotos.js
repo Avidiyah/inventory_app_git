@@ -45,8 +45,8 @@ function stripHtml(photos) {
 function showCount(section, count) {
   const label = photosTabLabel(count);
   section.querySelector(".wo-section-summary").textContent = label;
-  const tab = section.parentElement?.querySelector(':scope > .wo-tabs > .wo-tab[data-wo-tab="photos"]');
-  if (tab) tab.textContent = label;
+  const tab = section.parentElement?.querySelector(':scope > .wo-pin .wo-tab[data-wo-tab="photos"] small');
+  if (tab) tab.textContent = count ? String(count) : "";
 }
 
 export async function loadPhotoStrip(section) {

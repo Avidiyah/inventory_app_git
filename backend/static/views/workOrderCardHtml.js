@@ -50,7 +50,8 @@ import { getAllSupervisors, getAllTechnicians } from "./workOrderReferenceData.j
 import { livePriorityValues } from "./workOrderFilters.js";
 import { canEditSmrLines, readyRowHtml, smrInvoiceSectionHtml, smrLaborSectionHtml } from "./workOrderSmrLines.js";
 import { comboHtml } from "../menus.js";
-import { photosSectionHtml, photosTabLabel } from "./workOrderPhotos.js";
+import { photosSectionHtml } from "./workOrderPhotos.js";
+import { pinHtml, syncTopBar, topBarHtml } from "./workOrderTopBar.js";
 
 function renderLaborEntryHtml(entry) {
   const actions = canEditLaborEntry(entry)
@@ -540,35 +541,18 @@ export function renderBody(detail, bodyEl) {
 
   const showLabor = sup || assignedToCurrentUser || detail.smr;
   const invoice = smrInvoiceSectionHtml(detail);
-  const itemCount = detail.items.length;
-  const laborMinutes = Number(detail.labor_minutes) || 0;
-  const tabs = [
-    ["details", "Details"],
-    ["notes", "Notes"],
-    ["materials", itemCount ? `Materials · ${itemCount}` : "Materials"],
-    ...(showLabor ? [["labor", laborMinutes ? `Labor · ${hoursInputValue(laborMinutes)} h` : "Labor"]] : []),
-    ["photos", photosTabLabel(detail.photo_count)],
-    ...(invoice ? [["invoice", "Invoice"]] : []),
-  ];
-  const tabBar = `<div class="wo-tabs" id="wo-sec-tabs" role="tablist" aria-label="Work order sections">${tabs
-    .map(([key, label]) => `<button type="button" class="wo-tab" role="tab" data-wo-tab="${key}" aria-selected="false">${escapeHtml(label)}</button>`)
-    .join("")}</div>`;
-
-  // The next-step card above the tabs: the lifecycle's next step and its siblings, then a "More"
-  // menu holding the Admin tools and Edit details.
-  const more = (tools || sup)
-    ? `<details class="wo-more"><summary class="wo-more-btn" aria-label="More actions">⋯</summary>
-         <div class="wo-more-menu">${tools}${sup ? `<button type="button" class="secondary-btn" data-wo-open-edit>Edit details</button>` : ""}</div>
-       </details>`
-    : "";
-  const statusActions = (detail.smr ? "" : primary + secondary) + more;
+  // The pin carries the task, the place and the section bar. Invoice (SMR) is
+  // the only extra section so far; it is listed under More.
+  const moreSections = invoice ? [["invoice", "Invoice"]] : [];
+  const pin = pinHtml(detail, topBarHtml(detail, { showLabor, moreSections, toolsHtml: tools, canEdit: sup }));
+  const statusActions = detail.smr ? "" : primary + secondary;
 
   bodyEl.innerHTML =
+    pin +
     chargingStripHtml(detail) +
     crewLockHtml(detail) +
     priorWorkBannerHtml(detail) +
     (statusActions ? `<div class="wo-actionbar" id="wo-sec-actions">${statusActions}</div>` : "") +
-    tabBar +
     `<div class="wo-tab-details" id="wo-sec-details">` +
     (detail.smr ? readyRowHtml(detail, canEditSmrLines()) : "") +
     `<div class="wo-details">${detailsViewHtml(detail)}</div>` +
@@ -586,7 +570,7 @@ export function renderBody(detail, bodyEl) {
          <p class="wo-notes-message" id="wo-notes-msg" data-live-keep aria-live="polite"></p>`}
        </div>
      </details>` +
-    `<details class="wo-section-card wo-materials-section" id="wo-sec-materials">
+    `<details class="wo-section-card wo-materials-section" id="wo-sec-materials"${gated ? "" : " open"}>
        <summary class="wo-section-summary">Materials</summary>
        <div class="wo-section-content">
          ${modeControl}
@@ -647,9 +631,7 @@ export function syncWorkOrderTabs(bodyEl, { settle = false } = {}) {
     else if (settle) el.open = false;
   }
   bodyEl.dataset.woTab = active;
-  bodyEl.querySelectorAll(":scope > .wo-tabs > .wo-tab").forEach((tab) => {
-    tab.setAttribute("aria-selected", String(tab.dataset.woTab === active));
-  });
+  syncTopBar(bodyEl, active);
 }
 
 function renderLineHtml(it, locked = false) {

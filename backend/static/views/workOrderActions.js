@@ -674,6 +674,8 @@ listEl.addEventListener("click", (event) => {
   // `.wo-tab`: the body carries data-wo-tab too (the active tab, for CSS).
   const tab = event.target.closest(".wo-tab[data-wo-tab]");
   if (tab) {
+    const more = tab.closest("details.wo-more");
+    if (more) more.open = false;
     showWorkOrderTab(tab.closest(".wo-body"), tab.dataset.woTab);
     return;
   }

@@ -737,31 +737,33 @@ describe("the whole card body", () => {
   it("renders every section a supervisor sees, once", async () => {
     const { cardEl } = await renderBody({}, { role: "supervisor" });
     for (const selector of [
-      ".wo-tabs", ".wo-actionbar", ".wo-details", ".wo-edit-card", ".wo-notes-section",
+      ".wo-pin", ".wo-topbar", ".wo-actionbar", ".wo-details", ".wo-edit-card", ".wo-notes-section",
       ".wo-materials-section", ".wo-labor-section", ".wo-message",
     ]) {
       expect(cardEl.querySelectorAll(selector), selector).toHaveLength(1);
     }
   });
 
-  it("opens one section per tab and lands on Details", async () => {
+  it("opens one section per tab and lands on Materials", async () => {
     const { cardEl } = await renderBody({}, { role: "supervisor" });
     const body = cardEl.querySelector(".wo-body");
-    const tabs = [...body.querySelectorAll(".wo-tab")].map((t) => t.dataset.woTab);
-    expect(tabs).toEqual(["details", "notes", "materials", "labor", "photos"]);
-    expect(body.dataset.woTab).toBe("details");
-    body.querySelector('[data-wo-tab="materials"]').click();
+    const tabs = [...body.querySelectorAll(".wo-pin .wo-tab")].map((t) => t.dataset.woTab);
+    expect(tabs).toEqual(["materials", "labor", "notes", "photos", "details"]);
+    expect(body.dataset.woTab).toBe("materials");
     expect(body.querySelector(".wo-materials-section").open).toBe(true);
-    expect(body.querySelector(".wo-notes-section").open).toBe(false);
-    expect(body.querySelector('.wo-tab[aria-selected="true"]').dataset.woTab).toBe("materials");
+    body.querySelector('[data-wo-tab="notes"]').click();
+    expect(body.querySelector(".wo-notes-section").open).toBe(true);
+    expect(body.querySelector(".wo-materials-section").open).toBe(false);
+    expect(body.querySelector('.wo-tab[aria-selected="true"]').dataset.woTab).toBe("notes");
     // The entry mode sits with the materials it governs.
     expect(body.querySelector(".wo-materials-section .wo-mode-select")).not.toBeNull();
   });
 
-  it("keeps the message as the body's last child, with the action bar above the tabs", async () => {
+  it("keeps the message as the body's last child, with the pin first and the action bar under it", async () => {
     const { cardEl } = await renderBody({}, { role: "supervisor" });
     const body = cardEl.querySelector(".wo-body");
     expect(body.lastElementChild.className).toBe("wo-message");
-    expect(body.querySelector(".wo-actionbar").nextElementSibling.className).toBe("wo-tabs");
+    expect(body.firstElementChild.className).toBe("wo-pin");
+    expect(body.querySelector(".wo-actionbar").previousElementSibling.className).toBe("wo-pin");
   });
 });

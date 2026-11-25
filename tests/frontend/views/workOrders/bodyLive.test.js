@@ -288,7 +288,9 @@ describe("tabs, message lines and the notes gate", () => {
   it("a crew-lock hint that appears lands at the top, not in the message line", async () => {
     const { patch } = await open({ role: "technician", prep: (d, me) => { d.assigned_to_ids = [me.id]; } });
     patch({ assigned_to_ids: [T1], assigned_to_names: ["Pat"] });
-    expect(cardBody().firstElementChild.id).toBe("wo-sec-lock");
+    // The pin leads the body; the lock hint is the first thing under it.
+    expect(cardBody().firstElementChild.id).toBe("wo-sec-pin");
+    expect(cardBody().children[1].id).toBe("wo-sec-lock");
     expect(msg().textContent).toBe("");
     expect(cardBody().lastElementChild).toBe(msg());
   });

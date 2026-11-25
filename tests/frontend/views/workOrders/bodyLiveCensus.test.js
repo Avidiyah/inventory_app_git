@@ -9,7 +9,7 @@ import { setTestUser } from "../../helpers/session.js";
 import { importView, mountShell } from "../../helpers/shell.js";
 
 const SECTION_ORDER = [
-  "wo-sec-charging", "wo-sec-lock", "wo-sec-prior", "wo-sec-actions", "wo-sec-tabs", "wo-sec-details", "wo-sec-notes",
+  "wo-sec-pin", "wo-sec-charging", "wo-sec-lock", "wo-sec-prior", "wo-sec-actions", "wo-sec-details", "wo-sec-notes",
   "wo-sec-materials", "wo-sec-labor", "wo-sec-photos", "wo-sec-invoice", "wo-sec-msg",
 ];
 const ROLES = [

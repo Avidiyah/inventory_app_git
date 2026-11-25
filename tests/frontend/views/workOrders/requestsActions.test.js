@@ -262,6 +262,7 @@ describe("add-requested", () => {
   it("prefills the add row, stamps the request id, opens Materials and focuses the quantity", async () => {
     await open({ requests: [stocked] });
     const materials = card().querySelector(".wo-materials-section");
+    materials.open = false; // the card opens on Materials; start from a closed section
     expect(materials.open).toBe(false);
     click("add-requested");
     const container = card().querySelector(".wo-add-item");
@@ -279,12 +280,14 @@ describe("add-requested", () => {
   it("does nothing without an add row to fill", async () => {
     await open({ requests: [stocked] });
     card().querySelector(".wo-add-item").remove();
+    card().querySelector(".wo-materials-section").open = false;
     click("add-requested");
     expect(card().querySelector(".wo-materials-section").open).toBe(false);
   });
 
   it("a request action outside any card is ignored", async () => {
     await open({ requests: [stocked] });
+    card().querySelector(".wo-materials-section").open = false;
     const stray = document.createElement("button");
     stray.dataset.requestAction = "add-requested";
     document.body.append(stray);

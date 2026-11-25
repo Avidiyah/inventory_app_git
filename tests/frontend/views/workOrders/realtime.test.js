@@ -209,6 +209,8 @@ describe("a held card", () => {
       role: "supervisor",
     });
     const cardEl = await openCard(0);
+    // The card opens on Materials; the user is moving to `selector`.
+    cardEl.querySelector(".wo-materials-section").open = false;
     cardEl.querySelector(selector).open = true;
     seedDetail({ ...detail, status: "completed" });
     // `toggle` is dispatched a task later; it is what moves the tab bar.
@@ -523,6 +525,9 @@ describe("a live update on the card page", () => {
   it("heldWorkOrderCards still reports a card with an open section", async () => {
     const { cardEl } = await openLive();
     const list = await importView("views/workOrderList.js");
+    // Materials is open on arrival, so a fresh card page already counts as held.
+    expect(list.heldWorkOrderCards()).toEqual([cardEl]);
+    cardEl.querySelector(".wo-materials-section").open = false;
     expect(list.heldWorkOrderCards()).toEqual([]);
     cardEl.querySelector(".wo-notes-section").open = true;
     expect(list.heldWorkOrderCards()).toEqual([cardEl]);

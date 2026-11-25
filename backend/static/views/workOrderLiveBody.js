@@ -89,7 +89,7 @@ export function patchBodyLive(detail, bodyEl, cardEl) {
 
   // A section the patch added open (an SMR Labor or Invoice) must not take
   // over the tab the user is reading.
-  if (tab && bodyEl.querySelector(`:scope > .wo-tabs > [data-wo-tab="${tab}"]`)) showWorkOrderTab(bodyEl, tab);
+  if (tab && bodyEl.querySelector(`:scope > .wo-pin [data-wo-tab="${tab}"]`)) showWorkOrderTab(bodyEl, tab);
   else syncWorkOrderTabs(bodyEl, { settle: true });
 
   // The notes gate: an acknowledgement covers only the notes it was given for.
