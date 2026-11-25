@@ -1,12 +1,13 @@
 // View: the User Hub's Timesheets tabpanel -- one page, no sub-tabs.
 //
 // Layer: views. Owns the panel's shell and both payloads' lazy loads,
-// caches and request counters. Team Lead+, who edit anyone's hours; the
-// export, bulk review and lunch waiver inside it stay Admin+.
+// caches and request counters. Team Lead+, who edit and accept anyone's
+// hours; the export and lunch waiver inside it stay Admin+.
 //
 // Top to bottom:
 //   roster      -- who is on the clock now, from `GET /hub/attendance/live`
-//   actions     -- Mark all reviewed and the CSV export (payroll actions)
+//   actions     -- Fix flagged time (the step-through pop-up in
+//                  flaggedTimeFlow.js) and the CSV export
 //   days        -- the week picker and seven day cards; a card opens the
 //                  day page in place (everyone clocked in, punch editor)
 //
@@ -25,13 +26,14 @@ import {
   apiEditAttendancePunch,
   apiGetHubAttendanceLive,
   apiGetHubAttendanceWeek,
-  apiReviewHubAttendanceWeek,
+  apiReviewAttendanceSession,
 } from "../api.js";
 import { messageDialog } from "../dom.js";
 import { escapeHtml, friendlyError } from "../format.js";
 import { subscribe } from "../realtime.js";
 import { roleAtLeast } from "../roles.js";
 import { skeletonCard } from "../skeleton.js";
+import { flaggedItems, openFlaggedTimeFlow } from "./flaggedTimeFlow.js";
 import { mondayOf, mountHubAttendanceDayPage, mountHubAttendanceDays } from "./hubAttendanceDay.js";
 import { destroyHubAttendanceRoster, mountHubAttendanceRoster } from "./hubAttendanceRoster.js";
 import { mountUserProfile } from "./userProfile.js";
@@ -42,9 +44,9 @@ let viewerRole = null;
 let weekPayload = null;
 let week = null;
 let weekRequestId = 0;
-// One-shot confirmation for the next actions paint, set by "Mark all
-// reviewed" -- the refetch remounts the actions and would wipe it.
-let weekNotice = "";
+// True while the Fix flagged time pop-up is open: the background week
+// refresh stands down, as it does for an open punch editor.
+let flowOpen = false;
 // The profile mounted in place of the week area (E2): `{ user, week }` or
 // null. While set, renderWeek and the background week refresh stand down.
 let profileOpen = null;
@@ -156,33 +158,63 @@ function setActionStatus(panelEl, message, type = "") {
   status.className = `hub-timesheets-message${type ? ` ${type}` : ""}`;
 }
 
-// The payroll actions: Mark all reviewed (Admin, when anything is
-// reviewable) and the CSV export, plus the notice line they report into.
+// The actions: Fix flagged time (Team Lead+, when anything in the week is
+// flagged) and the CSV export, plus the notice line they report into.
 function renderActions(panelEl, isAdmin) {
-  const reviewable = Number(weekPayload.reviewable_count) || 0;
-  const reviewButton = isAdmin && reviewable
-    ? `<button type="button" class="secondary-btn hub-timesheets-review-all">Mark all reviewed (${reviewable})</button>`
+  const flagged = roleAtLeast(viewerRole, "supervisor") ? flaggedItems(weekPayload).length : 0;
+  const fixButton = flagged
+    ? `<button type="button" class="secondary-btn hub-timesheets-fix-flagged">Fix flagged time (${flagged})</button>`
     : "";
   const mount = mountFor(panelEl, "actions");
-  // The export carries the pay record, so it stays Admin with the review.
+  // The export carries the pay record, so it stays Admin.
   const exportButton = isAdmin
     ? `<button type="button" class="secondary-btn hub-timesheets-export">Export CSV</button>`
     : "";
   mount.innerHTML = `<div class="hub-timesheets-action-row">
-      ${reviewButton}
+      ${fixButton}
       ${exportButton}
     </div>
     <p class="hub-timesheets-message" aria-live="polite"></p>`;
-  if (weekNotice) setActionStatus(panelEl, weekNotice, "success");
-  weekNotice = "";
-  mount.querySelector(".hub-timesheets-review-all")?.addEventListener("click", (event) => {
-    event.currentTarget.disabled = true;
-    setActionStatus(panelEl, "Marking reviewed…");
-    void write(panelEl, () => reviewWeek());
+  mount.querySelector(".hub-timesheets-fix-flagged")?.addEventListener("click", () => {
+    openFlow(panelEl);
   });
   mount.querySelector(".hub-timesheets-export")?.addEventListener("click", (event) => {
     void downloadCsv(panelEl, event.currentTarget);
   });
+}
+
+// The step-through owns no requests: each action is a call here, and the
+// flow asks for the refetched queue after every one that lands.
+function openFlow(panelEl) {
+  flowOpen = true;
+  openFlaggedTimeFlow({
+    items: flaggedItems(weekPayload),
+    canAccept: true,
+    actions: {
+      savePunch: (id, values) => apiEditAttendancePunch(id, values),
+      deletePunch: (id, reason) => apiDeleteAttendancePunch(id, reason),
+      looksRight: (id) => apiEditAttendancePunch(id, { needsReview: false }),
+      acceptSession: (id) => apiReviewAttendanceSession(id),
+      openWorkOrder: (number) => openByNumber(number),
+    },
+    refresh: async () => {
+      await loadWeek(panelEl);
+      return flaggedItems(weekPayload);
+    },
+    onClose: () => {
+      flowOpen = false;
+      // Live changes were held back while it was open.
+      void loadWeek(panelEl);
+    },
+  });
+}
+
+async function openByNumber(number) {
+  const [{ openWorkOrdersByNumberSearch }, { showPage }] = await Promise.all([
+    import("./workOrders.js"), import("./nav.js"),
+  ]);
+  openWorkOrdersByNumberSearch(number);
+  showPage("work-orders");
 }
 
 async function downloadCsv(panelEl, button) {
@@ -211,16 +243,16 @@ async function downloadCsv(panelEl, button) {
 function renderDay(panelEl, isAdmin) {
   const area = mountFor(panelEl, "week");
   area.innerHTML = `<div class="hub-timesheets-day"></div>`;
-  // The write callbacks are passed only to an Admin, and the grid
-  // renders an affordance only for a callback it was given -- so the floor
-  // is expressed once, here, rather than re-derived inside the view.
-  // Team Lead+ edit times; "Looks right" and the lunch waiver stay Admin.
+  // The grid renders an affordance only for a callback it was given -- so
+  // the floor is expressed once, here, rather than re-derived inside the
+  // view. Team Lead+ edit times and accept ("Looks right"); the lunch
+  // waiver stays Admin.
   const writes = {
     onSavePunch: (id, values) => write(panelEl, () => apiEditAttendancePunch(id, values)),
     onAddPunch: (userId, values) => write(panelEl, () => apiAddAttendancePunch({ userId, ...values })),
     onDeletePunch: (id, reason) => write(panelEl, () => apiDeleteAttendancePunch(id, reason)),
+    onClearReview: (id) => write(panelEl, () => apiEditAttendancePunch(id, { needsReview: false })),
     ...(isAdmin ? {
-      onClearReview: (id) => write(panelEl, () => apiEditAttendancePunch(id, { needsReview: false })),
       onToggleLunch: (id, waived) => write(panelEl, () => apiEditAttendancePunch(id, {
         lunchWaived: waived,
         reason: waived ? "Lunch removed by an Admin" : "Lunch restored by an Admin",
@@ -237,12 +269,6 @@ function renderDay(panelEl, isAdmin) {
     },
     onOpenProfile: (user) => openProfile(panelEl, user, week),
   });
-}
-
-async function reviewWeek() {
-  const { punches, sessions } = await apiReviewHubAttendanceWeek({ week });
-  const count = punches + sessions;
-  weekNotice = `Marked ${count} ${count === 1 ? "item" : "items"} reviewed.`;
 }
 
 function changeWeek(panelEl) {
@@ -289,12 +315,12 @@ async function loadLive(panelEl) {
 
 // Called by userHub.js on the hub's existing 60-second safety timer and on
 // an `attendance.changed` envelope. Inert while the tab is hidden. The week
-// is refetched only when no punch drill-down is open: a background repaint
-// would otherwise close an Admin's editor mid-edit.
+// is refetched only when no punch drill-down or Fix flagged time pop-up is
+// open: a background repaint would otherwise close an editor mid-edit.
 export function refreshTimesheetsLive(panelEl = hostPanel) {
   if (!panelEl || panelEl.hidden || !panelEl.querySelector(".hub-timesheets-week")) return;
   void loadLive(panelEl);
-  if (!profileOpen && !panelEl.querySelector(".punch-editor")) void loadWeek(panelEl);
+  if (!profileOpen && !flowOpen && !panelEl.querySelector(".punch-editor")) void loadWeek(panelEl);
 }
 
 function showWeekError(panelEl, err) {

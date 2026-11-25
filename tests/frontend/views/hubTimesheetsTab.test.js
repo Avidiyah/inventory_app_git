@@ -154,48 +154,28 @@ describe("the Admin punch writes", () => {
     await vi.waitFor(() => expect(queries("/hub/attendance/week")).toHaveLength(2));
   });
 
-  it("lets a Team Lead edit a punch but hides Export CSV and Mark all reviewed", async () => {
+  it("lets a Team Lead edit a punch but hides Export CSV", async () => {
     await openTimesheets({
       role: "supervisor",
-      attendanceWeek: attendanceWeek({ reviewable_count: 2 }),
       handlers: [http.patch("/hub/attendance/punches/:id", () => HttpResponse.json(edited))],
     });
     await openEditor();
     expect(panel().querySelector(".hub-timesheets-export")).toBeNull();
-    expect(panel().querySelector(".hub-timesheets-review-all")).toBeNull();
 
     await user().click(panel().querySelector(".punch-editor-save"));
 
     await vi.waitFor(() => expect(queries("/hub/attendance/week")).toHaveLength(2));
   });
 
-  it("marks the week reviewed, refetches it, and says how many", async () => {
-    await openTimesheets({
-      role: "admin",
-      attendanceWeek: attendanceWeek({ reviewable_count: 2 }),
-      handlers: [http.post("/hub/attendance/week/review", () =>
-        HttpResponse.json({ punches: 1, sessions: 1 }))],
-    });
-    await vi.waitFor(() => expect(panel().querySelector(".hub-timesheets-review-all")).not.toBeNull());
-
-    await user().click(panel().querySelector(".hub-timesheets-review-all"));
-
-    await vi.waitFor(() => expect(queries("/hub/attendance/week")).toHaveLength(2));
-    await vi.waitFor(() => expect(panel().querySelector(".hub-timesheets-message").textContent)
-      .toBe("Marked 2 items reviewed."));
-  });
-
-  it("keeps Export CSV and Mark all reviewed, and reports the export", async () => {
+  it("keeps Export CSV and reports the export", async () => {
     stubObjectUrl();
     await openTimesheets({
       role: "admin",
-      attendanceWeek: attendanceWeek({ reviewable_count: 2 }),
       handlers: [http.get("/hub/attendance/export", () => new HttpResponse("x", {
         headers: { "Content-Disposition": 'attachment; filename="attendance_2026-09-14.csv"' },
       }))],
     });
-    await vi.waitFor(() => expect(panel().querySelector(".hub-timesheets-review-all")).not.toBeNull());
-    expect(panel().querySelector(".hub-timesheets-review-all").textContent).toBe("Mark all reviewed (2)");
+    await vi.waitFor(() => expect(panel().querySelector(".hub-timesheets-export")).not.toBeNull());
     await user().click(panel().querySelector(".hub-timesheets-export"));
     await vi.waitFor(() => expect(panel().querySelector(".hub-timesheets-message").textContent)
       .toContain("attendance_2026-09-14.csv"));
@@ -217,6 +197,82 @@ describe("the Admin punch writes", () => {
     expect(panel().querySelector(".hub-day-page")).not.toBeNull();
   });
 
+});
+
+// Monday's punch flagged plus one auto-stopped clock on Tuesday: two items,
+// the punch first (date order).
+function flaggedWeek() {
+  const week = attendanceWeek({ reviewable_count: 2 });
+  const monday = week.rows[0].days[0];
+  monday.needs_review = true;
+  monday.punches[0] = { ...monday.punches[0], needs_review: true, end_source: "auto_clock_out" };
+  week.flagged_sessions = [{
+    session_id: "s1", user_id: "user-1", date: "2026-09-15", work_order_id: "wo-1",
+    number: "4412", started_at: "2026-09-15T13:00:00Z", ended_at: "2026-09-16T01:00:00Z", running: false,
+  }];
+  return week;
+}
+
+const dialog = () => document.querySelector('.flagged-flow [role="dialog"]');
+const button = (root, name) => [...root.querySelectorAll("button")].find((b) => b.textContent.trim() === name);
+
+describe("Fix flagged time", () => {
+  it("shows a Team Lead the count and no Mark all reviewed", async () => {
+    await openTimesheets({ role: "supervisor", attendanceWeek: flaggedWeek() });
+    await vi.waitFor(() => expect(button(panel(), "Fix flagged time (2)")).toBeTruthy());
+    expect(panel().textContent).not.toContain("Mark all reviewed");
+  });
+
+  it("shows no button when nothing is flagged", async () => {
+    await openTimesheets({ role: "admin", attendanceWeek: attendanceWeek({ flagged_sessions: [] }) });
+    await vi.waitFor(() => expect(panel().querySelector(".hub-day-card")).not.toBeNull());
+    expect(panel().textContent).not.toContain("Fix flagged time");
+  });
+
+  it("opens the flow over the week and accepts a clock, then refetches", async () => {
+    const accepted = vi.fn();
+    await openTimesheets({
+      role: "supervisor",
+      attendanceWeek: flaggedWeek(),
+      handlers: [http.post("/hub/attendance/sessions/:id/review", ({ params }) => {
+        accepted(params.id);
+        return HttpResponse.json({ session_id: params.id, reviewed_at: "2026-09-16T15:00:00Z" });
+      })],
+    });
+    await vi.waitFor(() => expect(button(panel(), "Fix flagged time (2)")).toBeTruthy());
+    await user().click(button(panel(), "Fix flagged time (2)"));
+    await vi.waitFor(() => expect(dialog()).not.toBeNull());
+    expect(dialog().textContent).toContain("Flagged time · 1 of 2");
+    expect(button(dialog(), "Looks right")).toBeTruthy();
+    await user().click(button(dialog(), "Skip"));
+    await vi.waitFor(() => expect(button(dialog(), "Accept")).toBeTruthy());
+    await user().click(button(dialog(), "Accept"));
+    await vi.waitFor(() => expect(accepted).toHaveBeenCalledWith("s1"));
+    await vi.waitFor(() => expect(queries("/hub/attendance/week")).toHaveLength(2));
+  });
+
+  it("starts no week request on attendance.changed while the flow is open", async () => {
+    const { emit } = await connectHub();
+    await openTimesheets({ role: "supervisor", attendanceWeek: flaggedWeek() });
+    await vi.waitFor(() => expect(button(panel(), "Fix flagged time (2)")).toBeTruthy());
+    await user().click(button(panel(), "Fix flagged time (2)"));
+    await vi.waitFor(() => expect(dialog()).not.toBeNull());
+    emit("attendance.changed");
+    await vi.waitFor(() => expect(queries("/hub/attendance/live")).toHaveLength(2));
+    expect(queries("/hub/attendance/week")).toHaveLength(1);
+    await user().click(button(dialog(), "Skip"));
+    await user().click(button(dialog(), "Skip"));
+    await user().click(button(dialog(), "Done"));
+    expect(dialog()).toBeNull();
+  });
+
+  it("gives a Team Lead Looks right on the day page, but not the lunch buttons", async () => {
+    await openTimesheets({ role: "supervisor", attendanceWeek: flaggedWeek() });
+    await vi.waitFor(() => expect(panel().querySelector(".hub-day-card")).not.toBeNull());
+    await user().click(panel().querySelector(".hub-day-card"));
+    expect(panel().querySelector(".hub-hours-clear-review")).not.toBeNull();
+    expect(panel().querySelector(".hub-hours-lunch")).toBeNull();
+  });
 });
 
 describe("the profile", () => {

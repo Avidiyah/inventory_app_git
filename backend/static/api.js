@@ -731,13 +731,6 @@ export async function apiClockOutAttendanceUser(userId) {
   return jsonRequest(`/hub/attendance/clock-out/${encodeURIComponent(userId)}`, "POST", {});
 }
 
-// "Mark all reviewed": accepts every flagged punch and auto-closed session
-// touching the week, so the leaderboard ranks those days again.
-export async function apiReviewHubAttendanceWeek({ week = null } = {}) {
-  const query = week ? `?week=${encodeURIComponent(week)}` : "";
-  return jsonRequest(`/hub/attendance/week/review${query}`, "POST");
-}
-
 // Fix flagged time: accepts one auto-stopped work-order clock (Team Lead+).
 export async function apiReviewAttendanceSession(sessionId) {
   return jsonRequest(`/hub/attendance/sessions/${encodeURIComponent(sessionId)}/review`, "POST", {});
