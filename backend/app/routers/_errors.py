@@ -52,6 +52,7 @@ from app.domain.errors import (
     StageItemNotFoundError,
     StageNotFoundError,
     StageStateError,
+    TakeoffLineConflictError,
     ToolHasOutstandingCustodyError,
     ToolNotFoundError,
     ToolReturnExceedsCheckedOutError,
@@ -89,6 +90,7 @@ _STATUS_MAP: dict[type[DomainError], int] = {
     WorkOrderAssignmentConflictError: 409,
     WorkOrderFieldConflictError: 409,
     WorkOrderStateError: 400,
+    TakeoffLineConflictError: 409,
     WorkOrderSignatureError: 422,
     WorkOrderAlreadySignedError: 409,
     # 409, not 400: the payload is well-formed, the row's current state is what

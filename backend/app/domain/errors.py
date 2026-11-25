@@ -330,6 +330,11 @@ class WorkOrderStateError(DomainError):
     or a mode outside `dispense` / `retroactive`. Maps to 400."""
 
 
+class TakeoffLineConflictError(DomainError):
+    """Raised when a takeoff line is missing, on another order, or for another
+    item -- someone else changed or used it first. Maps to 409."""
+
+
 class PriorWorkUnacknowledgedError(DomainError):
     """Raised when someone starts charging a work order another person has
     already worked without confirming they read its notes. Carries the
