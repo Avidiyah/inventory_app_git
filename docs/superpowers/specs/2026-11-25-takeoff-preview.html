@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Takeoff preview</title>
+<style>
+:root{--brand:#C8102E;--brand-h:#A50D25;--brand-tint:rgba(255,117,133,.16);--canvas:#1C1D20;--header:#141414;
+--panel:rgba(255,255,255,.035);--nested:rgba(255,255,255,.025);--hover:rgba(255,255,255,.08);--border:rgba(255,255,255,.22);
+--rule:rgba(255,255,255,.20);--text:#F7F8FA;--mute:#C8CCD2;--ok:#45D07E;--warn:#FFB547;
+--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+*{box-sizing:border-box}
+body{margin:0;background:#0f1012;color:var(--text);font:15px/1.4 var(--sans)}
+.bar{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding:10px 16px;background:var(--header);border-bottom:1px solid var(--rule)}
+.bar b{margin-right:8px}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.seg button{background:none;border:0;color:var(--mute);padding:6px 12px;font:inherit;cursor:pointer}
+.seg button[aria-pressed=true]{background:var(--brand);color:#fff}
+.lbl{color:var(--mute);font-size:13px}
+.stage{display:flex;justify-content:center;padding:20px 12px 60px}
+.device{width:960px;max-width:100%;background:var(--canvas);border:1px solid var(--rule);border-radius:14px;padding:16px;position:relative;margin:0 auto}
+.device.phone{width:390px;min-height:760px;padding:12px 12px 84px}
+.note{max-width:960px;margin:0 auto 14px;padding:10px 14px;border-left:3px solid var(--brand);background:var(--panel);color:var(--mute);font-size:14px}
+h2{margin:0 0 4px;font-size:18px}
+.sub{color:var(--mute);font-size:13px;margin-bottom:12px}
+button.btn{background:var(--brand);color:#fff;border:0;border-radius:8px;padding:8px 14px;font:inherit;font-weight:600;cursor:pointer;min-height:40px}
+button.btn:hover{background:var(--brand-h)}
+button.ghost{background:none;color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font:inherit;cursor:pointer;min-height:36px}
+input.in{background:rgba(0,0,0,.25);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font:inherit;min-height:40px}
+.hint{color:var(--mute);font-size:13px}
+/* work order card */
+.charge{display:flex;justify-content:space-between;padding:8px 12px;border:1px solid var(--border);border-radius:10px;background:var(--panel);font-size:14px}
+.actionbar{display:flex;gap:8px;margin:12px 0;padding:12px;background:var(--panel);border:1px solid var(--border);border-radius:10px}
+.actionbar .btn{flex:1}
+/* pinned header: task + location, then the icon bar */
+.pin{position:sticky;top:52px;z-index:2;background:var(--canvas);margin:-12px -12px 12px;padding:12px 12px 0;border-bottom:1px solid var(--border)}
+.device:not(.phone) .pin{margin:-16px -16px 12px;padding:16px 16px 0}
+.pin h2{font-size:17px}.pin .sub{margin-bottom:10px}
+.topbar{display:grid;grid-template-columns:repeat(5,1fr);position:relative}
+.topbar>button{background:none;border:0;color:var(--mute);padding:6px 2px 9px;font:600 12px var(--sans);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;box-shadow:inset 0 -3px 0 transparent}
+.topbar>button small{font-weight:400;font-size:11px;color:var(--mute)}
+.topbar>button[aria-selected=true]{color:#fff;box-shadow:inset 0 -3px 0 var(--brand)}
+.topbar>button[aria-selected=true] svg{stroke:var(--brand)}
+.topbar svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8}
+.more-pop{position:absolute;right:0;top:100%;margin-top:4px;background:var(--header);border:1px solid var(--border);border-radius:10px;z-index:3;min-width:210px;box-shadow:0 10px 30px rgba(0,0,0,.5);padding:4px 0}
+.more-pop button{display:flex;justify-content:space-between;gap:12px;width:100%;background:none;border:0;color:var(--text);padding:12px 16px;text-align:left;font:inherit;cursor:pointer}
+.more-pop button[aria-selected=true]{background:var(--brand-tint);box-shadow:inset 3px 0 0 var(--brand)}
+.more-pop hr{border:0;border-top:1px solid var(--rule);margin:4px 0}
+/* section */
+.section{border:1px solid var(--rule);border-radius:6px;background:var(--nested);padding:12px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:14px}.kv dt{color:var(--mute)}.kv dd{margin:0}
+.line{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--rule)}
+.line:last-child{border-bottom:0}
+.qty{font-variant-numeric:tabular-nums;color:var(--mute)}
+.blockhead{display:flex;justify-content:space-between;align-items:baseline;margin:16px 0 4px;padding-top:12px;border-top:1px solid var(--border)}
+.blockhead h3{margin:0;font-size:15px}
+.tk-line .left{display:flex;flex-direction:column}
+.tk-line .left span{font-size:13px;color:var(--mute)}
+.tk-line .act{display:flex;gap:6px;align-items:center}
+.inline{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px;margin:4px 0 8px;background:var(--brand-tint);border-radius:8px}
+.inline .in{width:80px}
+.addrow{display:flex;gap:6px;margin-top:12px}.addrow .in:first-child{flex:1;min-width:0}.addrow .in.q{width:70px}
+.mode{display:flex;gap:8px;align-items:center;margin-bottom:8px;font-size:14px;color:var(--mute)}
+/* overview */
+.group{margin-bottom:22px}
+.group h3{margin:0 0 6px;font-size:16px;display:flex;justify-content:space-between}
+.group h3 span{color:var(--mute);font-weight:400;font-size:14px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;color:var(--mute);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em;padding:6px 8px;border-bottom:1px solid var(--border)}
+td{padding:9px 8px;border-bottom:1px solid var(--rule);vertical-align:top}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+a.prod{color:var(--text);text-decoration:underline;text-decoration-color:var(--brand);text-underline-offset:3px}
+.wos{font-size:12px;color:var(--mute);margin-top:3px}
+.wos button{background:none;border:0;color:var(--mute);padding:0;font:inherit;cursor:pointer;text-decoration:underline}
+.ord{display:flex;align-items:center;gap:8px;cursor:pointer;background:none;border:0;color:inherit;font:inherit;padding:0;text-align:left}
+.box{width:22px;height:22px;flex:none;border:2px solid var(--border);border-radius:5px;display:grid;place-items:center;font-size:14px}
+.ord.ok .box{background:var(--ok);border-color:var(--ok);color:#0b1d12}
+.ord.ok .t{color:var(--ok)}
+.ord.need .t{color:var(--warn);font-weight:600}
+.ord .t small{display:block;color:var(--mute);font-weight:400}
+.cards{display:none}
+.device.phone table{display:none}.device.phone .cards{display:block}
+.card{border:1px solid var(--rule);border-radius:10px;background:var(--nested);padding:12px;margin-bottom:8px}
+.card .top{display:flex;justify-content:space-between;gap:8px;font-weight:600}
+.card .nums{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;margin:8px 0;font-size:14px}
+.card .nums span{color:var(--mute)}
+.demo{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px;padding:10px;border:1px dashed var(--border);border-radius:10px}
+.demo .lbl{width:100%}
+</style>
+</head>
+<body>
+<div class="bar">
+  <b>Takeoff preview</b>
+  <span class="seg" id="v-screen"><button data-v="card" aria-pressed="true">Work order card</button><button data-v="page" aria-pressed="false">Takeoff page</button></span>
+  <span class="seg" id="v-size"><button data-v="phone" aria-pressed="true">Phone</button><button data-v="desktop" aria-pressed="false">Desktop</button></span>
+  <span class="lbl" id="v-tk-l">Takeoff:</span>
+  <span class="seg" id="v-tk"><button data-v="in" aria-pressed="true">Inside Materials</button><button data-v="more" aria-pressed="false">Under More</button></span>
+</div>
+<div class="stage"><div style="width:100%"><div class="note" id="note"></div><div class="device phone" id="device"></div></div></div>
+<script>
+const S={screen:"card",size:"phone",tk:"in",tab:"materials",more:false,open:null,
+  logged:[["Toilet",3],["Wax ring",3]],
+  takeoff:[{item:"Toilet",left:1,of:4},{item:"Supply line",left:4,of:4},{item:"Wax ring",left:1,of:4}],
+  items:{"Toilet":{price:120,stock:12},"Wax ring":{price:4.5,stock:20},"Supply line":{price:8,stock:60},'Vanity 24"':{price:189,stock:0},"Window film roll":{price:42,stock:5}},
+  need:[["WMR","Toilet","1042",4],["WMR","Toilet","1043",4],["WMR","Toilet","1044 – 1069 (26 orders)",102],["WMR","Wax ring","1042 – 1069 (28 orders)",110],["WMR","Supply line","1042 – 1061 (20 orders)",40],["WMR",'Vanity 24"',"1050 – 1061 (12 orders)",12],["Plumbing","Toilet","2210",4],["Plumbing","Toilet","2214",4],["Plumbing","Window film roll","2201 – 2215 (15 orders)",30]],
+  onway:{"WMR|Toilet":100,'WMR|Vanity 24"':12},expand:{}};
+const $=s=>document.querySelector(s), money=n=>"$"+n.toLocaleString(undefined,{minimumFractionDigits:n%1?2:0,maximumFractionDigits:2});
+const ICON={details:'<path d="M5 4h14v16H5z"/><path d="M8 9h8M8 13h8M8 17h5"/>',notes:'<path d="M4 5h16v11H9l-5 4z"/>',materials:'<path d="M3 8l9-5 9 5-9 5z"/><path d="M3 8v8l9 5 9-5V8"/>',labor:'<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/>',photos:'<rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/>',takeoff:'<path d="M6 3h12v18H6z"/><path d="M9 8h6M9 12h6M9 16h3"/>',more:'<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',invoice:'<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/>'};
+function main(){return [["materials","Materials",S.logged.length+" logged"],["labor","Labor","6.5 h"],["notes","Notes","2 new"],["photos","Photos","4"]]}
+function rest(){return [["details","Details","status, crew, dates"],...(S.tk==="more"?[["takeoff","Takeoff",S.takeoff.length+" to use"]]:[])]}
+function setNote(){$("#note").innerHTML=S.screen==="card"
+ ?"<b>Top bar.</b> Task and location stay pinned at the top while you scroll, with Materials, Labor, Notes and Photos one tap away. Everything else is under More, including the old ⋯ menu (Edit details and admin actions), so there's only one More. Every service type gets this same screen."+(S.tk==="more"?" <br><b>Takeoff under More.</b>":" <br><b>Takeoff inside Materials</b>, as in the design doc. Flip the Takeoff switch to put it under More instead.")
+ :"<b>Takeoff page</b> (Owner, Admin, TechFM OA). One row per item per service type. The shortfall pools the item across service types, so WMR and Plumbing toilets share the 12 on the shelf. Use the demo buttons to see a new takeoff uncheck a row and a delivery clear it."}
+function nav(){const r=rest(),inMore=r.some(x=>x[0]===S.tab);
+ return `<nav class="topbar">${main().map(([k,l,c])=>`<button data-tab="${k}" aria-selected="${S.tab===k}"><svg viewBox="0 0 24 24">${ICON[k]}</svg>${l}<small>${c}</small></button>`).join("")}<button data-act="more" aria-selected="${inMore}"><svg viewBox="0 0 24 24">${ICON.more}</svg>More<small>${inMore?r.find(x=>x[0]===S.tab)[1]:"&nbsp;"}</small></button>`
+ +(S.more?`<div class="more-pop">${r.map(([k,l,c])=>`<button data-tab="${k}" aria-selected="${S.tab===k}"><span>${l}</span><span class="hint">${c}</span></button>`).join("")}<hr><button>Edit details</button><button>Reassign crew</button><button>Archive</button></div>`:"")+`</nav>`}
+function takeoffBlock(head){return `${head?`<div class="blockhead"><h3>Takeoff</h3><span class="hint">Planned, not yet used · no stock moved</span></div>`:""}
+ ${S.takeoff.length?S.takeoff.map((l,i)=>`<div class="line tk-line"><div class="left"><b>${l.item}</b><span>${l.left} left of ${l.of}</span></div><div class="act"><button class="btn" data-disp="${i}">Dispense</button></div></div>${S.open===i?`<div class="inline">Use <input class="in" id="dq" type="number" value="${l.left}" min="0"> now <button class="btn" data-ok="${i}">Dispense</button><button class="ghost" data-act="close">Cancel</button><span class="hint" style="width:100%">Filled with what's left; change it if you used fewer.</span></div>`:""}`).join(""):`<p class="hint">Everything on the takeoff has been used.</p>`}
+ ${S.open==="add"?`<div class="inline"><input class="in" style="flex:1;width:auto" placeholder="Search catalogue by name or barcode"><input class="in" type="number" placeholder="Qty"><button class="btn">Add to takeoff</button><button class="ghost" data-act="close">Cancel</button></div>`:`<button class="ghost" style="margin-top:8px" data-act="add">+ Takeoff item</button>`}`}
+function body(){switch(S.tab){
+ case"details":return `<dl class="kv"><dt>Work order</dt><dd>1042</dd><dt>Service type</dt><dd>WMR</dd><dt>Status</dt><dd>In progress</dd><dt>Priority</dt><dd>Routine</dd><dt>Scheduled</dt><dd>Dec 2</dd><dt>Crew</dt><dd>Team Lead + 2 technicians</dd></dl>`;
+ case"notes":return `<p class="hint">Notes log…</p><textarea class="in" style="width:100%" rows="3" placeholder="Add a note…"></textarea>`;
+ case"labor":return `<p class="hint">Labor lines, 6.5 h…</p>`;case"photos":return `<p class="hint">4 photos…</p>`;
+ case"takeoff":return takeoffBlock(false);
+ case"materials":return `<div class="mode">New entries: <b style="color:var(--text)">Dispense (moves stock)</b></div>${S.logged.map(([n,q])=>`<div class="line"><b>${n}</b><span class="qty">${q}</span></div>`).join("")}
+  <div class="addrow"><input class="in" placeholder="Search item by name or barcode"><input class="in q" type="number" placeholder="Qty"><button class="btn">Add</button></div>${S.tk==="in"?takeoffBlock(true):""}`}}
+function card(){return `<div class="pin"><h2>Replace toilet, running constantly</h2><div class="sub">Scholars · Bldg 4 · Unit 212</div>${nav()}</div><div class="charge"><span>Charging · You</span><span>1 h 12 m</span></div><div class="actionbar"><button class="btn">Mark complete</button></div><div class="section">${body()}</div>`}
+function rows(){const by={},it={};for(const[t,i,wo,q]of S.need){const k=t+"|"+i;(by[k]??={t,i,need:0,wos:[]}).need+=q;by[k].wos.push([wo,q]);it[i]=(it[i]||0)+q}
+ const way=i=>Object.entries(S.onway).filter(([k])=>k.endsWith("|"+i)).reduce((a,[,v])=>a+v,0);
+ return Object.values(by).map(r=>{const p=S.items[r.i];r.price=p.price;r.stock=p.stock;r.way=S.onway[r.t+"|"+r.i]||0;r.short=Math.max(0,it[r.i]-p.stock-way(r.i));r.shared=Object.keys(by).filter(k=>k.endsWith("|"+r.i)).length>1;return r})}
+function ordCell(r){const k=r.t+"|"+r.i;if(S.open===k)return `<div class="inline">${r.way?"On the way":"How many did you order?"} <input class="in" id="oq" type="number" value="${r.way||r.short}"> <button class="btn" data-save="${k}">Save</button>${r.way?`<button class="ghost" data-clear="${k}">Clear</button>`:""}<button class="ghost" data-act="close">Cancel</button></div>`;
+ return r.short?`<button class="ord need" data-ord="${k}"><span class="box"></span><span class="t">Order ${r.short} more${r.shared?"<small>shared with other service types</small>":""}</span></button>`:`<button class="ord ok" data-ord="${k}"><span class="box">✓</span><span class="t">${r.way?"Ordered":"Covered by stock"}</span></button>`}
+function wos(r){const k="x"+r.t+r.i;return `<div class="wos">${S.expand[k]?r.wos.map(([w,q])=>`WO ${w} ×${q}`).join(" · ")+` <button data-exp="${k}">hide</button>`:`<button data-exp="${k}">${r.wos.length>1||/orders/.test(r.wos[0][0])?"Show work orders":"WO "+r.wos[0][0]}</button>`}</div>`}
+function page(){const all=rows(),types=[...new Set(all.map(r=>r.t))];
+ return `<h2>Takeoff</h2><div class="sub">Material planned on open work orders, by service type. Completed orders drop off.</div>
+ <div class="demo"><span class="lbl">Demo only:</span><button class="ghost" data-demo="add">New takeoff: +10 toilets on WMR WO 1070</button><button class="ghost" data-demo="arrive">Delivery: stock 50 toilets</button><button class="ghost" data-demo="reset">Reset</button></div>
+ ${types.map(t=>{const rs=all.filter(r=>r.t===t),tot=rs.reduce((a,r)=>a+r.need*r.price,0);return `<section class="group"><h3>${t}<span>${money(tot)} planned</span></h3>
+ <table><thead><tr><th>Item</th><th class="n">Need</th><th class="n">Price</th><th class="n">Total</th><th class="n">In stock</th><th class="n">On the way</th><th>Ordered</th></tr></thead><tbody>
+ ${rs.map(r=>`<tr><td><a class="prod" href="#" onclick="return false">${r.i} ↗</a>${wos(r)}</td><td class="n">${r.need}</td><td class="n">${money(r.price)}</td><td class="n">${money(r.need*r.price)}</td><td class="n">${r.stock}</td><td class="n">${r.way||"—"}</td><td>${ordCell(r)}</td></tr>`).join("")}</tbody></table>
+ <div class="cards">${rs.map(r=>`<div class="card"><div class="top"><a class="prod" href="#" onclick="return false">${r.i} ↗</a><span>${money(r.need*r.price)}</span></div><div class="nums"><div><span>Need</span> ${r.need} × ${money(r.price)}</div><div><span>In stock</span> ${r.stock}</div><div><span>On the way</span> ${r.way||"—"}</div></div>${ordCell(r)}${wos(r)}</div>`).join("")}</div></section>`}).join("")}`}
+const INIT=JSON.stringify({need:S.need,onway:S.onway,items:S.items});
+function render(){const d=$("#device");d.className="device "+(S.size==="phone"?"phone":"");d.innerHTML=S.screen==="card"?card():page();
+ for(const id of["v-tk","v-tk-l"])$("#"+id).style.display=S.screen==="card"?"":"none";setNote()}
+function seg(id,key){$(id).addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;S[key]=b.dataset.v;S.sheet=S.more=false;S.open=null;if(key==="tk"&&S.tk==="in"&&S.tab==="takeoff")S.tab="materials";
+ $(id).querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",x===b));render()})}
+seg("#v-screen","screen");seg("#v-size","size");seg("#v-tk","tk");
+$("#device").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;const d=b.dataset;
+ if(d.tab){S.tab=d.tab;S.sheet=S.more=false;S.open=null}
+ else if(d.act==="sheet")S.sheet=!S.sheet;else if(d.act==="more")S.more=!S.more;else if(d.act==="add")S.open="add";else if(d.act==="close")S.open=null;
+ else if(d.disp)S.open=+d.disp;
+ else if(d.ok){const l=S.takeoff[+d.ok],q=Math.max(0,+$("#dq").value||0),g=S.logged.find(x=>x[0]===l.item);g?g[1]+=q:S.logged.push([l.item,q]);l.left-=q;if(l.left<=0)S.takeoff.splice(+d.ok,1);S.open=null}
+ else if(d.ord)S.open=d.ord;else if(d.save){const q=+$("#oq").value||0;q>0?S.onway[d.save]=q:delete S.onway[d.save];S.open=null}else if(d.clear){delete S.onway[d.clear];S.open=null}
+ else if(d.exp)S.expand[d.exp]=!S.expand[d.exp];
+ else if(d.demo==="add")S.need.push(["WMR","Toilet","1070",10]);
+ else if(d.demo==="arrive"){let q=50;S.items.Toilet.stock+=50;for(const k of Object.keys(S.onway).filter(k=>k.endsWith("|Toilet"))){const c=Math.min(q,S.onway[k]);S.onway[k]-=c;q-=c;if(!S.onway[k])delete S.onway[k]}}
+ else if(d.demo==="reset"){const i=JSON.parse(INIT);S.need=i.need;S.onway=i.onway;S.items=i.items}
+ render()});
+render();
+</script>
+</body>
+</html>
