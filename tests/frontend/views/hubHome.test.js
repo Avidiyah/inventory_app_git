@@ -192,6 +192,50 @@ describe("this week's punches (self-edit)", () => {
     await vi.waitFor(() => expect(section().querySelector(".punch-editor")).toBeNull());
   });
 
+  describe("Fix my time", () => {
+    const flagged = () => attendanceMe({
+      week_punches: [
+        { id: "p-mon", started_at: "2026-09-07T13:00:00Z", ended_at: "2026-09-07T21:00:00Z", needs_review: false, end_source: "manual", tags: [] },
+        { id: "p-tue", started_at: "2026-09-08T13:00:00Z", ended_at: "2026-09-09T05:00:00Z", needs_review: true, end_source: "auto_clock_out", tags: [] },
+      ],
+    });
+    const fix = () => el.panel("home").querySelector('[data-action="hub-home-fix-time"]');
+    const dialog = () => document.querySelector('.flagged-flow [role="dialog"]');
+
+    it("shows Fix my time (1) above this week's punches", async () => {
+      await openHub({ role: "technician", attendance: flagged() });
+      expect(fix().textContent.trim()).toBe("Fix my time (1)");
+      expect(fix().compareDocumentPosition(section()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("shows no button without a flagged punch", async () => {
+      await openHub({ role: "technician", attendance: attendanceMe({ week_punches: [flagged().week_punches[0]] }) });
+      expect(section()).not.toBeNull();
+      expect(fix()).toBeNull();
+    });
+
+    it("opens the flow without Looks right; Save PATCHes then refreshes", async () => {
+      let patched = null;
+      let reads = 0;
+      await openHub({ role: "technician", attendance: flagged(),
+        handlers: [
+          http.get("/attendance/me", () => { reads += 1; return HttpResponse.json(flagged()); }),
+          http.patch("/hub/attendance/punches/:id", ({ params }) => {
+            patched = params.id;
+            return HttpResponse.json({});
+          }),
+        ] });
+      const before = reads;
+      await user().click(fix());
+      await vi.waitFor(() => expect(dialog()).not.toBeNull());
+      expect([...dialog().querySelectorAll("button")].some((b) => b.textContent.trim() === "Looks right")).toBe(false);
+      await user().click(dialog().querySelector(".punch-editor-save"));
+      await vi.waitFor(() => expect(patched).toBe("p-tue"));
+      await vi.waitFor(() => expect(reads).toBeGreaterThan(before));
+      dialog()?.querySelector('[aria-label="Close"]')?.click();
+    });
+  });
+
   it("a 403 shows the refusal copy in the editor", async () => {
     await openHub({ role: "technician", attendance: weekPunches(),
       handlers: [http.patch("/hub/attendance/punches/:id", () => HttpResponse.json(

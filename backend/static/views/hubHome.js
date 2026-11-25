@@ -17,6 +17,7 @@ import {
 import { escapeHtml, formatHm, friendlyError } from "../format.js";
 import { setMessage } from "../dom.js";
 import { getCurrentUser } from "../state.js";
+import { openFlaggedTimeFlow, ownFlaggedItems } from "./flaggedTimeFlow.js";
 import { mountPunchEditor } from "./hubAttendancePunchEditor.js";
 import { patchHub } from "./hubPatch.js";
 import { timeLabel } from "./hubWeek.js";
@@ -128,8 +129,12 @@ function weekPunchRowHtml(p) {
 function weekPunchesHtml() {
   if (!attendance) return "";
   const rows = (attendance.week_punches || []).map(weekPunchRowHtml).join("");
+  const flagged = ownFlaggedItems(attendance, getCurrentUser()).length;
+  const fix = flagged
+    ? `<button type="button" class="secondary-btn hub-home-fix-time" data-action="hub-home-fix-time">Fix my time (${flagged})</button>`
+    : "";
   // A <section> for the panel surface and text colour the other Home cards get.
-  return `<section class="hub-home-week-punches"><details>
+  return `${fix}<section class="hub-home-week-punches"><details>
       <summary>This week's punches</summary>
       <ul class="hub-home-punch-list">${rows}</ul>
       <button type="button" class="secondary-btn" data-action="hub-home-add-punch">+ Add punch</button>
@@ -167,6 +172,24 @@ function openPunchEditor(punchId) {
       : apiAddAttendancePunch({ userId: getCurrentUser().id, ...values }))),
     onDelete: (reason) => save(() => apiDeleteAttendancePunch(punch.id, reason)),
     onCancel: closePunchEditor,
+  });
+}
+
+// The worker's step-through: own flagged punches only, no Looks right.
+// Home owns the requests; the flow asks for the fresh queue after each.
+function openFixMyTime() {
+  openFlaggedTimeFlow({
+    items: ownFlaggedItems(attendance, getCurrentUser()),
+    canAccept: false,
+    actions: {
+      savePunch: (id, values) => apiEditAttendancePunch(id, values),
+      deletePunch: (id, reason) => apiDeleteAttendancePunch(id, reason),
+    },
+    refresh: async () => {
+      if (refreshCallback) await refreshCallback();
+      return ownFlaggedItems(attendance, getCurrentUser());
+    },
+    onClose: () => {},
   });
 }
 
@@ -225,6 +248,7 @@ export function mountHubHome(mountEl, hubPayload, attendancePayload, { onChanged
       else if (action === "hub-punch-retry" && refreshCallback) void refreshCallback();
       else if (action === "hub-home-edit-punch") openPunchEditor(event.target.closest("[data-punch]").dataset.punch);
       else if (action === "hub-home-add-punch") openPunchEditor(null);
+      else if (action === "hub-home-fix-time") openFixMyTime();
     });
   }
 }
