@@ -20,7 +20,7 @@ const ROLES = ["technician", "supervisor", "techfm_oa", "admin", "owner"];
 const PAGES = [
   "user-hub", "create-item", "saved-items", "saved-users",
   "transaction", "mass-stage", "work-orders", "user-requests", "low-stock",
-  "admin-review", "smr-admin-review", "tools", "history", "integrations", "smr",
+  "admin-review", "takeoff", "smr-admin-review", "tools", "history", "integrations", "smr",
   "dev-tools",
 ];
 const ALL_BUT_DEV = PAGES.filter((page) => page !== "dev-tools");
@@ -52,7 +52,7 @@ const GROUPS = {
   inventory: ["create-item", "saved-items", "tools"],
   field: ["transaction", "work-orders", "mass-stage", "smr"],
   people: ["saved-users"],
-  review: ["low-stock", "user-requests", "admin-review", "smr-admin-review", "history"],
+  review: ["low-stock", "user-requests", "admin-review", "takeoff", "smr-admin-review", "history"],
   integration: ["integrations"],
   dev: ["dev-tools"],
 };

@@ -8326,3 +8326,4 @@ a.tk-item-name { color: inherit; text-decoration: underline; text-decoration-col
     .tk-way { text-align: right; }
     .tk-ordered { margin-top: 0; }
 }
+.tk-way-btn { padding: 0; color: var(--text-panel); font-size: var(--fs-sm); }

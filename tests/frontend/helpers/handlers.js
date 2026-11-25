@@ -39,11 +39,13 @@ export function pageHandlers() {
     // transaction -> enterTransactionPage -> refreshWoCards
     // work-orders -> loadWorkOrders -> ensureReferenceData + the list
     // admin-review -> loadAdminReview (?status=review; MSW matches on path)
+    // takeoff -> loadTakeoff
     // mass-stage -> loadStages
     // tools -> loadTools
     //
     // Order matters: MSW takes the first matching handler, so the two
     // specific /work-orders/ and /items/ paths precede the collection roots.
+    http.get("/takeoff/", () => HttpResponse.json({ groups: [] })),
     http.get("/work-orders/filter-options", () => HttpResponse.json(filterOptions())),
     http.get("/work-orders/", () => HttpResponse.json([])),
     http.get("/items/low-stock", () => HttpResponse.json([])),
