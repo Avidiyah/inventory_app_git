@@ -928,12 +928,12 @@ export async function apiRestoreWorkOrder(workOrderId) {
   return parseResponse(await rawFetch(`/work-orders/${workOrderId}/restore`, { method: "POST", credentials: "include" }));
 }
 
-export async function apiAddWorkOrderItem(workOrderId, { itemId, quantity, materialRequestId = null }) {
-  return jsonRequest(`/work-orders/${workOrderId}/items`, "POST", {
-    item_id: itemId,
-    quantity,
-    material_request_id: materialRequestId,
-  });
+// `takeoffLineId` (a Takeoff line's Dispense) is sent only when given, so every
+// other add posts the body it always did.
+export async function apiAddWorkOrderItem(workOrderId, { itemId, quantity, materialRequestId = null, takeoffLineId = null }) {
+  const body = { item_id: itemId, quantity, material_request_id: materialRequestId };
+  if (takeoffLineId) body.takeoff_line_id = takeoffLineId;
+  return jsonRequest(`/work-orders/${workOrderId}/items`, "POST", body);
 }
 
 // W3: `expectedQuantity` is the quantity the row showed; sent only when given.
@@ -954,6 +954,19 @@ export async function apiSetWorkOrderItemBilling(workOrderId, woItemId, billable
 
 export async function apiDeleteWorkOrderItem(workOrderId, woItemId) {
   return parseResponse(await rawFetch(`/work-orders/${workOrderId}/items/${woItemId}`, { method: "DELETE", credentials: "include" }));
+}
+
+// Takeoff (planned material, no stock moves). Team Lead+ writes.
+export async function apiAddTakeoffLine(workOrderId, { itemId, quantity }) {
+  return jsonRequest(`/work-orders/${workOrderId}/takeoff`, "POST", { item_id: itemId, quantity });
+}
+
+export async function apiUpdateTakeoffLine(workOrderId, lineId, quantity) {
+  return jsonRequest(`/work-orders/${workOrderId}/takeoff/${lineId}`, "PATCH", { quantity });
+}
+
+export async function apiDeleteTakeoffLine(workOrderId, lineId) {
+  return parseResponse(await rawFetch(`/work-orders/${workOrderId}/takeoff/${lineId}`, { method: "DELETE", credentials: "include" }));
 }
 
 // Labor is stored in whole minutes and billed from the combined work-order
