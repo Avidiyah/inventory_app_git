@@ -51,7 +51,9 @@ export function mountHubAttendanceDays(container, payload, { onWeekChange, onOpe
   const cards = payload.days.map((date) => {
     const people = peopleOn(payload, date);
     const minutes = payload.totals_by_day.find((t) => t.date === date)?.paid_minutes ?? 0;
-    const flags = people.some(({ day }) => day.has_open) ? `<span class="hub-hours-flag hub-hours-flag-open"><span aria-hidden="true">●</span><span class="sr-only"> someone still on shift</span></span>` : "";
+    const flagged = payload.rows.some((row) => row.days.some((d) => d.date === date && (d.needs_review || d.pending_review)));
+    const flags = (people.some(({ day }) => day.has_open) ? `<span class="hub-hours-flag hub-hours-flag-open"><span aria-hidden="true">●</span><span class="sr-only"> someone still on shift</span></span>` : "")
+      + (flagged ? `<span class="hub-hours-flag hub-hours-flag-review"><span aria-hidden="true">&#9888;</span><span class="sr-only"> needs review</span></span>` : "");
     const count = `${people.length} clocked in`;
     const punches = people.flatMap(({ day }) => day.punches);
     const span = punches.length ? spanList([{
@@ -63,7 +65,7 @@ export function mountHubAttendanceDays(container, payload, { onWeekChange, onOpe
     const now = new Date();
     const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     const isToday = date === todayIso;
-    return `<button type="button" class="hub-day-card${isToday ? " is-today" : ""}" id="${liveId("ts-day", date)}" data-date="${escapeHtml(date)}" aria-label="${escapeHtml(`${longLabel(date)}, ${count}, ${formatHm(minutes)} paid`)}">
+    return `<button type="button" class="hub-day-card${isToday ? " is-today" : ""}" id="${liveId("ts-day", date)}" data-date="${escapeHtml(date)}" aria-label="${escapeHtml(`${longLabel(date)}, ${count}, ${formatHm(minutes)} paid${flagged ? ", needs review" : ""}`)}">
       <span class="hub-day-card-date"><span class="hub-day-card-dow" aria-hidden="true">${isToday ? "TODAY" : escapeHtml(dow)}</span><span class="hub-day-card-num" aria-hidden="true">${d.getUTCDate()}</span><span class="hub-day-card-full">${escapeHtml(cardLabel(date))}</span>${flags}</span>
       <span class="hub-day-card-count">${escapeHtml(count)}</span>
       <span class="hub-day-card-hours">${formatHm(minutes)}</span>

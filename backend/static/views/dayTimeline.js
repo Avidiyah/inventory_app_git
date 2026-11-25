@@ -73,7 +73,7 @@ export function pendingReasons(day) {
   }
   const capped = (day.charged || []).filter((c) => c.auto_closed).map((c) => c.number);
   if (capped.length) {
-    reasons.push(`${capped.join(", ")} clock was auto-stopped: accept it with Mark all reviewed on Timesheets`);
+    reasons.push(`${capped.join(", ")} clock was auto-stopped: accept it with Fix flagged time on Timesheets`);
   }
   return reasons.length ? reasons.join("; ") : "needs review";
 }

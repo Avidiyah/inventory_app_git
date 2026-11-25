@@ -89,7 +89,7 @@ export const SCRIPTS = [
         text: ["Each card says what the person is doing: charging a work order, idle, or in the shop.",
           "Clock out ends the shift of someone who forgot."] },
       { target: ".hub-timesheets-export", title: "Payroll export",
-        text: ["Export CSV downloads the week for payroll.", "Admin and above also get Mark all reviewed when days are flagged."] },
+        text: ["Export CSV downloads the week for payroll.", "Team Lead and above also get Fix flagged time when days are flagged: it walks each flagged punch and clock, one at a time."] },
       { target: "#hub-tabpanel-timesheets .hub-hours-week-nav", title: "Pick a week",
         text: ["Use the arrows to move to the previous or next week.", "Weeks start on Monday."] },
       { target: ".hub-day-cards", title: "Days",

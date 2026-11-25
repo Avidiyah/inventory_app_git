@@ -94,7 +94,7 @@ describe("dayTimelineHtml", () => {
     expect(note({ punches: [{ ...punch, needs_review: true, end_source: "manual" }] }))
       .toContain("a punch is marked for review: edit it, or Looks right on Timesheets");
     expect(note({ charged: [{ ...base.charged[0], auto_closed: true }] }))
-      .toContain("WO-1 clock was auto-stopped: accept it with Mark all reviewed on Timesheets");
+      .toContain("WO-1 clock was auto-stopped: accept it with Fix flagged time on Timesheets");
     // A carried punch belongs to the day before; it never explains this one.
     expect(note({ punches: [{ ...punch, carried: true, needs_review: true, end_source: "auto_clock_out" }] }))
       .toBe("⚠ Not counted in the week — needs review");

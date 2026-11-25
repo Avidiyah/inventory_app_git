@@ -42,6 +42,19 @@ describe("the day strip", () => {
     expect(opened).toEqual(["2026-09-16"]);
     expect(weeks).toEqual(["2026-09-07", "2026-09-21"]);
   });
+
+  it("marks a card whose day anyone has flagged, and only that card", () => {
+    for (const flag of ["needs_review", "pending_review"]) {
+      const week = attendanceWeek();
+      week.rows[0].days[0] = { ...week.rows[0].days[0], [flag]: true };
+      mountHubAttendanceDays(host, week);
+      const cards = host.querySelectorAll(".hub-day-card");
+      expect(cards[0].querySelector(".hub-hours-flag-review")).not.toBeNull();
+      expect(cards[0].getAttribute("aria-label")).toMatch(/, needs review$/);
+      expect(cards[1].querySelector(".hub-hours-flag-review")).toBeNull();
+      expect(cards[1].getAttribute("aria-label")).not.toMatch(/needs review/);
+    }
+  });
 });
 
 describe("the day page", () => {
