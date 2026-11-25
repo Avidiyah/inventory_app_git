@@ -171,6 +171,8 @@ export const ENDPOINTS = [
   { fn: "apiExportHubAttendance", args: [{}], url: "/hub/attendance/export", cache: "no-store" },
   { fn: "apiReviewHubAttendanceWeek", args: [{ week: "2026-09-21" }], method: "POST",
     url: "/hub/attendance/week/review?week=2026-09-21" },
+  { fn: "apiReviewAttendanceSession", args: ["s1"], method: "POST",
+    url: "/hub/attendance/sessions/s1/review", body: {} },
   { fn: "apiClockOutAttendanceUser", args: [7], method: "POST", url: "/hub/attendance/clock-out/7",
     body: {} },
   { fn: "apiAddAttendancePunch",

@@ -738,6 +738,11 @@ export async function apiReviewHubAttendanceWeek({ week = null } = {}) {
   return jsonRequest(`/hub/attendance/week/review${query}`, "POST");
 }
 
+// Fix flagged time: accepts one auto-stopped work-order clock (Team Lead+).
+export async function apiReviewAttendanceSession(sessionId) {
+  return jsonRequest(`/hub/attendance/sessions/${encodeURIComponent(sessionId)}/review`, "POST", {});
+}
+
 export async function apiDeleteAttendancePunch(punchId, reason = "") {
   const query = reason ? `?reason=${encodeURIComponent(reason)}` : "";
   return jsonRequest(
