@@ -22,7 +22,14 @@ from app.domain.errors import (
     ItemNotFoundError,
 )
 from app.domain.list_limits import fetch_limit
-from app.models import Item, ItemBarcode, MassStageItem, Transaction
+from app.models import (
+    Item,
+    ItemBarcode,
+    MassStageItem,
+    TakeoffPurchase,
+    Transaction,
+    WorkOrderTakeoffLine,
+)
 from app.services import low_stock
 from app.services import user_requests as request_service
 from app.services._list_cap import capped
@@ -63,15 +70,14 @@ def _barcode_holder(
 
 def _item_has_history(db: Session, item: Item) -> bool:
     """Does `item` have any audit references that must outlive it -- a
-    `transactions` row (the ledger / billing trail) or a `mass_stage_items`
-    row (a staging plan)? Both FKs are effectively RESTRICT, and the
-    history view resolves an item's name/barcode/price via a live join, so
-    an item with either cannot be hard-deleted without orphaning records."""
-    if db.query(Transaction.id).filter(Transaction.item_id == item.id).first():
-        return True
-    return (
-        db.query(MassStageItem.id).filter(MassStageItem.item_id == item.id).first()
-        is not None
+    `transactions` row (the ledger / billing trail), a `mass_stage_items` row
+    (a staging plan), or a takeoff line / purchase? All FKs are effectively
+    RESTRICT, and the history view resolves an item's name/barcode/price via
+    a live join, so an item with any of them cannot be hard-deleted without
+    orphaning records."""
+    return any(
+        db.query(model.id).filter(model.item_id == item.id).first() is not None
+        for model in (Transaction, MassStageItem, WorkOrderTakeoffLine, TakeoffPurchase)
     )
 
 

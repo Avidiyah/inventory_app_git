@@ -125,6 +125,41 @@ describe("dispense-takeoff", () => {
     expect($(".wo-materials-section").open).toBe(false);
   });
 
+  it("a full dispense of the only line lands a technician on Materials, not Details", async () => {
+    const detail = await open({ role: "technician", takeoff: [line()] });
+    respond("post", "/work-orders/:id/items", { id: "wi1", item_quantity: "5" });
+    detail.takeoff = [];
+    click("open-dispense-takeoff");
+    click("dispense-takeoff");
+    await vi.waitFor(() => expect(detailGets(detail.id)).toBe(1));
+    await vi.waitFor(() => expect(message().textContent).toBe("Dispensed."));
+    expect($(".wo-takeoff-section")).toBeNull();
+    expect(cardBody().dataset.woTab).toBe("materials");
+    expect($(".wo-materials-section").open).toBe(true);
+  });
+
+  it("two quick taps on Dispense send one request", async () => {
+    await open({ takeoff: [line()] });
+    respond("post", "/work-orders/:id/items", { id: "wi1", item_quantity: "5" });
+    click("open-dispense-takeoff");
+    const btn = card().querySelector('[data-action="dispense-takeoff"]');
+    btn.click();
+    btn.click();
+    await vi.waitFor(() => expect(message().textContent).toBe("Dispensed."));
+    expect(requests().filter((r) => r.method === "POST" && r.url.endsWith("/items"))).toHaveLength(1);
+  });
+
+  it("Dispense is usable again after a failed request", async () => {
+    await open({ takeoff: [line()] });
+    respond("post", "/work-orders/:id/items",
+      { detail: "This takeoff line changed. Refresh and try again." }, { status: 409 });
+    click("open-dispense-takeoff");
+    const btn = card().querySelector('[data-action="dispense-takeoff"]');
+    btn.click();
+    await vi.waitFor(() => expect(message().className).toBe("error"));
+    expect(btn.disabled).toBe(false);
+  });
+
   it("asks for a re-count when the dispense leaves stock negative", async () => {
     await open({ takeoff: [line()] });
     respond("post", "/work-orders/:id/items", { id: "wi1", item_quantity: "-1" });

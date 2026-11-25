@@ -190,11 +190,16 @@ def overview(db: Session) -> TakeoffOverview:
         way_by_pair[(p.item_id, p.service_type_key)] = p.quantity_on_the_way
         way_by_item[p.item_id] = way_by_item.get(p.item_id, Decimal(0)) + p.quantity_on_the_way
 
-    # (key, label) -> item_id -> (Item, need, [refs])
-    groups: dict[tuple[str, str], dict[uuid.UUID, list]] = {}
+    # key -> item_id -> (Item, need, [refs]). Case variants ("WMR"/"wmr") share
+    # a key, so they are one group; the label is the smallest spelling.
+    groups: dict[str, dict[uuid.UUID, list]] = {}
+    labels: dict[str, str] = {}
     need_by_item: dict[uuid.UUID, Decimal] = {}
     for line, order, item in lines:
-        slot = groups.setdefault(normalize_service_type(order.service_type), {})
+        key, label = normalize_service_type(order.service_type)
+        if key not in labels or label < labels[key]:
+            labels[key] = label
+        slot = groups.setdefault(key, {})
         entry = slot.setdefault(item.id, [item, Decimal(0), []])
         entry[1] += line.quantity
         entry[2].append(TakeoffWorkOrderRef(id=order.id, number=order.number, quantity=line.quantity))
@@ -202,12 +207,9 @@ def overview(db: Session) -> TakeoffOverview:
 
     # A purchase whose pair has no need (service type edited, orders completed)
     # still gets a row, so it can be seen and cleared.
-    label_by_key = {key: (key, label) for key, label in groups}
     for p in purchases:
-        slot = groups.setdefault(
-            label_by_key.setdefault(p.service_type_key, (p.service_type_key, p.service_type_label)), {}
-        )
-        slot.setdefault(p.item_id, [p.item, Decimal(0), []])
+        labels.setdefault(p.service_type_key, p.service_type_label)
+        groups.setdefault(p.service_type_key, {}).setdefault(p.item_id, [p.item, Decimal(0), []])
 
     groups_per_item: dict[uuid.UUID, int] = {}
     for slot in groups.values():
@@ -215,7 +217,8 @@ def overview(db: Session) -> TakeoffOverview:
             groups_per_item[item_id] = groups_per_item.get(item_id, 0) + 1
 
     out = []
-    for (key, label), slot in sorted(groups.items(), key=lambda kv: kv[0][1].casefold()):
+    for key, slot in sorted(groups.items(), key=lambda kv: labels[kv[0]].casefold()):
+        label = labels[key]
         rows = []
         for item_id, (item, need, refs) in sorted(slot.items(), key=lambda kv: kv[1][0].name.casefold()):
             shortfall = max(

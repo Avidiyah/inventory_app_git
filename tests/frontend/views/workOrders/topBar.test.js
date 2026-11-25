@@ -106,6 +106,22 @@ describe("the work-order top bar", () => {
     expect(more.querySelector("summary small").textContent).toBe("");
   });
 
+  it("More closes on an outside tap, another bar tab, and Escape, but not on its own button", async () => {
+    const { body } = await open();
+    const more = body.querySelector("details.wo-more");
+    const reopen = () => { more.open = true; };
+    more.querySelector("summary").click();
+    expect(more.open).toBe(true);
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(more.open).toBe(false);
+    reopen();
+    bar(body).querySelector('[data-wo-tab="notes"]').click();
+    expect(more.open).toBe(false);
+    reopen();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(more.open).toBe(false);
+  });
+
   it("exactly one .wo-more per card", async () => {
     const { cardEl } = await open({}, "admin");
     expect(cardEl.querySelectorAll(".wo-more")).toHaveLength(1);

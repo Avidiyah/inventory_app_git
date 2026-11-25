@@ -152,6 +152,22 @@ def test_overview_shortfall_pools_across_service_types(db):
     assert rows[("WMR", "Toilet")].total == D(13200)
 
 
+def test_overview_merges_case_variant_service_types(db):
+    user, item = _user(db), _item(db, qty=0)
+    upper, lower = _order(db, user, "WMR"), _order(db, user, "wmr")
+    tk.add_line(db, upper.id, user=user, item_id=item.id, quantity=D(3))
+    tk.add_line(db, lower.id, user=user, item_id=item.id, quantity=D(5))
+    tk.set_purchase(
+        db, user=user, item_id=item.id, service_type_key="wmr",
+        service_type_label="wmr", quantity=D(4),
+    )
+    groups = tk.overview(db).groups
+    assert [(g.service_type_key, g.service_type_label) for g in groups] == [("wmr", "WMR")]
+    row = groups[0].rows[0]
+    assert row.need == D(8) and row.on_the_way == D(4)
+    assert row.shared is False and row.shortfall == D(4)
+
+
 def test_overview_covered_by_stock(db):
     user, item = _user(db), _item(db, name="Supply line", qty=60, price="8")
     order = _order(db, user, "WMR")

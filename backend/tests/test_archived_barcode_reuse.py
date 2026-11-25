@@ -25,7 +25,7 @@ from decimal import Decimal
 import pytest
 
 from app.domain.errors import ArchivedBarcodeConflictError, DuplicateBarcodeError
-from app.models import Item, Transaction
+from app.models import Item, TakeoffPurchase, Transaction, WorkOrderTakeoffLine
 from app.services import items as items_service
 
 
@@ -98,6 +98,31 @@ def test_override_keeps_shell_and_retires_code_when_history_exists(db):
     assert shell.archived_at is not None      # still archived
     assert shell.barcode != "ARCH-3"          # code released to the new item
     assert "ARCH-3" in shell.barcode          # original kept up front for History
+
+
+@pytest.mark.parametrize("kind", ["line", "purchase"])
+def test_override_keeps_shell_when_item_is_on_a_takeoff(db, kind):
+    from app.services import work_orders as wos
+
+    archived = _seed_item(db, barcode="ARCH-TK", archived=True)
+    archived_id = archived.id
+    if kind == "line":
+        order = wos.get_or_create_work_order(db, number="WO-TK-1", service_type="WMR")
+        db.add(WorkOrderTakeoffLine(
+            work_order_id=order.id, item_id=archived_id, quantity=Decimal("2"),
+        ))
+    else:
+        db.add(TakeoffPurchase(
+            item_id=archived_id, service_type_key="wmr", service_type_label="WMR",
+            quantity_on_the_way=Decimal("2"),
+        ))
+    db.flush()
+
+    new = _create(db, "ARCH-TK", override_archived=True)
+
+    assert new.barcode == "ARCH-TK"
+    shell = db.query(Item).filter(Item.id == archived_id).first()
+    assert shell is not None and shell.barcode != "ARCH-TK"
 
 
 def test_live_duplicate_is_never_bypassed_by_override(db):

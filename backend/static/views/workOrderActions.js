@@ -282,7 +282,9 @@ listEl.addEventListener("click", async (event) => {
         reportAdded: (addedLine, okText) => reportAdded(cardEl, addedLine, okText),
         refresh: async () => {
           await refreshCard(cardEl, ".wo-takeoff-section");
-          showWorkOrderTab(cardEl.querySelector(".wo-body"), "takeoff");
+          // The last line gone leaves a technician no section: land on Materials.
+          const body = cardEl.querySelector(".wo-body");
+          showWorkOrderTab(body, body.querySelector(".wo-takeoff-section") ? "takeoff" : "materials");
         },
       });
     } else if (action === "keep-theirs-wo") {
@@ -728,3 +730,14 @@ listEl.addEventListener(
   },
   true
 );
+
+// The More menu closes on a tap outside it (another bar tab included) or Escape.
+// One document-level pair, installed once with this module.
+const closeMore = (keep) =>
+  document.querySelectorAll("details.wo-more[open]").forEach((m) => {
+    if (!keep || !m.contains(keep)) m.open = false;
+  });
+document.addEventListener("click", (event) => closeMore(event.target));
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeMore();
+});

@@ -122,13 +122,19 @@ export async function handleTakeoffAction(action, btn, ctx) {
   } else if (action === "dispense-takeoff") {
     const quantity = positive(row.querySelector(".wo-tk-dispense-qty").value);
     if (!quantity) return needQty(), true;
-    const added = await apiAddWorkOrderItem(workOrderId, {
-      itemId: row.dataset.itemId,
-      quantity,
-      takeoffLineId: row.dataset.takeoffId,
-    });
-    await refresh();
-    ctx.reportAdded(added, "Dispensed.");
+    // Off while in flight so a double tap cannot move stock twice.
+    btn.disabled = true;
+    try {
+      const added = await apiAddWorkOrderItem(workOrderId, {
+        itemId: row.dataset.itemId,
+        quantity,
+        takeoffLineId: row.dataset.takeoffId,
+      });
+      await refresh();
+      ctx.reportAdded(added, "Dispensed.");
+    } finally {
+      btn.disabled = false;
+    }
   } else {
     return false;
   }
