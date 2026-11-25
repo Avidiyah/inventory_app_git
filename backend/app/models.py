@@ -21,6 +21,7 @@ from sqlalchemy import (
     Numeric,
     Integer,
     Boolean,
+    CheckConstraint,
     ForeignKey,
     DateTime,
     LargeBinary,
@@ -464,6 +465,12 @@ class WorkOrder(Base):
         "WorkOrderItem",
         back_populates="work_order",
         cascade="all, delete-orphan",
+    )
+    takeoff_lines = relationship(
+        "WorkOrderTakeoffLine",
+        back_populates="work_order",
+        cascade="all, delete-orphan",
+        order_by="WorkOrderTakeoffLine.created_at",
     )
     technician_assignments = relationship(
         "WorkOrderTechnician",
@@ -1047,6 +1054,76 @@ class WorkOrderItem(Base):
     __table_args__ = (
         UniqueConstraint(
             "work_order_id", "item_id", name="uq_work_order_items_wo_item"
+        ),
+    )
+
+
+class WorkOrderTakeoffLine(Base):
+    """Predicted material for one work order (Takeoff). `quantity` is what is
+    still to be dispensed; a line that reaches zero is deleted. Never touches
+    stock, `work_order_items`, or billing."""
+
+    __tablename__ = "work_order_takeoff_lines"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    work_order_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("work_orders.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    item_id = Column(
+        UUID(as_uuid=True), ForeignKey("items.id", ondelete="RESTRICT"), nullable=False
+    )
+    quantity = Column(Numeric, nullable=False)
+    created_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    work_order = relationship("WorkOrder", back_populates="takeoff_lines")
+    item = relationship("Item")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "work_order_id", "item_id", name="uq_takeoff_line_order_item"
+        ),
+        CheckConstraint("quantity > 0", name="ck_takeoff_line_quantity_positive"),
+    )
+
+
+class TakeoffPurchase(Base):
+    """Quantity of an item on the way, per service type (Takeoff page). One
+    row per (item, service type); arrivals count it down oldest `created_at`
+    first (`created_at` is set on insert only)."""
+
+    __tablename__ = "takeoff_purchases"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    item_id = Column(
+        UUID(as_uuid=True), ForeignKey("items.id", ondelete="RESTRICT"), nullable=False
+    )
+    service_type_key = Column(Text, nullable=False)
+    service_type_label = Column(Text, nullable=False)
+    quantity_on_the_way = Column(Numeric, nullable=False)
+    created_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    item = relationship("Item")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "item_id", "service_type_key", name="uq_takeoff_purchase_item_type"
+        ),
+        CheckConstraint(
+            "quantity_on_the_way > 0", name="ck_takeoff_purchase_quantity_positive"
         ),
     )
 
