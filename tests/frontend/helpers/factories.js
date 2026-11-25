@@ -181,6 +181,7 @@ export function workOrderDetail(overrides = {}) {
     smr_lines: [],
     smr_legacy_labor_minutes: 0,
     smr_block: null,
+    takeoff: [],
     ...overrides,
   };
 }

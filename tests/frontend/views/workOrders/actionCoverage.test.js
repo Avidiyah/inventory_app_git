@@ -55,6 +55,8 @@ const ACTIONS = [
   "smr-ready", "smr-not-ready", "smr-paper-reviewed", "smr-not-paper-reviewed",
   // W3 conflict message (workOrderConflict.js).
   "keep-theirs-wo", "save-mine-wo",
+  // Takeoff section (workOrderTakeoff.js; behaviour in takeoff.test.js).
+  "add-takeoff", "edit-takeoff", "remove-takeoff", "open-dispense-takeoff", "dispense-takeoff",
 ];
 
 // The thirteen exports other views import. P4 must re-export every one.

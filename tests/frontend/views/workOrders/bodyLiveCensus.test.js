@@ -10,7 +10,7 @@ import { importView, mountShell } from "../../helpers/shell.js";
 
 const SECTION_ORDER = [
   "wo-sec-pin", "wo-sec-charging", "wo-sec-lock", "wo-sec-prior", "wo-sec-actions", "wo-sec-details", "wo-sec-notes",
-  "wo-sec-materials", "wo-sec-labor", "wo-sec-photos", "wo-sec-invoice", "wo-sec-msg",
+  "wo-sec-materials", "wo-sec-labor", "wo-sec-photos", "wo-sec-takeoff", "wo-sec-invoice", "wo-sec-msg",
 ];
 const ROLES = [
   { name: "Owner", role: "owner", crew: false },
@@ -90,6 +90,10 @@ async function detailFor(f) {
       ? { id: "b1", version: 1, text: "SMR27 LABOR CORRECTION v1\nline", pasted_at: null, stale: false }
       : null,
     smr_paper_check: null,
+    takeoff: [
+      { id: "60000000-0000-4000-8000-000000000001", item_id: "10000000-0000-4000-8000-000000000001", item_name: "Toilet", quantity: "4" },
+      { id: "60000000-0000-4000-8000-000000000002", item_id: "10000000-0000-4000-8000-000000000002", item_name: "Valve", quantity: "2" },
+    ],
     active_labor_session: f.extras ? { started_at: "2026-11-15T14:00:00Z" } : null,
     prior_work: f.extras ? { by: ["Ann Lee"], last_at: "2026-10-14T15:05:00Z" } : null,
   });
@@ -147,7 +151,17 @@ describe("card body identity census", () => {
         const hours = row.querySelector(".wo-smr-l-hours");
         if (hours) expect(hours.id, name).toBe(`wo-smrline-hours-${row.dataset.lineId}`);
       });
-      const formIds = { ".wo-add-item": "wo-add-item", ".wo-add-skilled-labor": "wo-add-skilled", ".wo-smr-add": "wo-add-smr" };
+      body.querySelectorAll(".wo-takeoff-line").forEach((row) => {
+        expect(row.id, name).toBe(`wo-tk-${row.dataset.takeoffId}`);
+        const qty = row.querySelector(".wo-tk-qty");
+        if (qty) expect(qty.id, name).toBe(`wo-tk-qty-${row.dataset.takeoffId}`);
+        expect(row.querySelector(".wo-takeoff-dispense")?.id ?? `wo-tk-dispense-${row.dataset.takeoffId}`, name)
+          .toBe(`wo-tk-dispense-${row.dataset.takeoffId}`);
+      });
+      const formIds = {
+        ".wo-add-item": "wo-add-item", ".wo-add-skilled-labor": "wo-add-skilled", ".wo-smr-add": "wo-add-smr",
+        ".wo-takeoff-add": "wo-add-takeoff",
+      };
       for (const [selector, id] of Object.entries(formIds)) {
         const el = body.querySelector(selector);
         if (el) expect(el.id, name).toBe(id);

@@ -78,11 +78,16 @@ describe("the work-order top bar", () => {
 
   it("More lists Details and Invoice for an order with an invoice", async () => {
     const { body } = await open({ smr: true, entry_mode: "retroactive", smr_lines: [SMR_LINE] }, "admin", { smr: true });
-    expect(keys(body.querySelector(".wo-more-menu"))).toEqual(["details", "invoice"]);
+    expect(keys(body.querySelector(".wo-more-menu"))).toEqual(["details", "takeoff", "invoice"]);
   });
 
-  it("More lists only Details for an order without an invoice", async () => {
+  it("More lists Details and Takeoff for a Team Lead on an order without an invoice", async () => {
     const { body } = await open();
+    expect(keys(body.querySelector(".wo-more-menu"))).toEqual(["details", "takeoff"]);
+  });
+
+  it("More lists only Details for a technician on an order with no takeoff", async () => {
+    const { body } = await open({}, "technician");
     expect(keys(body.querySelector(".wo-more-menu"))).toEqual(["details"]);
   });
 

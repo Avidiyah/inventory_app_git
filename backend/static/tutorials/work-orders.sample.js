@@ -18,7 +18,7 @@ export function sample(user) {
     tracking_technician_ids: [], materials_total: "0.00", labor_minutes: 0, labor_billed_minutes: 0,
     labor_rate: "62.50", labor_total: "0.00", signature: null, smr_target: null, smr_paper_check: null,
     smr_stage: null, smr_ready: null, smr_readings: [], smr_lines: [], smr_legacy_labor_minutes: 0,
-    smr_block: null, ...extra,
+    smr_block: null, takeoff: [], ...extra,
   });
   const stock = [
     ["000000000101", "P-TRAP-15", "1-1/2 in. P-trap", "6.75"],

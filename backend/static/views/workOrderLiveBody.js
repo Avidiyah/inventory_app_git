@@ -13,9 +13,9 @@ import { defaultOf, isDirty, keepPlace, morphInto } from "../morph.js";
 import { renderBody, showWorkOrderTab, syncWorkOrderTabs } from "./workOrderCardHtml.js";
 
 // Entry rows whose fields act together: kept or updated as one unit.
-export const LIVE_FORMS = ".wo-add-item, .wo-add-labor";
+export const LIVE_FORMS = ".wo-add-item, .wo-add-labor, .wo-takeoff-add, .wo-takeoff-dispense";
 // Server rows (a material line, a labor entry or an SMR line).
-export const LIVE_ROWS = ".wo-item, .wo-labor-entry";
+export const LIVE_ROWS = ".wo-item, .wo-labor-entry, .wo-takeoff-line";
 // A field that saves the moment it changes, so it always follows the server.
 export const SAVES_ON_CHANGE = ".wo-mode-select";
 

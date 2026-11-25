@@ -52,6 +52,7 @@ import { canEditSmrLines, readyRowHtml, smrInvoiceSectionHtml, smrLaborSectionHt
 import { comboHtml } from "../menus.js";
 import { photosSectionHtml } from "./workOrderPhotos.js";
 import { pinHtml, syncTopBar, topBarHtml } from "./workOrderTopBar.js";
+import { takeoffMoreLabel, takeoffSectionHtml } from "./workOrderTakeoff.js";
 
 function renderLaborEntryHtml(entry) {
   const actions = canEditLaborEntry(entry)
@@ -541,9 +542,14 @@ export function renderBody(detail, bodyEl) {
 
   const showLabor = sup || assignedToCurrentUser || detail.smr;
   const invoice = smrInvoiceSectionHtml(detail);
-  // The pin carries the task, the place and the section bar. Invoice (SMR) is
-  // the only extra section so far; it is listed under More.
-  const moreSections = invoice ? [["invoice", "Invoice"]] : [];
+  // The pin carries the task, the place and the section bar. Takeoff and
+  // Invoice (SMR) are the extra sections; they are listed under More, in that order.
+  const done = detail.status === "completed";
+  const takeoff = takeoffSectionHtml(detail, { canEdit: sup && !done, canDispense: !locked && !done });
+  const moreSections = [
+    ...(takeoff ? [["takeoff", takeoffMoreLabel(detail)]] : []),
+    ...(invoice ? [["invoice", "Invoice"]] : []),
+  ];
   const pin = pinHtml(detail, topBarHtml(detail, { showLabor, moreSections, toolsHtml: tools, canEdit: sup }));
   const statusActions = detail.smr ? "" : primary + secondary;
 
@@ -591,6 +597,7 @@ export function renderBody(detail, bodyEl) {
     // An SMR order shows Labor to everyone, then its Invoice section.
     (showLabor ? laborSectionHtml(detail) : "") +
     photosSectionHtml(detail) +
+    takeoff +
     invoice +
     // Stays the body's last child: setMessage replaces its class, and the
     // action handler finds it by position after that. `data-live-keep`: a live
@@ -606,6 +613,7 @@ const SECTION_BY_TAB = {
   materials: ".wo-materials-section",
   labor: ".wo-labor-section",
   photos: ".wo-photos-section",
+  takeoff: ".wo-takeoff-section",
   invoice: ".wo-smr-invoice",
 };
 

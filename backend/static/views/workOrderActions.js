@@ -56,9 +56,24 @@ import { getAllItems, itemsLoading } from "./workOrderReferenceData.js";
 import { exitSolo } from "./workOrderRouting.js";
 import { peekProfileOrigin, takeProfileOrigin } from "./profileOrigin.js";
 import { handleSmrAction } from "./workOrderSmrActions.js";
+import { handleTakeoffAction } from "./workOrderTakeoff.js";
 import { loadWorkOrders, refreshCard } from "./workOrderList.js";
 
 const listEl = document.getElementById("work-orders-list");
+
+// The two forms that share the catalogue chooser (Add Item and + Takeoff item).
+const ADD_FORM = ".wo-add-item, .wo-takeoff-add";
+
+// The success line after a material add or a takeoff dispense: a short-stock
+// result asks for a re-count instead.
+function reportAdded(cardEl, addedLine, okText) {
+  const refreshedMessage = cardEl.querySelector(".wo-message");
+  if (Number(addedLine.item_quantity) < 0) {
+    setMessage(refreshedMessage, "Item added. Please re-count stock.", "error");
+  } else {
+    setMessage(refreshedMessage, okText, "success");
+  }
+}
 
 // A one-value protected save (W3): `first()` sends with the value the row
 // showed; a 409 conflict offers Keep theirs (`keep`) or Save mine (`retry`,
@@ -93,7 +108,7 @@ listEl.addEventListener("input", (event) => {
     return;
   }
   if (!input.classList.contains("ms-item-search")) return;
-  const container = input.closest(".wo-add-item");
+  const container = input.closest(ADD_FORM);
   const results = container.querySelector(".ms-item-results");
   delete container.dataset.itemId;
   delete container.dataset.materialRequestId;
@@ -130,7 +145,8 @@ listEl.addEventListener("input", (event) => {
     : `<p class="hint">No matching items.</p>` +
       catalogueRequestPromptHtml({
         searchedText: input.value.trim(),
-        workOrderId: cardEl ? cardEl.dataset.id : null,
+        // A takeoff plans material; fulfilling the request must not log it on the order.
+        workOrderId: cardEl && !container.matches(".wo-takeoff-add") ? cardEl.dataset.id : null,
         source: "work_orders",
       });
   results.hidden = false;
@@ -147,7 +163,7 @@ listEl.addEventListener("click", async (event) => {
   const action = btn.dataset.action;
 
   if (action === "pick-item") {
-    const container = btn.closest(".wo-add-item");
+    const container = btn.closest(ADD_FORM);
     container.dataset.itemId = btn.dataset.itemId;
     delete container.dataset.materialRequestId;
     container.querySelector(".ms-item-search").value = btn.dataset.itemName;
@@ -257,6 +273,18 @@ listEl.addEventListener("click", async (event) => {
       // An SMR order's Labor and Invoice actions (workOrderSmrActions.js);
       // its branches share this catch.
       await handleSmrAction(action, btn, cardEl, msg);
+    } else if (action.endsWith("-takeoff")) {
+      // The Takeoff section (workOrderTakeoff.js); its branches share this catch.
+      await handleTakeoffAction(action, btn, {
+        cardEl,
+        workOrderId,
+        msg,
+        reportAdded: (addedLine, okText) => reportAdded(cardEl, addedLine, okText),
+        refresh: async () => {
+          await refreshCard(cardEl, ".wo-takeoff-section");
+          showWorkOrderTab(cardEl.querySelector(".wo-body"), "takeoff");
+        },
+      });
     } else if (action === "keep-theirs-wo") {
       // W3: the choice lives in workOrderConflict.js's per-card entry, not in
       // the message line this handler just cleared.
@@ -502,12 +530,7 @@ listEl.addEventListener("click", async (event) => {
         nextSearch.scrollIntoView({ block: "nearest" });
         nextSearch.focus({ preventScroll: true });
       }
-      const refreshedMessage = cardEl.querySelector(".wo-message");
-      if (Number(addedLine.item_quantity) < 0) {
-        setMessage(refreshedMessage, "Item added. Please re-count stock.", "error");
-      } else {
-        setMessage(refreshedMessage, "Item added.", "success");
-      }
+      reportAdded(cardEl, addedLine, "Item added.");
     } else if (action === "edit-item") {
       const row = btn.closest(".wo-item");
       const qty = parseFloat(row.querySelector(".wo-line-qty").value);
@@ -559,7 +582,7 @@ listEl.addEventListener("keydown", (event) => {
   // Material entry: arrows highlight a result, Enter picks it (click reuses
   // pick-item, which moves focus to Qty); Enter in Qty adds the line.
   if (t.classList.contains("ms-item-search")) {
-    const results = t.closest(".wo-add-item").querySelector(".ms-item-results");
+    const results = t.closest(ADD_FORM).querySelector(".ms-item-results");
     const picks = [...results.querySelectorAll("[data-action='pick-item']")];
     const cur = picks.findIndex((b) => b.classList.contains("is-active"));
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -580,12 +603,17 @@ listEl.addEventListener("keydown", (event) => {
   }
   if (event.key === "Enter" && t.classList.contains("wo-item-qty")) {
     event.preventDefault();
-    t.closest(".wo-add-item").querySelector("[data-action='add-item']").click();
+    t.closest(ADD_FORM).querySelector("[data-action='add-item'], [data-action='add-takeoff']").click();
+    return;
+  }
+  if (event.key === "Enter" && t.classList.contains("wo-tk-dispense-qty")) {
+    event.preventDefault();
+    t.closest(".wo-takeoff-dispense").querySelector("[data-action]").click();
     return;
   }
   if (event.key !== "Escape") return;
   if (t.classList.contains("ms-item-search")) {
-    const results = t.closest(".wo-add-item").querySelector(".ms-item-results");
+    const results = t.closest(ADD_FORM).querySelector(".ms-item-results");
     results.hidden = true;
     results.innerHTML = "";
     return;
