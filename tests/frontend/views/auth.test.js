@@ -536,7 +536,7 @@ describe("push at login", () => {
     http.post("/push/subscribe", () => new HttpResponse(null, { status: 204 })),
   ];
 
-  it("checkbox on + permission 'default': requests permission BEFORE the login request", async () => {
+  it("permission 'default': requests permission BEFORE the login request, no checkbox needed", async () => {
     // The whole point of requestPermissionAtLogin: the click's user gesture is
     // still valid here and gone after the first await. iOS gives no second chance.
     const push = stubPush({ permission: "default" });
@@ -544,27 +544,16 @@ describe("push at login", () => {
     push.requestPermission.mockImplementation(async () => { sequence.push("permission"); return "granted"; });
     await mountAuth({ me: 401, handlers: pushOk() });
     server.use(http.post("/auth/login", () => { sequence.push("login"); return HttpResponse.json(userFactory()); }));
-    const user = userEvent.setup();
-    await user.click(el.notifications());
+    expect(el.notifications()).toBeNull();
     await fillAndSubmit();
     await vi.waitFor(() => expect(el.root().hidden).toBe(false));
     expect(sequence).toEqual(["permission", "login"]);
   });
 
-  it("checkbox off: never asks", async () => {
-    const push = stubPush({ permission: "default" });
-    await mountAuth({ me: 401 });
-    answerLogin(userFactory());
-    await fillAndSubmit();
-    await vi.waitFor(() => expect(el.root().hidden).toBe(false));
-    expect(push.requestPermission).not.toHaveBeenCalled();
-  });
-
-  it("checkbox on but permission already decided: no prompt", async () => {
+  it("permission already decided: no prompt", async () => {
     const push = stubPush({ permission: "denied" });
     await mountAuth({ me: 401 });
     answerLogin(userFactory());
-    await userEvent.setup().click(el.notifications());
     await fillAndSubmit();
     await vi.waitFor(() => expect(el.root().hidden).toBe(false));
     expect(push.requestPermission).not.toHaveBeenCalled();
@@ -581,12 +570,35 @@ describe("push at login", () => {
     expect(requestFor("/push/subscribe", "POST").body.endpoint).toBe("https://push.example/new");
   });
 
+  it("an unanswered browser prompt does not hold up sign-in; answering it later subscribes", async () => {
+    const push = stubPush({ permission: "default" });
+    let answer;
+    push.requestPermission.mockImplementation(() => new Promise((r) => { answer = r; }));
+    await mountAuth({ me: 401, handlers: pushOk() });
+    answerLogin(userFactory({ role: "technician" }));
+    await fillAndSubmit();
+    await vi.waitFor(() => expect(el.root().hidden).toBe(false));
+    expect(requestFor("/push/subscribe", "POST")).toBeNull();
+    window.Notification.permission = "granted";
+    answer("granted");
+    await vi.waitFor(() => expect(requestFor("/push/subscribe", "POST")).not.toBeNull());
+  });
+
+  it("once the sign-in has asked, the post-login prompt does not ask again", async () => {
+    stubPush({ permission: "default" });
+    await mountAuth({ me: 401, handlers: pushOk() });
+    answerLogin(userFactory({ role: "owner" }));
+    await fillAndSubmit();
+    await vi.waitFor(() => expect(el.root().hidden).toBe(false));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(document.querySelector(".push-prompt")).toBeNull();
+  });
+
   it("a rejected requestPermission does not block sign-in", async () => {
     const push = stubPush({ permission: "default" });
     push.requestPermission.mockRejectedValue(new Error("nope"));
     await mountAuth({ me: 401 });
     answerLogin(userFactory());
-    await userEvent.setup().click(el.notifications());
     await fillAndSubmit();
     await vi.waitFor(() => expect(el.root().hidden).toBe(false));
   });

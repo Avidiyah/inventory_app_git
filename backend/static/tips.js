@@ -19,10 +19,6 @@ export const TIPS = {
     label: "Stay signed in for this shift",
     text: "Every sign-in expires after 12 hours. Turn this on only to keep the session cookie when the browser closes; it does not extend the 12-hour limit.",
   },
-  "auth.notifications": {
-    label: "Enable notifications",
-    text: "Allows this device to receive work-order alerts for the signed-in account. On iPhone and iPad, push works only when the app is installed to the Home Screen; logging out removes this device's subscription.",
-  },
 
   // --- Transaction (pages/transaction.html) ------------------------------
   "txn.wo-gate": {

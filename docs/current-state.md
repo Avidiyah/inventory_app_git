@@ -933,6 +933,10 @@ stays here is behavior the code does not state in one place:
   404/410 deletes a subscription; the endpoint allowlist is re-checked on
   **every** send (a stored endpoint is an SSRF primitive); `/service-worker.js`
   is served from root because a worker's scope is its serving directory.
+- **Push permission has no opt-in box**: every Sign In click asks (inside the
+  click's gesture, not awaited, so an unanswered prompt never holds sign-in);
+  `views/pushPrompt.js` covers what that misses after login — undecided (once
+  per sign-in), blocked and iOS-not-installed (once per device).
 - Notification triggers are registered in `docs/notification-events.md`
   (updated in the same commit as any trigger change; procedure in
   `docs/adding-a-notification-trigger.md`), which also owns the mechanism rules.

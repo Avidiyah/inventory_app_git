@@ -6306,8 +6306,10 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     margin-top: 0;
 }
 
-/* Photo-storage warning (views/storageWarning.js): same chrome, stacked buttons. */
-.storage-warning button {
+/* Photo-storage warning (views/storageWarning.js) and notification prompt
+   (views/pushPrompt.js): same chrome, stacked buttons. */
+.storage-warning button,
+.push-prompt button {
     width: 100%;
     margin-top: var(--space-2);
 }

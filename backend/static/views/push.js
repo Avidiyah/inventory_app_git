@@ -2,7 +2,8 @@
 //
 // Layer: views. Owns `#push-test-btn` (on the Owner's Dev Tools page), the login-time
 // permission request (requestPermissionAtLogin, called from views/auth.js
-// before login), the service-worker registration, and the browser
+// before login, on every sign-in; views/pushPrompt.js is the post-login
+// fallback for sessions that never pass through it), the service-worker registration, and the browser
 // subscription lifecycle. There is no in-app way to turn notifications back
 // off short of logging out -- `unsubscribeThisDevice` (called from
 // views/auth.js on logout) is the opt-out path.
@@ -137,21 +138,57 @@ export async function initPushForUser() {
   }
 }
 
+// True once this sign-in has already shown the browser's own prompt, so the
+// post-login prompt (views/pushPrompt.js) does not pile a second ask, or a
+// "blocked" notice for a choice the person just made, on top of it.
+let askedThisSignIn = false;
+
 // Hide the test control when the app returns to the login screen.
 export function resetPushView() {
+  askedThisSignIn = false;
   if (testBtn) testBtn.hidden = true;
+}
+
+// iPhone/iPad outside the installed Home Screen app: push is impossible here
+// (`window.Notification` is absent), so the useful thing is to say how to get it.
+// iPadOS reports itself as a touch-screen Mac.
+function needsHomeScreen() {
+  const ios =
+    /iPhone|iPad|iPod/.test(navigator.userAgent || "") ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const installed =
+    navigator.standalone === true || window.matchMedia?.("(display-mode: standalone)").matches;
+  return ios && !installed;
+}
+
+// What the post-login prompt should say for this person on this device:
+// "ask" (permission still undecided), "blocked" (denied earlier),
+// "install" (iOS tab, needs the Home Screen app), or null (nothing to say).
+export function pushPromptKind(role) {
+  if (askedThisSignIn || !role || !roleAtLeast(role, SUBSCRIBE_MIN_ROLE)) return null;
+  if (!pushSupported()) return needsHomeScreen() ? "install" : null;
+  const permission = window.Notification.permission;
+  return permission === "default" ? "ask" : permission === "denied" ? "blocked" : null;
+}
+
+// The "Turn on notifications" button's handler: its tap is the user gesture,
+// so the permission request must stay the first thing that runs.
+export async function enablePush() {
+  await requestPermissionAtLogin();
+  await initPushForUser();
 }
 
 // Called synchronously from the login button's click handler, before any
 // awaited network call. That is the only place the login click's user
 // gesture is still valid for `requestPermission()` -- iOS refuses the
 // prompt outright once an `await` (e.g. the login request itself) has run
-// first, with no second chance after. A no-op when unsupported or already
-// decided, so a checked box never blocks or delays the login it's attached
-// to: initPushForUser (after login) re-checks permission and simply won't
+// first, with no second chance after. Runs on every sign-in; a no-op when
+// unsupported or already decided, so it never blocks or delays the login:
+// initPushForUser (after login) re-checks permission and simply won't
 // subscribe if this was denied or skipped.
 export async function requestPermissionAtLogin() {
   if (!pushSupported() || window.Notification.permission !== "default") return;
+  askedThisSignIn = true;
   try {
     await window.Notification.requestPermission();
   } catch {

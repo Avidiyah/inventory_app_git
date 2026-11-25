@@ -22,6 +22,7 @@ import { roleLabel } from "../roles.js";
 import { loadUsers } from "./users.js";
 import { closeClockInPrompt } from "./clockInPrompt.js";
 import { closeStorageWarning } from "./storageWarning.js";
+import { closePushPrompt } from "./pushPrompt.js";
 import { runWelcomeThenClockIn } from "./welcome.js";
 import { setHistoryTab } from "./history.js";
 import { resetBatch, tryResumeBatch } from "./transactions.js";
@@ -46,7 +47,6 @@ const loginPassword = document.getElementById("login-password");
 const loginPasswordToggle = document.getElementById("login-password-toggle");
 const loginBtn = document.getElementById("login-btn");
 const loginRemember = document.getElementById("login-remember");
-const loginNotifications = document.getElementById("login-notifications");
 const loginMessage = document.getElementById("login-message");
 const logoutBtn = document.getElementById("logout-btn");
 const authUserIndicator = document.getElementById("auth-user-indicator");
@@ -71,6 +71,7 @@ function showLoginScreen({ expired = false } = {}) {
   unmountMessages();
   closeClockInPrompt();
   closeStorageWarning();
+  closePushPrompt();
   const wasInApp = !appRoot.hidden;
   // Same "timeout, not a deliberate logout" gate as the batch below: an
   // operator mid-entry on a work order when the session drops should land
@@ -212,9 +213,10 @@ loginBtn.addEventListener("click", async () => {
   // Must run before any other await in this handler -- this click is the
   // user gesture requestPermission() needs, and it's gone by the time
   // apiLogin's network round trip below would otherwise let us get to it.
-  if (loginNotifications && loginNotifications.checked) {
-    await requestPermissionAtLogin();
-  }
+  // Not awaited: the browser prompt can sit unanswered (desktop Chrome's
+  // quiet bell icon), and sign-in must not wait on it. Once answered, re-run
+  // the subscribe, which enterApp may have tried before permission existed.
+  void requestPermissionAtLogin().then(initPushForUser);
 
   try {
     const user = await apiLogin({ username, password, remember });
