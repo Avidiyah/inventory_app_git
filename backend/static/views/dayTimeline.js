@@ -58,7 +58,7 @@ function rowHtml(row, now) {
 
 // Why a day is left out of the week, in words that name the fix. Mirrors
 // day_pending_review (domain/attendance.py): a flagged or past-midnight
-// punch, or a work-order clock the cap stopped that no Admin has accepted.
+// punch, or a work-order clock the cap stopped that no Team Lead+ has accepted.
 export function pendingReasons(day) {
   const reasons = [];
   const own = (day.punches || []).filter((p) => !p.carried);

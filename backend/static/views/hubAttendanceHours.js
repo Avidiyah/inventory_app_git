@@ -12,8 +12,8 @@
 // P3 added editing: `[Edit]` / `[Looks right]` per punch row and
 // `[+ Add punch]` per day, all inside the drill-down and all withheld unless
 // the caller passes the matching callback -- which `hubTimesheetsTab.js` does
-// for a Team Lead+ (edit, add, delete) and only for an Admin ("Looks right",
-// lunch). A `carried` punch never gets one: spec §9 gives a
+// for a Team Lead+ (edit, add, delete, "Looks right") and only for an Admin
+// (lunch). A `carried` punch never gets one: spec §9 gives a
 // cross-midnight punch to the day it started, and it is editable only there.
 // The editor itself is `hubAttendancePunchEditor.js`; this module stays a
 // pure view and hands values back through callbacks.
@@ -126,8 +126,8 @@ function lunchLineHtml(day, canEdit) {
 
 // Shared with the day page (hubAttendanceDay.js), which stacks one of these
 // per person for a single date and so needs `userId` on the add button.
-// `canReview` and `canLunch` are the Admin-only extras ("Looks right", the
-// lunch waiver); both default to `canEdit` so existing callers are unchanged.
+// `canReview` ("Looks right", Team Lead+) and `canLunch` (the lunch waiver,
+// Admin) are the extras; both default to `canEdit` so existing callers are unchanged.
 export function drilldownHtml(day, name, {
   canEdit, canReview = canEdit, canLunch = canEdit, userId = "",
 } = {}) {
