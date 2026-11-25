@@ -537,7 +537,7 @@ def test_no_route_gate_is_left_at_the_admin_floor():
     #
     # The attendance week, live roster, person week and clock-out left the set
     # on 2026-10-22: Team Leads edit anyone's hours, so they read and write
-    # them. The CSV export and bulk review (pay-record money and flags) stay.
+    # them. The CSV export (pay-record money) stays.
     #
     # P3's three audited punch writes left the set on 2026-10-16: a worker
     # edits their own open-week punches, so the route is session-only and

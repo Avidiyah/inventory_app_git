@@ -266,8 +266,11 @@ Attendance:
   `needs_review` punch, midnight closes included, or an auto-closed/over-cap
   session with no `reviewed_at`) is left out of every hours total (compare
   payload, CSV "Pending review" row, profile) and shown greyed with "⚠".
-  Admin "Mark all reviewed" accepts the week's estimates, sweeping open
-  punches first.
+  "Fix flagged time" (Timesheets, Team Lead+) and "Fix my time" (Home, own
+  punches) open one pop-up (`views/flaggedTimeFlow.js`) that walks the week's
+  flagged items one at a time; no accept-all action exists. A clock is
+  accepted alone by `POST /hub/attendance/sessions/{id}/review` (sweeps that
+  technician's stale clocks first; `reviewed_at` only, no audit row).
 - Self-edit: a worker adds, edits and deletes their own punches and keys/revises
   their own hand-entered labor (on the crew; never a session row) only while
   the week is open (`labor_day.week_is_open`, Central); else 403 "You can only
@@ -580,8 +583,8 @@ supervisor 1, techfm_oa 2, admin 3, owner 4. "Team Lead+" = rank >= 1.
 | Scan-gate cards | any authenticated user (a Technician's gate lists only their assignments) |
 | Tools: view list/lookup, return | any authenticated user |
 | Tools: create, edit, archive, checkout | techfm_oa+ |
-| Timesheets, live roster, `POST /hub/attendance/clock-out/{user_id}`, `GET /hub/people/{user_id}/week` | Team Lead+ |
-| Export CSV, Mark all reviewed, lunch waiver, Leaderboards, Hub Report | admin+ |
+| Timesheets, live roster, `POST /hub/attendance/clock-out/{user_id}`, `GET /hub/people/{user_id}/week`, accept flagged time ("Looks right", accept a clock) | Team Lead+ |
+| Export CSV, lunch waiver, Leaderboards, Hub Report | admin+ |
 | Own punches (in/out/switch) | any authenticated user plus the service guard |
 
 TechFM OA nuance: it carries the whole Admin toolkit minus two things, both
@@ -940,10 +943,10 @@ stays here is behavior the code does not state in one place:
 - Notification triggers are registered in `docs/notification-events.md`
   (updated in the same commit as any trigger change; procedure in
   `docs/adding-a-notification-trigger.md`), which also owns the mechanism rules.
-- Attendance routes: `GET /hub/attendance/week`, `/live` and `POST
-  /hub/attendance/clock-out/{user_id}` are Team Lead+; `/export` and
-  `/week/review` admin only; the three punch writes use `get_current_user` plus
-  the service guard.
+- Attendance routes: `GET /hub/attendance/week` (carries `flagged_sessions`),
+  `/live`, `POST /hub/attendance/clock-out/{user_id}` and `POST
+  /hub/attendance/sessions/{session_id}/review` are Team Lead+; `/export` admin
+  only; the three punch writes use `get_current_user` plus the service guard.
 
 ## Frontend Feature Context
 

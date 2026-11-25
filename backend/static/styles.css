@@ -3707,7 +3707,7 @@ html:has(#user-hub-page.active > .hub-graph-sheet:not([hidden])) { overflow: hid
     margin-bottom: var(--space-4);
 }
 
-/* Timesheets payroll actions: Mark all reviewed and Export CSV. */
+/* Timesheets actions: Fix flagged time and Export CSV. */
 .hub-timesheets-action-row {
     display: flex;
     justify-content: flex-end;
