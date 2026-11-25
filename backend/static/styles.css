@@ -8187,3 +8187,142 @@ html.nav-mobile { --wo-pin-top: 68px; }
 .wo-takeoff-dispense[hidden] { display: none; }
 .wo-takeoff-dispense .wo-tk-dispense-qty { flex: 0 0 90px; width: 90px; margin-top: 0; }
 .wo-takeoff-dispense button { margin-top: 0; min-height: var(--btn-h-sm); }
+
+/* Takeoff page */
+#takeoff-list { min-width: 0; }
+.tk-group { margin-bottom: var(--space-6); }
+.tk-group h3 {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-2);
+}
+.tk-group-total { color: var(--text-panel-mute); font-size: var(--fs-sm); font-weight: 400; }
+
+/* One markup per row. Phone: a stacked card on a two-column grid. */
+.tk-head { display: none; }
+.tk-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+        "item total"
+        "need stock"
+        "price way"
+        "ordered ordered";
+    gap: var(--space-1) var(--space-3);
+    margin-bottom: var(--space-2);
+    padding: var(--space-3);
+    border: 1px solid var(--panel-rule);
+    border-radius: var(--radius-md);
+    background: var(--panel-nested);
+}
+.tk-cell { min-width: 0; overflow-wrap: anywhere; }
+.tk-item { grid-area: item; font-weight: var(--fw-semibold); }
+.tk-need { grid-area: need; }
+.tk-price { grid-area: price; }
+.tk-total { grid-area: total; text-align: right; font-weight: var(--fw-semibold); }
+.tk-stock { grid-area: stock; }
+.tk-way { grid-area: way; }
+.tk-ordered { grid-area: ordered; margin-top: var(--space-2); }
+.tk-lbl { display: block; font-size: var(--fs-xs); color: var(--text-panel-mute); font-weight: 400; }
+.tk-val { font-variant-numeric: tabular-nums; }
+
+.tk-item-name { display: block; }
+a.tk-item-name { color: inherit; text-decoration: underline; text-decoration-color: var(--color-brand-light); text-underline-offset: 3px; }
+.tk-link,
+.tk-wo {
+    min-height: var(--btn-h-sm);
+    margin: 0;
+    padding: 0 var(--space-2) 0 0;
+    background: none;
+    color: var(--text-panel-mute);
+    font-size: var(--fs-xs);
+    font-weight: 400;
+    text-decoration: underline;
+}
+.tk-link:hover,
+.tk-wo:hover { background: none; color: var(--text-panel); }
+.tk-wos { display: flex; flex-wrap: wrap; column-gap: var(--space-2); }
+.tk-wos[hidden],
+.tk-form[hidden] { display: none; }
+
+/* The Ordered control: a button styled as a checkbox. */
+.tk-ord {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    min-height: var(--btn-h-sm);
+    background: none;
+    color: inherit;
+    font-size: var(--fs-sm);
+    font-weight: 400;
+    text-align: left;
+}
+.tk-ord:hover { background: none; }
+.tk-box {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border: 2px solid var(--panel-border);
+    border-radius: 5px;
+}
+.tk-box svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.tk-ord-ok .tk-box { background: var(--status-stock); border-color: var(--status-stock); color: var(--color-white); }
+.tk-ord-need .tk-ord-t { color: var(--status-dispense-text); font-weight: var(--fw-semibold); }
+.tk-ord-t small { display: block; color: var(--text-panel-mute); font-weight: 400; font-size: var(--fs-xs); }
+
+.tk-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-2);
+    margin-top: var(--space-1);
+    padding: var(--space-2);
+    border: 1px solid var(--panel-rule-soft);
+    border-radius: var(--radius-md);
+    background: var(--panel-well);
+}
+.tk-form label { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--fs-xs); color: var(--text-panel-mute); }
+.tk-form input { width: 110px; }
+.tk-form button { margin: 0; min-height: var(--btn-h-sm); padding: 0 var(--space-4); }
+
+/* 600px and up: the same rows become table rows. */
+@media (min-width: 600px) {
+    .tk-head,
+    .tk-row {
+        grid-template-columns: minmax(0, 2.4fr) repeat(5, minmax(0, .9fr)) minmax(0, 2fr);
+        grid-template-areas: "item need price total stock way ordered";
+        gap: var(--space-3);
+    }
+    .tk-head {
+        display: grid;
+        padding: var(--space-2) var(--space-3);
+        border-bottom: 2px solid var(--panel-rule);
+        color: var(--text-panel-mute);
+        font-size: var(--fs-xs);
+        font-weight: var(--fw-bold);
+        text-transform: uppercase;
+        letter-spacing: .03em;
+    }
+    .tk-head > :nth-child(n+2):nth-child(-n+6) { text-align: right; }
+    .tk-row {
+        margin: 0;
+        padding: var(--space-3);
+        border: 0;
+        border-bottom: 1px solid var(--panel-rule-soft);
+        border-radius: 0;
+        background: none;
+    }
+    .tk-lbl { display: none; }
+    .tk-need,
+    .tk-price,
+    .tk-total,
+    .tk-stock,
+    .tk-way { text-align: right; }
+    .tk-ordered { margin-top: 0; }
+}

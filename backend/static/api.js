@@ -969,6 +969,21 @@ export async function apiDeleteTakeoffLine(workOrderId, lineId) {
   return parseResponse(await rawFetch(`/work-orders/${workOrderId}/takeoff/${lineId}`, { method: "DELETE", credentials: "include" }));
 }
 
+// The Takeoff page: need per service type and item (TechFM OA+).
+export async function apiGetTakeoff() {
+  return liveGet("/takeoff/");
+}
+
+// Sets one row's on-the-way figure; 0 clears it. 204 on success.
+export async function apiSetTakeoffPurchase({ itemId, serviceTypeKey, serviceTypeLabel, quantity }) {
+  return jsonRequest("/takeoff/purchases", "PUT", {
+    item_id: itemId,
+    service_type_key: serviceTypeKey,
+    service_type_label: serviceTypeLabel,
+    quantity,
+  });
+}
+
 // Labor is stored in whole minutes and billed from the combined work-order
 // duration at $62.50/hour, rounded upward once to the next 30 minutes.
 // `technicianId: null` is an anonymous Skilled Technician line (SMR orders,
