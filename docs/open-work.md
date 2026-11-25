@@ -22,8 +22,16 @@ work.
 
 ## 1. Requested feature
 
-IMP-004, IMP-035 and IMP-042 are the open requests; every other IMP number
-through 042 is implemented or retired.
+IMP-004, IMP-035, IMP-042 and IMP-043 are the open requests; every other IMP
+number through 043 is implemented or retired.
+
+### IMP-043 — Takeoff tutorial
+
+- **Logged** 2026-11-25 · *Work Orders / Takeoff* · left out of the Takeoff build
+
+A tutorial script for the Takeoff page and the card's Takeoff section (More →
+Takeoff, + Takeoff item, Dispense; Ordered box, On the way). Follow
+`tutorialGuard.test.js` rules.
 
 ### IMP-004 — Mass Stage redesign
 

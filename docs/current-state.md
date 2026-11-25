@@ -1,6 +1,6 @@
 # Inventory App Current State
 
-Last reviewed: 2026-11-23 · Soft word budget: 16,500 (CLAUDE.md → Documentation
+Last reviewed: 2026-11-25 · Soft word budget: 16,500 (CLAUDE.md → Documentation
 conventions)
 
 Contracts and invariants — **the authority**. Code owns the endpoint trace,
@@ -79,6 +79,7 @@ traps.
 | NetFacilities | `test_netfacilities_*.py`; behavior under API Surface |
 | Real-time | `test_realtime_*.py`, `test_logging.py`, all-JavaScript syntax check, manual browser check |
 | Mass staging UI | `massStageActionCoverage.test.js` names all thirteen `data-action` branches; manual UI check |
+| Takeoff | `test_takeoff_{models,service,router}.py`, `tests/frontend/views/{takeoff,workOrders/takeoff}.test.js`; overview is computed on read (no stored totals) |
 | Deployment/runtime | `git diff --check`; run tests if runtime deps change |
 | Navigation/layout | `backend/tests/e2e/test_smoke.py` (every page renders, clean console) plus a manual browser check |
 | Schema/migration | Targeted DB-backed tests, then full pytest |
@@ -582,6 +583,9 @@ supervisor 1, techfm_oa 2, admin 3, owner 4. "Team Lead+" = rank >= 1.
 | Edit imported metadata; import/export CSV; close/archive; line billing override | techfm_oa+ (scoped, server-side) |
 | Preview/re-archive all live legacy work orders | owner only (gate and service check) |
 | Admin Review page / receipt; Low Stock; User Requests; Mark material request stocked | techfm_oa+ |
+| Takeoff lines: add / edit / remove on an order not Completed | Team Lead+ |
+| Dispense from a takeoff line | same rule as adding material to that order |
+| Takeoff page; set a row's on-the-way figure (`PUT /takeoff/purchases`) | techfm_oa+ |
 | File a material request | any authenticated user who can see the work order; catalogue request: any authenticated user |
 | Cancel own open material request | the filer |
 | Scan-gate cards | any authenticated user (a Technician's gate lists only their assignments) |
@@ -881,6 +885,18 @@ curve is pure, in `domain/login_throttle.py`.
 - `work_order_id` / `work_order_number` on checkout/return are optional and
   stored as given (no find-or-create).
 
+### `work_order_takeoff_lines`, `takeoff_purchases` (Takeoff)
+
+| Fact | Rule |
+|---|---|
+| Purpose | Predicted material per work order; **never** touches stock, `work_order_items`, billing or invoices |
+| Line | `UNIQUE(work_order_id, item_id)`; `quantity` = what is **left** (no original stored); adding an item already there adds to it; a line reaching 0 is deleted; Completed orders refuse writes |
+| Dispense | `POST /work-orders/{id}/items` with `takeoff_line_id` runs the ordinary add and reduces the line in the same transaction (more than left zeroes it); a stale line is 409 "This takeoff line changed. Refresh and try again." and nothing is dispensed; voiding that dispense does not restore the line |
+| Purchase | `UNIQUE(item_id, service_type_key)` (`normalize_service_type`); `quantity_on_the_way` > 0; tick adds, edit sets, 0 deletes |
+| Arrival | every `stock` transaction (`apply_transaction`) counts that item's purchases down, oldest `created_at` first across service types, surplus ignored; `adjust`, voids and line-removal restores do not |
+| Need | sum of lines on orders neither Completed nor archived, grouped by service type |
+| Shortfall | pooled per item across service types: `max(0, Σneed − stock − Σon_the_way)`; every row of the item shows it (`shared` flag when the item spans types) |
+
 ### `mass_stages`, `mass_stage_work_orders`, `mass_stage_items`
 
 - A building's truck-staging plan; it **references** work orders. Slots
@@ -958,7 +974,7 @@ Navigation (`views/nav.js::showPage`): five task-domain groups — Inventory,
 Field, People, Review, Integration. Every page in `PAGE_ACCESS` belongs to exactly one group
 in `shell-head.html` or it does not appear in the nav; `applyRoleVisibility`
 hides buttons, then empty groups. Icons are inline SVG `stroke="currentColor"`
-(CSP forbids icon fonts). Activating Work Orders, Find Item, or Mass Stage
+(CSP forbids icon fonts). Activating Work Orders, Find Item, Mass Stage or Takeoff
 refetches (`cache: "no-store"`).
 
 Login/landing: boot calls `/auth/me`; 401 shows login; any later 401 returns to
@@ -1003,6 +1019,21 @@ server-side are gated client-side too; **a Technician off the crew gets a
 read-only card** (no notes box, add-material row or Remove buttons, one
 `.wo-crew-lock` hint). The list loads every matching order in one request (no
 cap, no "Show all").
+
+Work-order card page (same for every service type; `workOrderTopBar.js`): a
+sticky `.wo-pin` (task, location, chips + WO number) replaces the summary row;
+under it the icon bar Materials · N, Labor · h (hidden to viewers who cannot
+see labor), Notes, Photos · N, and **More** (Details, Takeoff · N, Invoice when
+the order has one, then admin tools and Edit details). Opens on Materials, or
+Notes while unread prior-work notes gate the card. Takeoff (`workOrderTakeoff.js`)
+is listed in More for Team Lead+ on open orders and for anyone when lines exist.
+
+Takeoff page (`views/takeoff.js`, TechFM OA+): one group per service type,
+one row per item (Need, Price, Total, In stock, On the way, Ordered); each row
+is one markup that is a table row from 600 px and a stacked card below. The
+Ordered box: short → "Order N more", tap adds a purchase; covered →
+"Ordered" / "Covered by stock". Any on-the-way figure can be corrected or
+cleared from the row.
 
 SMR Labor card (`workOrderSmrLines.js` / `workOrderSmrActions.js`, Admin+
 edits): an SMR order's Labor card lists its **charged** vendor lines only
