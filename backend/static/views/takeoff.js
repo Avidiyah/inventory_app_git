@@ -10,6 +10,7 @@
 import { apiGetTakeoff, apiSetTakeoffPurchase } from "../api.js";
 import { setMessage } from "../dom.js";
 import { escapeHtml, formatMoney, friendlyError, safeHttpUrl } from "../format.js";
+import { skeletonList } from "../skeleton.js";
 
 const listEl = document.getElementById("takeoff-list");
 const messageEl = document.getElementById("takeoff-message");
@@ -39,8 +40,9 @@ function itemHtml(group, row) {
   const links = row.work_orders.map((wo) =>
     `<button type="button" class="tk-wo" data-act="open-wo" data-id="${escapeHtml(wo.id)}">WO ${escapeHtml(wo.number)} ×${qty(wo.quantity)}</button>`
   ).join("");
+  const count = row.work_orders.length;
   return `${title}
-    <button type="button" class="tk-link" data-act="wos" aria-expanded="${open}">${open ? "Hide" : "Show"} work orders</button>
+    <button type="button" class="tk-link tk-wos-toggle" data-act="wos" aria-expanded="${open}">${count} work order${count === 1 ? "" : "s"}</button>
     <div class="tk-wos"${open ? "" : " hidden"}>${links}</div>`;
 }
 
@@ -96,6 +98,11 @@ function groupHtml(group) {
 
 export async function loadTakeoff() {
   const sequence = ++loadSequence;
+  // Only when no rows are up: a reload after a save keeps them in place.
+  if (!listEl.children.length) {
+    setMessage(messageEl, "", "");
+    listEl.innerHTML = skeletonList(4);
+  }
   try {
     const overview = await apiGetTakeoff();
     if (sequence !== loadSequence) return;
@@ -176,7 +183,6 @@ listEl.addEventListener("click", (event) => {
     const id = `${row.dataset.key}|${row.dataset.itemId}`;
     if (list.hidden) openLists.delete(id); else openLists.add(id);
     btn.setAttribute("aria-expanded", String(!list.hidden));
-    btn.textContent = `${list.hidden ? "Show" : "Hide"} work orders`;
   } else if (act === "open-wo") {
     void openWorkOrder(btn.dataset.id);
   } else if (act === "ord") {

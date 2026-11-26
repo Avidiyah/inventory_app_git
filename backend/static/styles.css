@@ -8190,13 +8190,27 @@ html.nav-mobile { --wo-pin-top: 68px; }
 
 /* Takeoff page */
 #takeoff-list { min-width: 0; }
-.tk-group { margin-bottom: var(--space-6); }
+/* One raised card per service type. It is a <section>, so this overrides the
+   page-panel look it would otherwise repeat inside the page panel. */
+.tk-group {
+    margin-bottom: var(--space-4);
+    padding: 0 var(--space-3) var(--space-1);
+    overflow: hidden;
+    background: var(--panel-nested);
+    box-shadow: var(--shadow-panel);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
 .tk-group h3 {
     display: flex;
     flex-wrap: wrap;
     justify-content: space-between;
+    align-items: baseline;
     gap: var(--space-2);
-    margin: 0 0 var(--space-2);
+    margin: 0 calc(-1 * var(--space-3)) var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--panel-border);
+    background: var(--panel-hover);
 }
 .tk-group-total { color: var(--text-panel-mute); font-size: var(--fs-sm); font-weight: 400; }
 
@@ -8243,6 +8257,9 @@ a.tk-item-name { color: inherit; text-decoration: underline; text-decoration-col
 }
 .tk-link:hover,
 .tk-wo:hover { background: none; color: var(--text-panel); }
+.tk-wos-toggle { text-decoration: none; }
+.tk-wos-toggle::before { content: "\25B8"; margin-right: var(--space-1); }
+.tk-wos-toggle[aria-expanded="true"]::before { content: "\25BE"; }
 .tk-wos { display: flex; flex-wrap: wrap; column-gap: var(--space-2); }
 .tk-wos[hidden],
 .tk-form[hidden] { display: none; }
@@ -8262,6 +8279,13 @@ a.tk-item-name { color: inherit; text-decoration: underline; text-decoration-col
     text-align: left;
 }
 .tk-ord:hover { background: none; }
+/* Short rows: outlined like .secondary-btn so it reads as tappable. */
+.tk-ord-need {
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--panel-border);
+    background: var(--panel-well);
+}
+.tk-ord-need:hover { background: var(--panel-hover); }
 .tk-box {
     flex: none;
     display: grid;
@@ -8304,12 +8328,11 @@ a.tk-item-name { color: inherit; text-decoration: underline; text-decoration-col
         padding: var(--space-2) var(--space-3);
         border-bottom: 2px solid var(--panel-rule);
         color: var(--text-panel-mute);
-        font-size: var(--fs-xs);
+        font-size: var(--fs-sm);
         font-weight: var(--fw-bold);
-        text-transform: uppercase;
-        letter-spacing: .03em;
     }
     .tk-head > :nth-child(n+2):nth-child(-n+6) { text-align: right; }
+    .tk-row:last-child { border-bottom: 0; }
     .tk-row {
         margin: 0;
         padding: var(--space-3);

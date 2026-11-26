@@ -120,7 +120,20 @@ describe("loadTakeoff", () => {
     expect(covered.querySelector(".tk-ord").textContent).toContain("Covered by stock");
   });
 
-  it("Show work orders toggles the order links", async () => {
+  it("shows a skeleton only when nothing is on screen yet", async () => {
+    const mod = await mountTakeoff({ overview: { groups: [group("WMR", [row()])] } });
+    const list = byId("takeoff-list");
+    let pending = mod.loadTakeoff();
+    expect(list.querySelector(".skel-list-item")).toBeNull();
+    await pending;
+    list.replaceChildren();
+    pending = mod.loadTakeoff();
+    expect(list.querySelector(".skel-list-item")).not.toBeNull();
+    await pending;
+    expect(list.querySelector(".skel-list-item")).toBeNull();
+  });
+
+  it("the work order count toggles the order links", async () => {
     await mountTakeoff({
       overview: {
         groups: [group("WMR", [row({ work_orders: [
@@ -132,7 +145,7 @@ describe("loadTakeoff", () => {
     const list = r.querySelector(".tk-wos");
     expect(list.hidden).toBe(true);
     const toggle = r.querySelector('[data-act="wos"]');
-    expect(toggle.textContent).toBe("Show work orders");
+    expect(toggle.textContent).toBe("2 work orders");
     await userEvent.click(toggle);
     expect(list.hidden).toBe(false);
     expect(Array.from(list.querySelectorAll("button"), (b) => b.textContent)).toEqual(["WO 1042 ×4", "WO 1043 ×2.5"]);
