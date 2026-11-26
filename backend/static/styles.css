@@ -8075,19 +8075,17 @@ html.nav-mobile { --wo-pin-top: 68px; }
     background: var(--panel-bg);
     border-bottom: 1px solid var(--panel-border);
 }
+.wo-pin-place { margin: 0 0 2px; font-size: var(--fs-lg); font-weight: var(--fw-semibold); color: var(--text-panel); overflow-wrap: anywhere; }
 .wo-pin-task {
-    margin: 0 0 2px;
-    font-size: var(--fs-lg);
-    font-weight: var(--fw-semibold);
-    color: var(--text-panel);
+    margin: 0 0 var(--space-2);
+    font-size: var(--fs-sm);
+    color: var(--text-panel-mute);
     overflow-wrap: anywhere;
     display: -webkit-box;
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
 }
-.wo-pin-task-empty { color: var(--text-panel-mute); font-weight: var(--fw-regular, 400); font-size: var(--fs-base); }
-.wo-pin-place { margin: 0 0 var(--space-2); color: var(--text-panel-mute); font-size: var(--fs-sm); overflow-wrap: anywhere; }
 .wo-pin-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
 .wo-pin-number { margin-left: auto; color: var(--text-panel-mute); font-size: var(--fs-sm); font-weight: var(--fw-semibold); }
 

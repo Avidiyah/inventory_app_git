@@ -1,4 +1,4 @@
-// Work Orders: the pinned task + location header and the top icon bar.
+// Work Orders: the pinned location + task header and the top icon bar.
 //
 // Layer: HTML builders and one sync helper for the card page's header. The
 // pin stays on screen while the card scrolls; the bar picks the open section
@@ -65,11 +65,10 @@ export function topBarHtml(detail, { showLabor, moreSections = [], toolsHtml = "
 export function pinHtml(detail, barHtml) {
   const { heading, detail: room } = placeParts(detail);
   const chips = statusBadge(detail.status) + attentionPriorityBadge(detail) + overdueTag(detail);
-  const task = detail.description
-    ? `<p class="wo-pin-task">${escapeHtml(detail.description)}</p>`
-    : `<p class="wo-pin-task wo-pin-task-empty">No task on this work order</p>`;
-  return `<div class="wo-pin" id="wo-sec-pin">${task}` +
+  const task = detail.description || "No task on this work order";
+  return `<div class="wo-pin" id="wo-sec-pin">` +
     `<p class="wo-pin-place">${escapeHtml(heading)}${room ? ` · ${escapeHtml(room)}` : ""}</p>` +
+    `<p class="wo-pin-task">${escapeHtml(task)}</p>` +
     `<div class="wo-pin-chips">${chips}<span class="wo-pin-number">WO ${escapeHtml(detail.number)}</span></div>` +
     `${barHtml}</div>`;
 }

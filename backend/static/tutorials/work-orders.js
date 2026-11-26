@@ -28,7 +28,7 @@ export const SCRIPTS = [
     open: [OPEN_CARD, ".wo-more-btn", '.wo-more-item[data-wo-tab="details"]'],
     steps: [
       { target: ".wo-pin", title: "The card",
-        text: ["One card per job.", "The pinned header shows the task, where it is and its status."] },
+        text: ["One card per job.", "The pinned header shows where the job is, the task and its status."] },
       { target: "#wo-act-start-tracking-wo", title: "Begin Charging",
         text: ["This starts your clock on this job and puts you on the crew.", "Tap Stop Charging when you stop."] },
       { target: ".wo-more-btn", title: "More", text: "Details and less common actions live behind this button." },
