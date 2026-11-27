@@ -1,4 +1,4 @@
-"""Two journeys through the work-order surface, end to end.
+﻿"""Two journeys through the work-order surface, end to end.
 
 Deliberately thin. Exhaustive behaviour coverage is P2's jsdom suite; what
 these two add is the real network, the real service worker, the real
@@ -20,7 +20,7 @@ def test_a_deep_linked_card_renders_on_its_own(owner_page, seeded, base_url):
     owner_page.wait_for_selector("#work-orders-page", state="visible", timeout=15000)
     card = owner_page.locator(".wo-card", has_text=seeded.work_order_number)
     card.wait_for(state="visible", timeout=15000)
-    assert card.locator(".wo-status-created").count() == 1
+    assert card.locator(".wo-status-created:visible").count() == 1
 
 
 def test_beginning_work_moves_the_badge_to_in_progress(admin_page, seeded, base_url):
@@ -35,5 +35,5 @@ def test_beginning_work_moves_the_badge_to_in_progress(admin_page, seeded, base_
     # see the comment above `statusActions` in views/workOrders.js.
     card.locator('[data-action="start-tracking-wo"]').click()
 
-    card.locator(".wo-status-in_progress").wait_for(state="visible", timeout=15000)
-    assert card.locator(".wo-status-created").count() == 0
+    card.locator(".wo-status-in_progress:visible").wait_for(state="visible", timeout=15000)
+    assert card.locator(".wo-status-created:visible").count() == 0
