@@ -8130,7 +8130,8 @@ html.nav-mobile { --wo-pin-top: 68px; }
     z-index: 4;
     margin: 0 calc(-1 * var(--space-4)) var(--space-3);
     padding: var(--space-3) var(--space-4) 0;
-    background: var(--panel-bg);
+    /* Solid, not --panel-bg: it sticks over scrolling text, which shows through. */
+    background: var(--color-header);
     border-bottom: 1px solid var(--panel-border);
 }
 .wo-pin-place { margin: 0 0 2px; font-size: var(--fs-lg); font-weight: var(--fw-semibold); color: var(--text-panel); overflow-wrap: anywhere; }
