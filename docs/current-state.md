@@ -270,7 +270,11 @@ Attendance:
   punches) open one pop-up (`views/flaggedTimeFlow.js`) that walks the week's
   flagged items one at a time; no accept-all action exists. A clock is
   accepted alone by `POST /hub/attendance/sessions/{id}/review` (sweeps that
-  technician's stale clocks first; `reviewed_at` only, no audit row).
+  technician's stale clocks first; no audit row). Its clock step
+  (`views/flaggedClockStep.js`) shows the order and an optional `ended_at`
+  (start < stop ≤ auto-stop) moves the clock's stop, sets its labor line's
+  minutes and appends a note line in the same save; `auto_closed_at` stays,
+  so the Leaderboard still excludes the order.
 - Self-edit: a worker adds, edits and deletes their own punches and keys/revises
   their own hand-entered labor (on the crew; never a session row) only while
   the week is open (`labor_day.week_is_open`, Central); else 403 "You can only
