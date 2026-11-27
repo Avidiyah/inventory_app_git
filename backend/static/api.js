@@ -731,9 +731,11 @@ export async function apiClockOutAttendanceUser(userId) {
   return jsonRequest(`/hub/attendance/clock-out/${encodeURIComponent(userId)}`, "POST", {});
 }
 
-// Fix flagged time: accepts one auto-stopped work-order clock (Team Lead+).
-export async function apiReviewAttendanceSession(sessionId) {
-  return jsonRequest(`/hub/attendance/sessions/${encodeURIComponent(sessionId)}/review`, "POST", {});
+// Fix flagged time: accepts one auto-stopped work-order clock (Team Lead+),
+// first moving its stop to `endedAt` when given.
+export async function apiReviewAttendanceSession(sessionId, { endedAt } = {}) {
+  return jsonRequest(`/hub/attendance/sessions/${encodeURIComponent(sessionId)}/review`, "POST",
+    endedAt ? { ended_at: endedAt } : {});
 }
 
 export async function apiDeleteAttendancePunch(punchId, reason = "") {

@@ -25,6 +25,7 @@ import {
   apiExportHubAttendance,
   apiEditAttendancePunch,
   apiGetHubAttendanceLive,
+  apiGetWorkOrder,
   apiGetHubAttendanceWeek,
   apiReviewAttendanceSession,
 } from "../api.js";
@@ -187,6 +188,8 @@ function renderActions(panelEl, isAdmin) {
 // flow asks for the refetched queue after every one that lands.
 function openFlow(panelEl) {
   flowOpen = true;
+  // One order read per clock step, kept while the pop-up is open.
+  const orders = new Map();
   openFlaggedTimeFlow({
     items: flaggedItems(weekPayload),
     canAccept: true,
@@ -195,6 +198,11 @@ function openFlow(panelEl) {
       deletePunch: (id, reason) => apiDeleteAttendancePunch(id, reason),
       looksRight: (id) => apiEditAttendancePunch(id, { needsReview: false }),
       acceptSession: (id) => apiReviewAttendanceSession(id),
+      saveSession: (id, endedAt) => apiReviewAttendanceSession(id, { endedAt }),
+      loadWorkOrder: (id) => {
+        if (!orders.has(id)) orders.set(id, apiGetWorkOrder(id).catch((err) => { orders.delete(id); throw err; }));
+        return orders.get(id);
+      },
       openWorkOrder: (number) => openByNumber(number),
     },
     refresh: async () => {

@@ -69,6 +69,9 @@ function open(items, over = {}) {
   const actions = {
     savePunch: vi.fn().mockResolvedValue(), deletePunch: vi.fn().mockResolvedValue(),
     looksRight: vi.fn().mockResolvedValue(), acceptSession: vi.fn().mockResolvedValue(),
+    saveSession: vi.fn().mockResolvedValue(),
+    loadWorkOrder: vi.fn().mockResolvedValue({ number: "4412", location: "Bldg C", status: "in_progress",
+      labor: [], notes: "" }),
     openWorkOrder: vi.fn(), ...(over.actions || {}),
   };
   const refresh = over.refresh || vi.fn(async () => []);
@@ -240,21 +243,73 @@ describe("the pop-up", () => {
     expect(q(".punch-editor-save")).not.toBeNull();
   });
 
-  it("a session step shows Accept, Open work order and Skip", async () => {
+  it("a session step shows Accept as is, Open work order and Skip", async () => {
     const s = item(9, {
       key: "session:s9", kind: "session", id: "s9", number: "4412",
       reason: "The clock on WO 4412 was stopped automatically after 12 hours.",
     });
     const refresh = vi.fn(async () => []);
     const { actions } = open([s], { refresh });
-    expect(button("Accept")).toBeDefined();
+    expect(button("Accept as is")).toBeDefined();
     expect(button("Open work order")).toBeDefined();
     expect(button("Skip")).toBeDefined();
     expect(q(".punch-editor")).toBeNull();
-    button("Accept").click();
+    expect(q(".flagged-clock-order")).not.toBeNull();
+    button("Accept as is").click();
     await flush();
     expect(actions.acceptSession).toHaveBeenCalledWith("s9");
     expect(text()).toContain("Fixed 1 · Skipped 0");
+  });
+
+  describe("setting the real stop", () => {
+    const clock = () => item(9, {
+      key: "session:s9", kind: "session", id: "s9", number: "4412", workOrderId: "w9",
+      started_at: "2026-11-24T13:00:00.000Z", ended_at: "2026-11-25T01:00:00.000Z",
+    });
+    // The shell's own picker: 6:00 PM lands inside the clock in Central and in UTC.
+    async function pickSixPm() {
+      q(".flagged-clock-stop").click();
+      document.getElementById("prompt-time-input").value = "6:00 PM";
+      document.getElementById("prompt-time-save").click();
+      await flush();
+    }
+
+    it("loads the order once and saves the picked stop, then advances", async () => {
+      const { actions } = open([clock()]);
+      await flush();
+      expect(actions.loadWorkOrder).toHaveBeenCalledWith("w9");
+      await pickSixPm();
+      button("Save & accept").click();
+      await flush();
+      expect(actions.saveSession).toHaveBeenCalledTimes(1);
+      const [id, iso] = actions.saveSession.mock.calls[0];
+      expect(id).toBe("s9");
+      expect(new Date(iso).getTime()).toBeGreaterThan(new Date("2026-11-24T13:00:00.000Z").getTime());
+      expect(text()).toContain("Fixed 1 · Skipped 0");
+    });
+
+    it("sends one save for a double tap", async () => {
+      let release;
+      const saveSession = vi.fn(() => new Promise((r) => { release = r; }));
+      open([clock()], { actions: { saveSession } });
+      await flush();
+      await pickSixPm();
+      button("Save & accept").click();
+      button("Save & accept").click();
+      release(); await flush();
+      expect(saveSession).toHaveBeenCalledTimes(1);
+    });
+
+    it("a refused save shows the message and stays on the step", async () => {
+      const saveSession = vi.fn().mockRejectedValue({ status: 400, detail: "The stop must be after the start." });
+      open([clock()], { actions: { saveSession }, refresh: vi.fn(async () => [clock()]) });
+      await flush();
+      await pickSixPm();
+      button("Save & accept").click();
+      await flush();
+      expect(q(".flagged-flow-error").textContent).toContain("The stop must be after the start.");
+      expect(q(".flagged-clock-order")).not.toBeNull();
+    });
   });
 
   it("drops session steps for a caller who cannot accept", () => {

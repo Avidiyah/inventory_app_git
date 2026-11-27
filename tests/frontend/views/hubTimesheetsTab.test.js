@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { userEvent } from "@testing-library/user-event";
-import { attendanceWeek, personWeek } from "../helpers/factories.js";
+import { attendanceWeek, personWeek, workOrderDetail } from "../helpers/factories.js";
 import { restoreBrowserStubs, stubObjectUrl } from "../helpers/browserStubs.js";
 import { connectHub, el, openHub, queries, restoreHub, stopClock } from "../helpers/hub.js";
 
@@ -245,10 +245,42 @@ describe("Fix flagged time", () => {
     expect(dialog().textContent).toContain("Flagged time · 1 of 2");
     expect(button(dialog(), "Looks right")).toBeTruthy();
     await user().click(button(dialog(), "Skip"));
-    await vi.waitFor(() => expect(button(dialog(), "Accept")).toBeTruthy());
-    await user().click(button(dialog(), "Accept"));
+    await vi.waitFor(() => expect(button(dialog(), "Accept as is")).toBeTruthy());
+    await user().click(button(dialog(), "Accept as is"));
     await vi.waitFor(() => expect(accepted).toHaveBeenCalledWith("s1"));
     await vi.waitFor(() => expect(queries("/hub/attendance/week")).toHaveLength(2));
+  });
+
+  it("loads the order on the clock step and sends the picked stop", async () => {
+    const bodies = [];
+    await openTimesheets({
+      role: "supervisor",
+      attendanceWeek: flaggedWeek(),
+      handlers: [
+        http.post("/hub/attendance/sessions/:id/review", async ({ request, params }) => {
+          bodies.push(await request.json());
+          return HttpResponse.json({ session_id: params.id, reviewed_at: "2026-09-16T15:00:00Z" });
+        }),
+        http.get("/work-orders/wo-1", () => HttpResponse.json(workOrderDetail({
+          id: "wo-1", number: "4412", location: "Bldg C Rm 210", status: "in_progress" }))),
+      ],
+    });
+    await vi.waitFor(() => expect(button(panel(), "Fix flagged time (2)")).toBeTruthy());
+    await user().click(button(panel(), "Fix flagged time (2)"));
+    await vi.waitFor(() => expect(dialog()).not.toBeNull());
+    await user().click(button(dialog(), "Skip"));
+    await vi.waitFor(() => expect(dialog().querySelector(".flagged-clock-order").textContent)
+      .toContain("Bldg C Rm 210"));
+    expect(queries("/work-orders/wo-1")).toHaveLength(1);
+    await user().click(dialog().querySelector(".flagged-clock-stop"));
+    const input = document.getElementById("prompt-time-input");
+    await user().clear(input);
+    await user().type(input, "6:00 PM");
+    await user().click(document.getElementById("prompt-time-save"));
+    await vi.waitFor(() => expect(button(dialog(), "Save & accept").disabled).toBe(false));
+    await user().click(button(dialog(), "Save & accept"));
+    await vi.waitFor(() => expect(bodies).toHaveLength(1));
+    expect(typeof bodies[0].ended_at).toBe("string");
   });
 
   it("starts no week request on attendance.changed while the flow is open", async () => {

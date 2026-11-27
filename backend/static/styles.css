@@ -8017,3 +8017,45 @@ label.msg-pick {
 }
 
 .flagged-flow .punch-editor { margin-top: 0; }
+
+/* The clock step: one column, the edit first, the order folded below. */
+.flagged-clock {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.flagged-clock-order { margin: 0; font-weight: var(--fw-bold); }
+
+.flagged-clock-times {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.flagged-clock-times .flagged-clock-stop { margin-top: 0; padding-inline: var(--space-3); }
+
+.flagged-clock-hours { font-weight: var(--fw-bold); }
+
+.flagged-clock-message {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-error);
+}
+
+.flagged-clock-message:empty { display: none; }
+
+.flagged-clock-details {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.flagged-clock-details summary { cursor: pointer; font-weight: var(--fw-bold); }
+
+.flagged-clock-list {
+    margin: var(--space-2) 0 0;
+    padding-left: var(--space-4);
+    font-size: var(--fs-sm);
+}

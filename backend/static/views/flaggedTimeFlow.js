@@ -12,6 +12,7 @@
 
 import { escapeHtml, friendlyError } from "../format.js";
 import { mountPunchEditor } from "./hubAttendancePunchEditor.js";
+import { mountClockStep } from "./flaggedClockStep.js";
 
 const CENTRAL = "America/Chicago";
 
@@ -66,6 +67,7 @@ export function flaggedItems(weekPayload) {
   for (const s of weekPayload?.flagged_sessions || []) {
     items.push({
       key: `session:${s.session_id}`, kind: "session", id: s.session_id, userId: s.user_id,
+      workOrderId: s.work_order_id,
       name: names.get(s.user_id) || "Unknown", date: s.date, reason: sessionReason(s.number),
       started_at: s.started_at, ended_at: s.ended_at, number: s.number,
     });
@@ -89,12 +91,6 @@ export function ownFlaggedItems(attendance, user) {
 function dayLabel(date) {
   return new Date(`${date}T12:00:00`).toLocaleDateString([], {
     weekday: "short", month: "short", day: "numeric",
-  });
-}
-
-function instantLabel(instant) {
-  return new Date(instant).toLocaleString([], {
-    weekday: "short", hour: "numeric", minute: "2-digit", timeZone: CENTRAL,
   });
 }
 
@@ -194,31 +190,21 @@ export function openFlaggedTimeFlow({ items, canAccept, actions, refresh, onClos
   }
 
   function sessionStep(item) {
-    stepEl.querySelector('[data-flow="accept"]')
-      ?.addEventListener("click", () => void act(() => actions.acceptSession(item.id)));
-    stepEl.querySelector('[data-flow="open-wo"]')?.addEventListener("click", () => {
-      close();
-      actions.openWorkOrder(item.number);
+    mountClockStep(stepEl.querySelector(".flagged-flow-clock"), {
+      item,
+      loadWorkOrder: actions.loadWorkOrder,
+      onSave: (endedAt) => void act(() => actions.saveSession(item.id, endedAt)),
+      onAccept: () => void act(() => actions.acceptSession(item.id)),
+      onOpen: () => { close(); actions.openWorkOrder(item.number); },
+      onSkip: skip,
     });
-    stepEl.querySelector('[data-flow="skip"]')?.addEventListener("click", skip);
   }
 
   function stepHtml(item) {
     const head = `<p class="flagged-flow-who">${escapeHtml(item.name)} · ${escapeHtml(dayLabel(item.date))}</p>
       <p class="flagged-flow-reason">${escapeHtml(item.reason)}</p>`;
     const error = `<p class="flagged-flow-error" role="alert" aria-live="polite"></p>`;
-    if (item.kind === "session") {
-      const ended = item.ended_at ? instantLabel(item.ended_at) : "still running";
-      return `${head}
-        <p class="hub-hours-punch-note">${escapeHtml(instantLabel(item.started_at))} – ${escapeHtml(ended)}</p>
-        <div class="flagged-flow-actions">
-          <button type="button" data-flow="accept">Accept</button>
-          <button type="button" class="secondary-btn" data-flow="open-wo">Open work order</button>
-          <button type="button" class="secondary-btn" data-flow="skip">Skip</button>
-        </div>
-        <p class="hub-hours-punch-note">Accept keeps the time as it stands. To re-key the real labor, open the work order.</p>
-        ${error}`;
-    }
+    if (item.kind === "session") return `${head}<div class="flagged-flow-clock"></div>${error}`;
     return `${head}
       <div class="flagged-flow-editor"></div>
       ${canAccept ? `<div class="flagged-flow-actions">
