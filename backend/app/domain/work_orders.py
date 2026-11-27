@@ -43,6 +43,9 @@ def normalize_number(number: str) -> str:
 # --- status vocabulary ---------------------------------------------------
 
 STATUS_CREATED = "created"
+# The takeoff estimate is confirmed (Admin+, Takeoff tab). Only Created moves
+# here; adding crew moves it on to Assigned like Created.
+STATUS_PLANNED = "planned"
 STATUS_ASSIGNED = "assigned"
 STATUS_IN_PROGRESS = "in_progress"
 STATUS_ON_HOLD = "on_hold"
@@ -60,6 +63,7 @@ STATUS_REVIEW = "review"
 # used where the server writes a sentence the card shows (W3 conflicts).
 STATUS_LABELS = {
     STATUS_CREATED: "Created",
+    STATUS_PLANNED: "Planned",
     STATUS_ASSIGNED: "Assigned",
     STATUS_IN_PROGRESS: "In-Progress",
     STATUS_ON_HOLD: "On-Hold",
@@ -71,6 +75,7 @@ STATUS_LABELS = {
 # Lifecycle order, which is also the order every dropdown and filter renders in.
 ALL_STATUSES: tuple[str, ...] = (
     STATUS_CREATED,
+    STATUS_PLANNED,
     STATUS_ASSIGNED,
     STATUS_IN_PROGRESS,
     STATUS_ON_HOLD,
@@ -516,7 +521,7 @@ def validate_status(status: str) -> None:
     """Raise `WorkOrderStateError` unless `status` is a live workflow state."""
     if status not in ALL_STATUSES:
         raise WorkOrderStateError(
-            "Status must be created, assigned, in_progress, on_hold, "
+            "Status must be created, planned, assigned, in_progress, on_hold, "
             "ready_to_complete, completed, or review."
         )
 
@@ -543,6 +548,9 @@ def reconcile_assignment_status(current_status: str, assigned_to_id: object) -> 
     validate_status(current_status)
     if current_status in (STATUS_CREATED, STATUS_ASSIGNED):
         return initial_status(assigned_to_id)
+    # Planned survives an empty crew; crew moves it on to Assigned.
+    if current_status == STATUS_PLANNED and assigned_to_id:
+        return STATUS_ASSIGNED
     return current_status
 
 
@@ -558,7 +566,7 @@ def status_after_activity(current_status: str) -> str:
     supervisor's explicit status edit resumes the lifecycle.
     """
     validate_status(current_status)
-    if current_status in (STATUS_CREATED, STATUS_ASSIGNED):
+    if current_status in (STATUS_CREATED, STATUS_PLANNED, STATUS_ASSIGNED):
         return STATUS_IN_PROGRESS
     return current_status
 

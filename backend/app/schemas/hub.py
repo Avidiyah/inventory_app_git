@@ -258,10 +258,11 @@ class HubCrewResponse(BaseModel):
 
 
 class HubAdminPipeline(BaseModel):
-    """Company-wide, unscoped work-order status counts -- six columns, not
-    seven (`on_hold` has no column; see the service dataclass's docstring)."""
+    """Company-wide, unscoped work-order status counts -- seven columns, not
+    eight (`on_hold` has no column; see the service dataclass's docstring)."""
 
     created: int
+    planned: int
     assigned: int
     in_progress: int
     ready_to_complete: int

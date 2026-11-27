@@ -442,6 +442,25 @@ def _require_review_handoff_permission(
     )
 
 
+def _require_plan_permission(
+    db: Session, work_order: WorkOrder, user: Optional[User]
+) -> None:
+    """Planned = the takeoff estimate is confirmed: Admin+ only, Created only,
+    and only once the takeoff has a line. Going back to Created is an ordinary
+    Team Lead+ status edit."""
+    if user is not None and not roles.role_at_least(user.role, roles.ROLE_TECHFM_OA):
+        raise RoleManagementError("Only an Admin can confirm a takeoff.")
+    if work_order.status != wo.STATUS_CREATED:
+        raise WorkOrderStateError("Only a Created work order can be marked Planned.")
+    has_line = (
+        db.query(WorkOrderTakeoffLine.id)
+        .filter(WorkOrderTakeoffLine.work_order_id == work_order.id)
+        .first()
+    )
+    if has_line is None:
+        raise WorkOrderStateError("Add a takeoff line before confirming the takeoff.")
+
+
 def _sync_technician_assignments(
     db: Session,
     work_order: WorkOrder,
@@ -1964,6 +1983,8 @@ def update_work_order(
                 "Only a Completed work order can be sent to Review."
             )
         _require_review_handoff_permission(work_order, user)
+    if fields.get("status") == wo.STATUS_PLANNED and previous != wo.STATUS_PLANNED:
+        _require_plan_permission(db, work_order, user)
 
     if "entry_mode" in fields:
         wo.validate_mode(fields["entry_mode"])
@@ -2369,6 +2390,7 @@ def delete_work_order_labor(
 # `hold_work_order` and `resume_work_order` already carry.
 _TRACKING_START_STATUSES = (
     wo.STATUS_CREATED,
+    wo.STATUS_PLANNED,
     wo.STATUS_ASSIGNED,
     wo.STATUS_IN_PROGRESS,
     wo.STATUS_ON_HOLD,

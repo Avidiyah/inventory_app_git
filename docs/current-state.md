@@ -447,11 +447,13 @@ Work orders:
   `app/domain/receipt.py`) that must stay identical — mark-up, 41-character
   width, name truncation, `NO PRICE` / `Total (incomplete)`, money/quantity
   formatting — pinned by `tests/test_receipt.py`.
-- Live status is `created` → `assigned` → `in_progress` → `ready_to_complete` →
+- Live status is `created` (→ `planned`) → `assigned` → `in_progress` → `ready_to_complete` →
   `completed` → `review`, with `on_hold` as the pause state (a plain `Text`
   column, no CHECK). **On-Hold means exactly one thing: nobody is on the
   clock.** Imports start Created; assigning technicians advances a pre-work row
-  to Assigned and clearing them returns it to Created; later states never
+  to Assigned and clearing them returns it to Created (Planned = takeoff
+  confirmed: Created only, TechFM OA+, ≥1 takeoff line, via PATCH; crew moves it
+  to Assigned, Team Lead+ may set it back to Created); later states never
   rewind automatically. The first committed material activity advances
   Created/Assigned to In-Progress; hand-keyed labor changes no status (it is
   the correction route), and material activity does not resume On-Hold.
@@ -585,6 +587,7 @@ supervisor 1, techfm_oa 2, admin 3, owner 4. "Team Lead+" = rank >= 1.
 | Admin Review page / receipt; Low Stock; User Requests; Mark material request stocked | techfm_oa+ |
 | Takeoff lines: add / edit / remove on an order not Completed | Team Lead+ |
 | Dispense from a takeoff line | same rule as adding material to that order |
+| Confirm takeoff (Created → Planned) | techfm_oa+ |
 | Takeoff page; set a row's on-the-way figure (`PUT /takeoff/purchases`) | techfm_oa+ |
 | File a material request | any authenticated user who can see the work order; catalogue request: any authenticated user |
 | Cancel own open material request | the filer |
@@ -1010,7 +1013,7 @@ and renders red `Please re-count stock`. Technicians' gate sends
 `assigned_to_id`, and the server refuses a dispense against an order they are
 not on.
 
-Work Orders: collapsed card background encodes status (Created gray, Assigned
+Work Orders: collapsed card background encodes status (Created gray, Planned pink, Assigned
 red, In-Progress yellow, On-Hold orange, Ready to Complete violet, Completed
 blue, Review green). Begin Charging is offered to every role but the Owner,
 whose only forward action is Mark Completed. The Edit-details status dropdown
@@ -1026,7 +1029,8 @@ under it the icon bar Materials · N, Labor · h (hidden to viewers who cannot
 see labor), Notes, Photos · N, and **More** (Details, Takeoff · N, Invoice when
 the order has one, then admin tools and Edit details). Opens on Materials, or
 Notes while unread prior-work notes gate the card. Takeoff (`workOrderTakeoff.js`)
-is listed in More for Team Lead+ on open orders and for anyone when lines exist.
+is listed in More for Team Lead+ on open orders and for anyone when lines exist;
+TechFM OA+ gets Confirm takeoff → Planned there on Created orders.
 
 Takeoff page (`views/takeoff.js`, TechFM OA+): one group per service type,
 one row per item (Need, Price, Total, In stock, On the way, Ordered); each row

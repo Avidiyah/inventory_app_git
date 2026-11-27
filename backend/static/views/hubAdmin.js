@@ -57,6 +57,7 @@ function onClockHtml(onTheClock) {
 // label and the page it opens must always agree.
 const PIPELINE_STAGES = [
   ["created", "Created"],
+  ["planned", "Planned"],
   ["assigned", "Assigned"],
   ["in_progress", "In-Progress"],
   ["ready_to_complete", "Ready to Complete"],

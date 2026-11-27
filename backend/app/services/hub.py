@@ -51,6 +51,7 @@ _STARTABLE_ORDER = (
     wo.STATUS_IN_PROGRESS,
     wo.STATUS_ON_HOLD,
     wo.STATUS_ASSIGNED,
+    wo.STATUS_PLANNED,
     wo.STATUS_CREATED,
 )
 
@@ -582,11 +583,12 @@ def crew_hub(db: Session, user: User, *, now: Optional[datetime] = None) -> HubC
 @dataclass(frozen=True)
 class AdminPipelineCounts:
     """Company-wide, unscoped work-order status counts -- the "Work Order
-    Pipeline" row (spec §5.4). Six columns, not seven: `on_hold` is a
+    Pipeline" row (spec §5.4). Seven columns, not eight: `on_hold` is a
     temporal pause on `in_progress`, not a pipeline stage of its own, and
     has no column here."""
 
     created: int
+    planned: int
     assigned: int
     in_progress: int
     ready_to_complete: int
@@ -604,6 +606,7 @@ def _pipeline_counts(db: Session) -> AdminPipelineCounts:
     counts = dict(rows)
     return AdminPipelineCounts(
         created=counts.get(wo.STATUS_CREATED, 0),
+        planned=counts.get(wo.STATUS_PLANNED, 0),
         assigned=counts.get(wo.STATUS_ASSIGNED, 0),
         in_progress=counts.get(wo.STATUS_IN_PROGRESS, 0),
         ready_to_complete=counts.get(wo.STATUS_READY_TO_COMPLETE, 0),
@@ -1006,6 +1009,7 @@ class HubGraphsPayload:
 
 _GRAPH_STATUS_LABELS = {
     wo.STATUS_CREATED: "Created",
+    wo.STATUS_PLANNED: "Planned",
     wo.STATUS_ASSIGNED: "Assigned",
     wo.STATUS_IN_PROGRESS: "In-Progress",
     wo.STATUS_ON_HOLD: "On Hold",

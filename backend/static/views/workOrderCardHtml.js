@@ -374,8 +374,9 @@ function editableStatusValues(detail) {
     statuses = [prework, "in_progress", "on_hold", "completed"];
   } else {
     const rank = { created: 0, assigned: 1, in_progress: 2, completed: 3 }[detail.status];
-    statuses = [prework, "in_progress"];
-    statuses.push("on_hold");
+    // Planned stays selected; Created is the way back (Team Lead+).
+    statuses = detail.status === "planned" && prework === "created" ? ["planned", prework] : [prework];
+    statuses.push("in_progress", "on_hold");
     if (rank >= 3) statuses.push("completed");
   }
   return [...new Set(statuses)];
@@ -545,7 +546,11 @@ export function renderBody(detail, bodyEl) {
   // The pin carries the task, the place and the section bar. Takeoff and
   // Invoice (SMR) are the extra sections; they are listed under More, in that order.
   const done = detail.status === "completed";
-  const takeoff = takeoffSectionHtml(detail, { canEdit: sup && !done, canDispense: !locked && !done });
+  const takeoff = takeoffSectionHtml(detail, {
+    canEdit: sup && !done,
+    canDispense: !locked && !done,
+    canPlan: isAdminPlus() && detail.status === "created",
+  });
   const moreSections = [
     ...(takeoff ? [["takeoff", takeoffMoreLabel(detail)]] : []),
     ...(invoice ? [["invoice", "Invoice"]] : []),

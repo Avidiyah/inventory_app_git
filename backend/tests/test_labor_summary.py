@@ -184,6 +184,7 @@ def test_tracking_start_statuses_is_exported_for_the_hub_picker(db):
     # `start_labor_session` accepts, so it reads the same tuple.
     assert wos.TRACKING_START_STATUSES == (
         wo.STATUS_CREATED,
+        wo.STATUS_PLANNED,
         wo.STATUS_ASSIGNED,
         wo.STATUS_IN_PROGRESS,
         wo.STATUS_ON_HOLD,

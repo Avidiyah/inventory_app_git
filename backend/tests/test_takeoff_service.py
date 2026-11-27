@@ -8,7 +8,11 @@ import pytest
 
 from app.domain import roles
 from app.domain import work_orders as wo
-from app.domain.errors import TakeoffLineConflictError, WorkOrderStateError
+from app.domain.errors import (
+    RoleManagementError,
+    TakeoffLineConflictError,
+    WorkOrderStateError,
+)
 from app.models import Item, TakeoffPurchase, User, WorkOrder, WorkOrderTakeoffLine
 from app.services import auth
 from app.services import takeoff as tk
@@ -17,11 +21,11 @@ from app.services import work_orders as wos
 D = Decimal
 
 
-def _user(db):
+def _user(db, role=roles.ROLE_OWNER):
     user = User(
         username=f"u-{uuid.uuid4().hex[:10]}",
         password_hash=auth.hash_password("hunter2"),
-        role=roles.ROLE_OWNER,
+        role=role,
     )
     db.add(user)
     db.flush()
@@ -320,3 +324,31 @@ def test_purchase_listed_after_every_order_completed(db):
     assert rows["Toilet"].shortfall == D(0) and rows["Toilet"].shared is False
     assert rows["Unpriced"].total is None
     assert group.total == D(0)
+
+
+def test_confirm_takeoff_marks_created_order_planned(db):
+    owner, item = _user(db), _item(db)
+    lead = _user(db, roles.ROLE_SUPERVISOR)
+    order = _order(db, owner)
+    planned = {"status": wo.STATUS_PLANNED}
+    with pytest.raises(WorkOrderStateError, match="takeoff line"):
+        wos.update_work_order(db, order.id, user=owner, fields=planned)
+    tk.add_line(db, order.id, user=owner, item_id=item.id, quantity=D(2))
+    with pytest.raises(RoleManagementError):
+        wos.update_work_order(db, order.id, user=lead, fields=planned)
+    assert wos.update_work_order(db, order.id, user=owner, fields=planned).status == wo.STATUS_PLANNED
+    # A Team Lead may take it back to Created.
+    back = wos.update_work_order(db, order.id, user=lead, fields={"status": wo.STATUS_CREATED})
+    assert back.status == wo.STATUS_CREATED
+
+
+def test_only_created_can_be_planned_and_crew_moves_it_to_assigned(db):
+    owner, item = _user(db), _item(db)
+    tech = _user(db, roles.ROLE_TECHNICIAN)
+    order = _order(db, owner)
+    tk.add_line(db, order.id, user=owner, item_id=item.id, quantity=D(2))
+    wos.update_work_order(db, order.id, user=owner, fields={"status": wo.STATUS_PLANNED})
+    crewed = wos.update_work_order(db, order.id, user=owner, fields={"assigned_to_ids": [tech.id]})
+    assert crewed.status == wo.STATUS_ASSIGNED
+    with pytest.raises(WorkOrderStateError, match="Only a Created"):
+        wos.update_work_order(db, order.id, user=owner, fields={"status": wo.STATUS_PLANNED})

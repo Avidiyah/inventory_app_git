@@ -267,6 +267,35 @@ describe("planning", () => {
   });
 });
 
+describe("confirm takeoff (Created -> Planned)", () => {
+  const plan = () => $('[data-action="plan-takeoff"]');
+
+  it("an Admin+ on a Created order with lines confirms it with one PATCH", async () => {
+    const detail = await open({ role: "techfm_oa", crew: false, status: "created", takeoff: [line()] });
+    respond("patch", "/work-orders/:id", { ...detail, status: "planned" });
+    expect(plan().disabled).toBe(false);
+    plan().click();
+    await vi.waitFor(() => expect(requestFor(`/work-orders/${detail.id}`, "PATCH")).not.toBeNull());
+    expect(requestFor(`/work-orders/${detail.id}`, "PATCH").body).toEqual({ status: "planned" });
+  });
+
+  it("stays disabled, saying why, until the takeoff has a line", async () => {
+    await open({ role: "techfm_oa", crew: false, status: "created" });
+    expect(plan().disabled).toBe(true);
+    expect($(".wo-takeoff-plan").textContent).toContain("Add a line to confirm the takeoff.");
+  });
+
+  it("a Team Lead gets no button", async () => {
+    await open({ role: "supervisor", crew: false, status: "created", takeoff: [line()] });
+    expect(plan()).toBeNull();
+  });
+
+  it("an order already Planned gets no button", async () => {
+    await open({ role: "techfm_oa", crew: false, status: "planned", takeoff: [line()] });
+    expect(plan()).toBeNull();
+  });
+});
+
 describe("live updates", () => {
   it("a live patch keeps a half-typed dispense quantity and the open form", async () => {
     const detail = await open({ takeoff: [line()] });

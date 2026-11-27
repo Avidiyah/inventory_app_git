@@ -14,6 +14,7 @@ const STROKE = `fill="none" stroke="currentColor" stroke-width="1.8" stroke-line
 
 const STATUS_GLYPHS = {
   created: svg(`<circle cx="8" cy="8" r="5" ${STROKE}/>`),
+  planned: svg(`<rect x="3.5" y="2.5" width="9" height="11" rx="1.5" ${STROKE}/><path d="M6 8.2l1.5 1.5 2.8-3" ${STROKE}/>`),
   assigned: svg(`<circle cx="8" cy="5" r="2.6" fill="currentColor"/><path d="M3 14c0-3 2.2-5 5-5s5 2 5 5z" fill="currentColor"/>`),
   in_progress: svg(`<path d="M5 3l8 5-8 5z" fill="currentColor"/>`),
   on_hold: svg(`<rect x="4" y="3" width="3" height="10" rx="1" fill="currentColor"/><rect x="9" y="3" width="3" height="10" rx="1" fill="currentColor"/>`),

@@ -332,7 +332,7 @@ if (listEl) installListTaps(listEl);
 // Status groups, in the order a crew works them (user 2026-11-14). Each group
 // is a native <details>; Completed starts folded unless it is all there is.
 // Order within a group is the server's (the sort control's).
-const GROUP_ORDER = ["in_progress", "assigned", "created", "on_hold", "ready_to_complete", "review", "completed"];
+const GROUP_ORDER = ["in_progress", "assigned", "planned", "created", "on_hold", "ready_to_complete", "review", "completed"];
 const FOLDED_GROUPS = new Set(["completed"]);
 
 function groupKey(card) {

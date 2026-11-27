@@ -57,7 +57,7 @@ export function statusActionsHtml(detail) {
       )
     : BTN.begin;
 
-  if (canTrack && (detail.status === "created" || detail.status === "assigned")) {
+  if (canTrack && ["created", "planned", "assigned"].includes(detail.status)) {
     // "Set In-Progress" is gone: that transition is a side effect of starting
     // work, which is what the button always meant.
     primary = begin;

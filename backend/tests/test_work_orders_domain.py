@@ -135,6 +135,7 @@ def test_first_activity_advances_only_prework_states():
     labor no longer calls this helper at all."""
     assert wo.status_after_activity(wo.STATUS_CREATED) == wo.STATUS_IN_PROGRESS
     assert wo.status_after_activity(wo.STATUS_ASSIGNED) == wo.STATUS_IN_PROGRESS
+    assert wo.status_after_activity(wo.STATUS_PLANNED) == wo.STATUS_IN_PROGRESS
     assert wo.status_after_activity(wo.STATUS_IN_PROGRESS) == wo.STATUS_IN_PROGRESS
     assert wo.status_after_activity(wo.STATUS_ON_HOLD) == wo.STATUS_ON_HOLD
     assert (

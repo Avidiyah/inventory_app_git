@@ -56,7 +56,7 @@ const ACTIONS = [
   // W3 conflict message (workOrderConflict.js).
   "keep-theirs-wo", "save-mine-wo",
   // Takeoff section (workOrderTakeoff.js; behaviour in takeoff.test.js).
-  "add-takeoff", "edit-takeoff", "remove-takeoff", "open-dispense-takeoff", "dispense-takeoff",
+  "add-takeoff", "edit-takeoff", "remove-takeoff", "open-dispense-takeoff", "dispense-takeoff", "plan-takeoff",
 ];
 
 // The thirteen exports other views import. P4 must re-export every one.

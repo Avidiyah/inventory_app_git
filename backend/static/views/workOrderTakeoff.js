@@ -14,6 +14,7 @@ import {
   apiAddWorkOrderItem,
   apiDeleteTakeoffLine,
   apiUpdateTakeoffLine,
+  apiUpdateWorkOrder,
 } from "../api.js";
 import { confirmDialog, setMessage } from "../dom.js";
 import { escapeHtml } from "../format.js";
@@ -59,7 +60,16 @@ function lineHtml(detail, line, { canEdit, canDispense }) {
 }
 
 // "" when there is nothing to show: no lines and nobody who may plan them.
-export function takeoffSectionHtml(detail, { canEdit, canDispense }) {
+// `canPlan`: Admin+ on a Created order -- confirming the estimate marks it
+// Planned. Needs at least one line (the server refuses otherwise too).
+function planHtml(detail) {
+  if (lines(detail).length) {
+    return `<div class="wo-takeoff-plan"><button type="button" id="wo-act-plan-takeoff" data-action="plan-takeoff">Confirm takeoff → Planned</button></div>`;
+  }
+  return `<div class="wo-takeoff-plan"><button type="button" id="wo-act-plan-takeoff" data-action="plan-takeoff" disabled>Confirm takeoff → Planned</button><span class="hint">Add a line to confirm the takeoff.</span></div>`;
+}
+
+export function takeoffSectionHtml(detail, { canEdit, canDispense, canPlan = false }) {
   if (!takeoffVisible(detail, canEdit)) return "";
   const rows = lines(detail).map((line) => lineHtml(detail, line, { canEdit, canDispense })).join("");
   const add = canEdit
@@ -78,6 +88,7 @@ export function takeoffSectionHtml(detail, { canEdit, canDispense }) {
               <p class="hint">Planned, not yet used · no stock moved</p>
               <div class="wo-takeoff-lines">${rows || `<p class="hint">Nothing planned yet.</p>`}</div>
               ${add}
+              ${canPlan ? planHtml(detail) : ""}
             </div>
           </details>`;
 }
@@ -96,7 +107,12 @@ export async function handleTakeoffAction(action, btn, ctx) {
   const needQty = () => setMessage(msg, "Enter a quantity greater than zero.", "error");
   const said = (text) => setMessage(cardEl.querySelector(".wo-message"), text, "success");
 
-  if (action === "add-takeoff") {
+  if (action === "plan-takeoff") {
+    btn.disabled = true;
+    await apiUpdateWorkOrder(workOrderId, { status: "planned" });
+    await refresh();
+    said("Takeoff confirmed: this work order is Planned.");
+  } else if (action === "add-takeoff") {
     const container = btn.closest(".wo-takeoff-add");
     const quantity = positive(container.querySelector(".wo-item-qty").value);
     if (!container.dataset.itemId) return setMessage(msg, "Search and pick an item first.", "error"), true;
