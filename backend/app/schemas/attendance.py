@@ -241,6 +241,13 @@ class PunchAddRequest(BaseModel):
     reason: Optional[str] = None
 
 
+class SessionReviewRequest(BaseModel):
+    """Optional body for accepting a clock: `ended_at` is the real stop, after
+    the start and no later than the automatic stop. Omitted = accept as is."""
+
+    ended_at: Optional[datetime] = None
+
+
 class SessionReviewResponse(BaseModel):
     """One auto-stopped work-order clock accepted."""
 

@@ -20,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.domain import attendance, labor_day, roles
+from app.domain import work_orders as wo_domain
 from app.domain.errors import (
     NoChangeError,
     PunchAlreadyOpenError,
@@ -578,7 +579,31 @@ def admin_delete_punch(db: Session, *, actor: User, punch_id,
     return punch
 
 
+def _set_session_stop(db: Session, session: WorkOrderLaborSession, *, actor: User,
+                      ended_at: datetime, now: datetime) -> None:
+    """Move an auto-stopped clock's stop earlier and bill its labor line to
+    match, so Timesheets and billing keep one number. `auto_closed_at` stays:
+    it is the record the Leaderboard reads."""
+    start = labor_day.as_utc(session.started_at)
+    old_end = labor_day.as_utc(session.ended_at)
+    new_end = labor_day.as_utc(ended_at)
+    if not (start < new_end <= old_end):
+        raise PunchTimeInvalidError(
+            "The stop must be after the start and no later than the automatic stop.")
+    order = session.work_order
+    order.notes = wo_domain.append_note_log(
+        order.notes,
+        wo_domain.NOTE_STOP_CORRECTED.format(
+            new=wo_domain.format_note_clock(new_end), old=wo_domain.format_note_clock(old_end)),
+        author_name=actor.full_name, occurred_at=now)
+    session.ended_at = new_end
+    if session.labor is not None:
+        session.labor.minutes = int((new_end - start).total_seconds() // 60)
+        session.labor.recorded_by_id = actor.id
+
+
 def review_session(db: Session, *, actor: User, session_id,
+                   ended_at: Optional[datetime] = None,
                    now: Optional[datetime] = None) -> WorkOrderLaborSession:
     """Accept one auto-stopped work-order clock (Team Lead+, gated at the route).
 
@@ -594,6 +619,8 @@ def review_session(db: Session, *, actor: User, session_id,
         db.refresh(session)
     if session is None or session.auto_closed_at is None or session.reviewed_at is not None:
         raise PunchNotFoundError("That clock is not waiting for review.")
+    if ended_at is not None:
+        _set_session_stop(db, session, actor=actor, ended_at=ended_at, now=now)
     session.reviewed_at = now
     db.commit()
     db.refresh(session)

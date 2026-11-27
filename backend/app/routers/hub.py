@@ -47,12 +47,14 @@ from app.domain.errors import DomainError
 from app.models import User
 from app.routers._attendance_events import emit_attendance_changed
 from app.routers._errors import to_http
+from app.routers.work_orders import _emit_status_changed
 from app.schemas.attendance import (
     AttendanceLiveResponse,
     AttendancePunchResponse,
     AttendanceWeekResponse,
     PunchAddRequest,
     PunchEditRequest,
+    SessionReviewRequest,
     SessionReviewResponse,
 )
 from app.schemas.attendance import PersonWeekResponse
@@ -375,17 +377,22 @@ def delete_hub_attendance_punch(
              response_model=SessionReviewResponse)
 def review_hub_attendance_session(
     session_id: uuid.UUID,
+    body: Optional[SessionReviewRequest] = None,
     user: User = Depends(require_min_role(roles.ROLE_SUPERVISOR)),
     db: Session = Depends(get_db),
 ):
     """Accept one auto-stopped work-order clock, so its day counts again.
-    **Team Lead+**. 404 when the clock is not an unaccepted auto-close."""
+    **Team Lead+**. 404 when the clock is not an unaccepted auto-close. An
+    optional `ended_at` sets the real stop first (400 outside start..auto-stop)."""
     try:
         session = attendance_service.review_session(
-            db, actor=user, session_id=session_id)
+            db, actor=user, session_id=session_id,
+            ended_at=body.ended_at if body else None)
     except DomainError as exc:
         raise to_http(exc) from exc
     emit_attendance_changed()
+    if body and body.ended_at is not None:
+        _emit_status_changed(session.work_order_id)
     return {"session_id": session.id, "reviewed_at": session.reviewed_at}
 
 

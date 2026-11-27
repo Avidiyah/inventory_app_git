@@ -113,6 +113,13 @@ NOTE_READY_TO_COMPLETE = "marked work ready to complete"
 # who signed and who cleared it -- there is no badge or report column.
 NOTE_SIGNED_OFF = "captured witness sign-off from {name}"
 NOTE_SIGNATURE_CLEARED = "cleared the witness sign-off"
+# Fix flagged time: a Team Lead set an auto-stopped clock's real stop.
+NOTE_STOP_CORRECTED = "corrected the stop time to {new} (was {old})"
+
+
+def format_note_clock(instant: datetime) -> str:
+    """``h:MM AM/PM`` in Central, for a time inside a note body."""
+    return format_note_timestamp(instant)[9:].lstrip("0")
 
 
 def format_note_timestamp(occurred_at: datetime) -> str:

@@ -177,26 +177,35 @@ def test_technician_patches_own_punch_200(db):
 
 # --- Accepting one auto-stopped work-order clock ---------------------------
 
-def _labor_session(db, tech, *, ended_hours_ago=None, started_hours_ago=14, auto_closed=True):
-    from app.models import WorkOrderLaborSession
+def _labor_session(db, tech, *, ended_hours_ago=None, started_hours_ago=14, auto_closed=True,
+                   with_labor=False):
+    from app.models import WorkOrderLabor, WorkOrderLaborSession
     from app.services import work_orders as wos
     now = datetime.now(timezone.utc)
     order = wos.get_or_create_work_order(
         db, number=f"WO-{uuid.uuid4().hex[:8]}", created_by_id=tech.id,
         assigned_to_id=tech.id)
     ended = None if ended_hours_ago is None else now - timedelta(hours=ended_hours_ago)
+    started = now - timedelta(hours=started_hours_ago)
     session = WorkOrderLaborSession(
         id=uuid.uuid4(), work_order_id=order.id, technician_id=tech.id,
-        started_at=now - timedelta(hours=started_hours_ago), ended_at=ended,
+        started_at=started, ended_at=ended,
         auto_closed_at=ended if auto_closed else None)
+    if with_labor:
+        labor = WorkOrderLabor(id=uuid.uuid4(), work_order_id=order.id, technician_id=tech.id,
+                               minutes=int((ended - started).total_seconds() // 60),
+                               recorded_by_id=tech.id)
+        db.add(labor); db.flush()
+        session.labor_id = labor.id
     db.add(session); db.commit()
     return session
 
 
-def _review(db, actor, session_id):
+def _review(db, actor, session_id, body=None):
     try:
         with _as(db, actor) as client:
-            return client.post(f"/hub/attendance/sessions/{session_id}/review")
+            url = f"/hub/attendance/sessions/{session_id}/review"
+            return client.post(url, json=body) if body is not None else client.post(url)
     finally:
         del app.dependency_overrides[get_db]
 
@@ -296,3 +305,69 @@ def test_bulk_review_route_is_gone(db):
     finally:
         del app.dependency_overrides[get_db]
     assert response.status_code in (404, 405)
+
+
+# --- Setting the real stop while accepting ---------------------------------
+
+def test_a_team_lead_sets_the_real_stop(db):
+    from app.models import WorkOrderLabor, WorkOrderLaborSession
+    lead, tech = _seed_user(db, "supervisor"), _seed_user(db)
+    session = _labor_session(db, tech, ended_hours_ago=2, with_labor=True)
+    new_end = session.started_at + timedelta(hours=8, minutes=30)
+
+    response = _review(db, lead, session.id, {"ended_at": new_end.isoformat()})
+
+    assert response.status_code == 200
+    db.expire_all()
+    row = db.get(WorkOrderLaborSession, session.id)
+    assert row.ended_at == new_end and row.reviewed_at is not None
+    assert row.auto_closed_at is not None
+    labor = db.get(WorkOrderLabor, row.labor_id)
+    assert labor.minutes == 510 and labor.recorded_by_id == lead.id
+    assert "corrected the stop time to" in row.work_order.notes
+
+
+def test_a_stop_before_the_start_is_400(db):
+    from app.models import WorkOrderLaborSession
+    lead, tech = _seed_user(db, "supervisor"), _seed_user(db)
+    session = _labor_session(db, tech, ended_hours_ago=2, with_labor=True)
+    response = _review(db, lead, session.id, {"ended_at": session.started_at.isoformat()})
+    assert response.status_code == 400
+    db.expire_all()
+    assert db.get(WorkOrderLaborSession, session.id).reviewed_at is None
+
+
+def test_a_stop_after_the_auto_stop_is_400(db):
+    lead, tech = _seed_user(db, "supervisor"), _seed_user(db)
+    session = _labor_session(db, tech, ended_hours_ago=2, with_labor=True)
+    late = session.ended_at + timedelta(minutes=1)
+    assert _review(db, lead, session.id, {"ended_at": late.isoformat()}).status_code == 400
+
+
+def test_a_stop_with_no_labor_line_still_accepts(db):
+    from app.models import WorkOrderLaborSession
+    lead, tech = _seed_user(db, "supervisor"), _seed_user(db)
+    session = _labor_session(db, tech, ended_hours_ago=2)
+    new_end = session.started_at + timedelta(hours=3)
+    response = _review(db, lead, session.id, {"ended_at": new_end.isoformat()})
+    assert response.status_code == 200
+    db.expire_all()
+    row = db.get(WorkOrderLaborSession, session.id)
+    assert row.ended_at == new_end and row.reviewed_at is not None
+
+
+def test_an_empty_body_accepts_as_is(db):
+    from app.models import WorkOrderLaborSession
+    lead, tech = _seed_user(db, "supervisor"), _seed_user(db)
+    session = _labor_session(db, tech, ended_hours_ago=2, with_labor=True)
+    before = session.ended_at
+    assert _review(db, lead, session.id, {}).status_code == 200
+    db.expire_all()
+    assert db.get(WorkOrderLaborSession, session.id).ended_at == before
+
+
+def test_a_technician_cannot_set_a_stop(db):
+    tech = _seed_user(db)
+    session = _labor_session(db, tech, ended_hours_ago=2, with_labor=True)
+    new_end = session.started_at + timedelta(hours=3)
+    assert _review(db, tech, session.id, {"ended_at": new_end.isoformat()}).status_code == 403
