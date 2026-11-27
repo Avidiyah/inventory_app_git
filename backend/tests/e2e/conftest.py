@@ -118,6 +118,17 @@ def console_errors(page):
 
 @pytest.fixture
 def login_as(page, base_url):
+    # The post-login notification prompt (ask / blocked / install) is a modal
+    # over the whole shell and blocks every click in the suite; headless
+    # Chromium reports notifications as blocked. Mark each variant as already
+    # shown before the app loads. No e2e test covers the prompt itself
+    # (pushPrompt.test.js does), so this only removes the overlay.
+    page.add_init_script(
+        "for (const k of ['ask', 'blocked', 'install']) {"
+        " try { sessionStorage.setItem('techfm.pushPrompt.' + k, '1');"
+        " localStorage.setItem('techfm.pushPrompt.' + k, '1'); } catch (e) {} }"
+    )
+
     def _login(username: str):
         page.goto(base_url)
         page.fill("#login-username", username)
