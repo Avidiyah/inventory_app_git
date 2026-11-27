@@ -296,6 +296,29 @@ describe("confirm takeoff (Created -> Planned)", () => {
   });
 });
 
+describe("Needs Assessment", () => {
+  const assess = () => $('[data-action="assess-takeoff"]');
+
+  it("an Admin+ on a Created order marks it with one PATCH", async () => {
+    const detail = await open({ role: "techfm_oa", crew: false, status: "created" });
+    respond("patch", "/work-orders/:id", { ...detail, status: "needs_assessment" });
+    assess().click();
+    await vi.waitFor(() => expect(requestFor(`/work-orders/${detail.id}`, "PATCH")).not.toBeNull());
+    expect(requestFor(`/work-orders/${detail.id}`, "PATCH").body).toEqual({ status: "needs_assessment" });
+  });
+
+  it("once marked, only Confirm takeoff is left", async () => {
+    await open({ role: "techfm_oa", crew: false, status: "needs_assessment" });
+    expect(assess()).toBeNull();
+    expect($('[data-action="plan-takeoff"]')).not.toBeNull();
+  });
+
+  it("a Team Lead gets no button", async () => {
+    await open({ role: "supervisor", crew: false, status: "created", takeoff: [line()] });
+    expect(assess()).toBeNull();
+  });
+});
+
 describe("live updates", () => {
   it("a live patch keeps a half-typed dispense quantity and the open form", async () => {
     const detail = await open({ takeoff: [line()] });

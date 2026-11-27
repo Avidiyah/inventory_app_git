@@ -36,7 +36,7 @@ function slashDay(offsetDays) {
 
 describe("C1 status pill", () => {
   it.each([
-    "created", "planned", "assigned", "in_progress", "on_hold", "ready_to_complete", "completed", "review",
+    "created", "needs_assessment", "planned", "assigned", "in_progress", "on_hold", "ready_to_complete", "completed", "review",
   ])("%s carries an aria-hidden glyph ahead of its label", async (status) => {
     const row = await renderOne({ status });
     const glyph = row.querySelector(".wo-status > svg.wo-glyph");

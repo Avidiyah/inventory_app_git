@@ -497,7 +497,7 @@ async function refreshWoCards() {
         assignedToId: isTechnician() ? getCurrentUser()?.id ?? null : null,
       })
     ).filter(
-      (workOrder) => ["created", "planned", "assigned", "in_progress"].includes(workOrder.status)
+      (workOrder) => ["created", "needs_assessment", "planned", "assigned", "in_progress"].includes(workOrder.status)
     );
     if (requestId !== woCardsRequestId || batchWorkOrder !== null) return;
     renderWoCards(workOrders, query);
@@ -723,7 +723,7 @@ export async function tryResumeBatch(userId) {
     return false;
   }
 
-  if (!["created", "planned", "assigned", "in_progress"].includes(wo.status)) {
+  if (!["created", "needs_assessment", "planned", "assigned", "in_progress"].includes(wo.status)) {
     clearSavedBatch();
     setMessage(woGateMessage, "Your previous work order is no longer active — pick another to continue.", "error");
     return false;

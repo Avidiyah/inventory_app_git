@@ -45,7 +45,7 @@ class WorkOrderUpdate(BaseModel):
     its timestamp and authenticated author instead of replacing the log. At
     least one field required.
 
-    `status` (created|planned|assigned|in_progress|on_hold|ready_to_complete|completed|
+    `status` (created|needs_assessment|planned|assigned|in_progress|on_hold|ready_to_complete|completed|
     review) and `entry_mode` (dispense|retroactive) are validated in the
     service. Closed is archive state, never a PATCH status value. Driving a row
     into on_hold, ready_to_complete, or completed stops every clock on it."""

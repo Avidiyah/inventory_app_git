@@ -378,7 +378,7 @@ export function hubAdmin(overrides = {}) {
     server_now: "2026-09-10T12:00:00Z",
     supervisor_minutes_today: 0,
     technician_minutes_today: 0,
-    pipeline: { created: 0, planned: 0, assigned: 0, in_progress: 0, ready_to_complete: 0, completed: 0, review: 0 },
+    pipeline: { created: 0, needs_assessment: 0, planned: 0, assigned: 0, in_progress: 0, ready_to_complete: 0, completed: 0, review: 0 },
     priority: { assigned: 0, unassigned: 0 },
     on_the_clock: [],
     exceptions: { inventory_recounts: 0, missing_item_price: 0, catalogue_requests: 0, admin_review_queue: 0, stale_work_orders: 0 },

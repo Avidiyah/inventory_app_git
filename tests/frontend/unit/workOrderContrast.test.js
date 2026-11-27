@@ -44,7 +44,7 @@ function pillText(status) {
 }
 
 describe("status pill contrast", () => {
-  it.each(["created", "planned", "assigned", "in_progress", "on_hold", "ready_to_complete", "completed", "review"])(
+  it.each(["created", "needs_assessment", "planned", "assigned", "in_progress", "on_hold", "ready_to_complete", "completed", "review"])(
     "%s text is >= 4.5:1 on its fill", (status) => {
       const { fill, text } = pillText(status);
       expect(contrast(fill, text)).toBeGreaterThanOrEqual(4.5);

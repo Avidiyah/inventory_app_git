@@ -6,12 +6,12 @@ import { setTestUser } from "../helpers/session.js";
 import { user } from "../helpers/factories.js";
 
 describe("the shell markup the module binds to", () => {
-  it("renders the status filter with its eight statuses plus 'All'", () => {
+  it("renders the status filter with its nine statuses plus 'All'", () => {
     mountShell();
     const select = document.getElementById("work-orders-status-filter");
     const values = [...select.options].map((o) => o.value);
     expect(values).toEqual([
-      "", "created", "planned", "assigned", "in_progress",
+      "", "created", "needs_assessment", "planned", "assigned", "in_progress",
       "on_hold", "ready_to_complete", "completed", "review",
     ]);
     expect(select.options[0].textContent).toBe("All statuses");

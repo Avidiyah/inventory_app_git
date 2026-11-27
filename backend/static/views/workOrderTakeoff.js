@@ -60,14 +60,18 @@ function lineHtml(detail, line, { canEdit, canDispense }) {
 }
 
 // "" when there is nothing to show: no lines and nobody who may plan them.
-// `canPlan`: Admin+ on a Created order -- confirming the estimate marks it
-// Planned. An empty takeoff may be confirmed: the job needs no material.
-function planHtml(detail) {
+// `canPlan`: Admin+ on a Created or Needs Assessment order -- confirming the
+// estimate marks it Planned. An empty takeoff may be confirmed: the job needs
+// no material. `canAssess`: Admin+ on a Created order whose material cannot be
+// pinned down yet.
+function planHtml(detail, canAssess) {
   const hint = lines(detail).length ? "" : `<span class="hint">No material needed? Confirm anyway.</span>`;
-  return `<div class="wo-takeoff-plan"><button type="button" id="wo-act-plan-takeoff" data-action="plan-takeoff">Confirm takeoff → Planned</button>${hint}</div>`;
+  return `<div class="wo-takeoff-plan"><button type="button" id="wo-act-plan-takeoff" data-action="plan-takeoff">Confirm takeoff → Planned</button>${
+    canAssess ? `<button type="button" class="secondary-btn" id="wo-act-assess-takeoff" data-action="assess-takeoff">Needs Assessment</button>` : ""
+  }${hint}</div>`;
 }
 
-export function takeoffSectionHtml(detail, { canEdit, canDispense, canPlan = false }) {
+export function takeoffSectionHtml(detail, { canEdit, canDispense, canPlan = false, canAssess = false }) {
   if (!takeoffVisible(detail, canEdit)) return "";
   const rows = lines(detail).map((line) => lineHtml(detail, line, { canEdit, canDispense })).join("");
   const add = canEdit
@@ -86,7 +90,7 @@ export function takeoffSectionHtml(detail, { canEdit, canDispense, canPlan = fal
               <p class="hint">Planned, not yet used · no stock moved</p>
               <div class="wo-takeoff-lines">${rows || `<p class="hint">Nothing planned yet.</p>`}</div>
               ${add}
-              ${canPlan ? planHtml(detail) : ""}
+              ${canPlan ? planHtml(detail, canAssess) : ""}
             </div>
           </details>`;
 }
@@ -105,11 +109,21 @@ export async function handleTakeoffAction(action, btn, ctx) {
   const needQty = () => setMessage(msg, "Enter a quantity greater than zero.", "error");
   const said = (text) => setMessage(cardEl.querySelector(".wo-message"), text, "success");
 
-  if (action === "plan-takeoff") {
+  if (action === "assess-takeoff") {
     btn.disabled = true;
-    await apiUpdateWorkOrder(workOrderId, { status: "planned" });
+    await apiUpdateWorkOrder(workOrderId, { status: "needs_assessment" });
     await refresh();
-    said("Takeoff confirmed: this work order is Planned.");
+    said("This work order is marked Needs Assessment.");
+  } else if (action === "plan-takeoff") {
+    btn.disabled = true;
+    const updated = await apiUpdateWorkOrder(workOrderId, { status: "planned" });
+    await refresh();
+    // A crewed order (possible from Needs Assessment) lands on Assigned.
+    said(
+      updated?.status === "assigned"
+        ? "Takeoff confirmed: this work order has a crew, so it is Assigned."
+        : "Takeoff confirmed: this work order is Planned."
+    );
   } else if (action === "add-takeoff") {
     const container = btn.closest(".wo-takeoff-add");
     const quantity = positive(container.querySelector(".wo-item-qty").value);

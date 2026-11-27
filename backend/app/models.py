@@ -355,7 +355,7 @@ class WorkOrder(Base):
     creates one. Everywhere else a number is used, it must already name a row
     (`services.work_orders.resolve_work_order`).
 
-    Live `status` follows `created (-> planned) -> assigned -> in_progress ->
+    Live `status` follows `created (-> needs_assessment) (-> planned) -> assigned -> in_progress ->
     ready_to_complete -> completed -> review`, with `on_hold` as the pause
     state: technician assignment derives Assigned, and first material activity
     or a started clock derives In-Progress (hand-keyed labor does not).

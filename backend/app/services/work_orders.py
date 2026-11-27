@@ -442,14 +442,28 @@ def _require_review_handoff_permission(
     )
 
 
-def _require_plan_permission(work_order: WorkOrder, user: Optional[User]) -> None:
-    """Planned = the takeoff estimate is confirmed: Admin+ only, Created only.
-    An empty takeoff is allowed (the job needs no material). Going back to
-    Created is an ordinary Team Lead+ status edit."""
+def _require_takeoff_status_permission(
+    work_order: WorkOrder, target: str, user: Optional[User]
+) -> None:
+    """The two Takeoff-tab statuses, Admin+ only. Needs Assessment comes from
+    Created; Planned (estimate confirmed, empty takeoff allowed) comes from
+    either. Going back to Created is an ordinary Team Lead+ status edit."""
     if user is not None and not roles.role_at_least(user.role, roles.ROLE_TECHFM_OA):
-        raise RoleManagementError("Only an Admin can confirm a takeoff.")
-    if work_order.status != wo.STATUS_CREATED:
-        raise WorkOrderStateError("Only a Created work order can be marked Planned.")
+        message = (
+            "Only an Admin can confirm a takeoff."
+            if target == wo.STATUS_PLANNED
+            else "Only an Admin can mark a work order Needs Assessment."
+        )
+        raise RoleManagementError(message)
+    if target == wo.STATUS_PLANNED:
+        if work_order.status not in (wo.STATUS_CREATED, wo.STATUS_NEEDS_ASSESSMENT):
+            raise WorkOrderStateError(
+                "Only a Created or Needs Assessment work order can be marked Planned."
+            )
+    elif work_order.status != wo.STATUS_CREATED:
+        raise WorkOrderStateError(
+            "Only a Created work order can be marked Needs Assessment."
+        )
 
 
 def _sync_technician_assignments(
@@ -1974,8 +1988,9 @@ def update_work_order(
                 "Only a Completed work order can be sent to Review."
             )
         _require_review_handoff_permission(work_order, user)
-    if fields.get("status") == wo.STATUS_PLANNED and previous != wo.STATUS_PLANNED:
-        _require_plan_permission(work_order, user)
+    target = fields.get("status")
+    if target in (wo.STATUS_NEEDS_ASSESSMENT, wo.STATUS_PLANNED) and target != previous:
+        _require_takeoff_status_permission(work_order, target, user)
 
     if "entry_mode" in fields:
         wo.validate_mode(fields["entry_mode"])
@@ -2381,6 +2396,7 @@ def delete_work_order_labor(
 # `hold_work_order` and `resume_work_order` already carry.
 _TRACKING_START_STATUSES = (
     wo.STATUS_CREATED,
+    wo.STATUS_NEEDS_ASSESSMENT,
     wo.STATUS_PLANNED,
     wo.STATUS_ASSIGNED,
     wo.STATUS_IN_PROGRESS,

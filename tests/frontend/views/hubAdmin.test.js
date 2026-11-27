@@ -122,14 +122,15 @@ describe("time tiles", () => {
 
 describe("the pipeline", () => {
   const pipeline = (overrides = {}) => ({
-    created: 1, planned: 6, assigned: 2, in_progress: 3, ready_to_complete: 0, completed: 4, review: 5, ...overrides,
+    created: 1, needs_assessment: 7, planned: 6, assigned: 2, in_progress: 3, ready_to_complete: 0, completed: 4, review: 5, ...overrides,
   });
 
-  it("seven tiles in lifecycle order, labelled off the Work Orders page's own options", async () => {
+  it("eight tiles in lifecycle order, labelled off the Work Orders page's own options", async () => {
     await openAdmin({ pipeline: pipeline() });
     const labels = statusOptionLabels();
     expect(pipelineTiles()).toEqual([
       { status: "created", label: labels.created, value: "1" },
+      { status: "needs_assessment", label: labels.needs_assessment, value: "7" },
       { status: "planned", label: labels.planned, value: "6" },
       { status: "assigned", label: labels.assigned, value: "2" },
       { status: "in_progress", label: labels.in_progress, value: "3" },
@@ -137,7 +138,7 @@ describe("the pipeline", () => {
       { status: "completed", label: labels.completed, value: "4" },
       { status: "review", label: labels.review, value: "5" },
     ]);
-    // The page offers an eighth status the pipeline has no tile for, so an
+    // The page offers a ninth status the pipeline has no tile for, so an
     // On-Hold work order is in no roll-up here. Characterization --
     // open-work.md N-P6-CHARACTERIZED.
     expect(labels.on_hold).toBe("On-Hold");

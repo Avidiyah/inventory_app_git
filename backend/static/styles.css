@@ -77,6 +77,9 @@
     /* Work-order lifecycle colors. Shared by tactile cards and the narrow
        categorical exception in the Hub Graphs tab; legends always add text. */
     --wo-status-created: #D1D5DB;
+    /* Between Created and Planned: the midpoint, for places a blend cannot go. */
+    --wo-status-needs-assessment: #D67EA9;
+    --wo-gradient-needs-assessment: linear-gradient(90deg, #D1D5DB, #DB2777);
     --wo-status-planned: #DB2777;
     --wo-status-assigned: #B91C1C;
     --wo-status-in-progress: #FACC15;
@@ -87,6 +90,7 @@
     /* The same hues lifted for text on the dark panels (WO number, chip
        label, group heading). */
     --wo-status-text-created: #D1D5DB;
+    --wo-status-text-needs-assessment: #E3A4C9;
     --wo-status-text-planned: #F472B6;
     --wo-status-text-assigned: #F87171;
     --wo-status-text-in-progress: #FACC15;
@@ -2731,6 +2735,7 @@ tr.archived-user {
 .hub-graph-slice[data-status] { cursor: pointer; }
 .hub-graph-slice-dim { opacity: 0.22; }
 .hub-graph-slice-created, .hub-graph-swatch-created { stroke: var(--wo-status-created); background: var(--wo-status-created); }
+.hub-graph-slice-needs_assessment, .hub-graph-swatch-needs_assessment { stroke: var(--wo-status-needs-assessment); background: var(--wo-gradient-needs-assessment); }
 .hub-graph-slice-planned, .hub-graph-swatch-planned { stroke: var(--wo-status-planned); background: var(--wo-status-planned); }
 .hub-graph-slice-assigned, .hub-graph-swatch-assigned { stroke: var(--wo-status-assigned); background: var(--wo-status-assigned); }
 .hub-graph-slice-in_progress, .hub-graph-swatch-in_progress { stroke: var(--wo-status-in-progress); background: var(--wo-status-in-progress); }
@@ -4852,6 +4857,7 @@ details[open] > .community-summary::before { content: "\25BE"; }
    across every status and matches the rest of the app's panel treatment.
    These classes also color the tappable Scan/Stock and Admin Review cards. */
 .wo-card-status-created,
+.wo-card-status-needs_assessment,
 .wo-card-status-planned,
 .wo-card-status-assigned,
 .wo-card-status-in_progress,
@@ -4867,6 +4873,7 @@ details[open] > .community-summary::before { content: "\25BE"; }
    paint over the status color the instant a status card is hovered or
    clicked. Keep the status color through hover. */
 .wo-card-status-created:hover { border-color: var(--wo-status-created); }
+.wo-card-status-needs_assessment:hover { border-color: transparent; }
 .wo-card-status-planned:hover { border-color: var(--wo-status-planned); }
 .wo-card-status-assigned:hover { border-color: var(--wo-status-assigned); }
 .wo-card-status-in_progress:hover { border-color: var(--wo-status-in-progress); }
@@ -4889,6 +4896,20 @@ details[open] > .community-summary::before { content: "\25BE"; }
 .wo-card-status-created:active {
     transform: translateY(3px);
     box-shadow: 0 1px 0 0 #9CA3AF, 0 2px 6px -2px rgba(209, 213, 219, .35), var(--shadow-card);
+}
+/* A rounded border cannot take border-image, so the blend is a border-box
+   layer under an opaque padding-box one. */
+.wo-card-status-needs_assessment {
+    --card-accent: var(--wo-status-needs-assessment);
+    --card-accent-rgb: 214, 126, 169;
+    background: linear-gradient(#141414, #141414) padding-box, var(--wo-gradient-needs-assessment) border-box;
+    border-color: transparent;
+    border-width: 2px;
+    box-shadow: 0 4px 0 0 #9C6B83, 0 6px 16px -6px rgba(214, 126, 169, .45), var(--shadow-card);
+}
+.wo-card-status-needs_assessment:active {
+    transform: translateY(3px);
+    box-shadow: 0 1px 0 0 #9C6B83, 0 2px 6px -2px rgba(214, 126, 169, .35), var(--shadow-card);
 }
 .wo-card-status-planned {
     --card-accent: var(--wo-status-planned);
@@ -5053,6 +5074,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     color: var(--color-white);
 }
 .wo-status-created { background-color: var(--wo-status-created); color: var(--color-ink); }
+.wo-status-needs_assessment { background-color: var(--wo-status-needs-assessment); background-image: linear-gradient(90deg, var(--wo-status-created), var(--wo-status-text-planned)); color: var(--color-ink); }
 .wo-status-planned { background-color: var(--wo-status-planned); }
 .wo-status-assigned { background-color: var(--wo-status-assigned); }
 .wo-status-in_progress { background-color: var(--wo-status-in-progress); color: var(--color-ink); }
@@ -6420,6 +6442,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .user-profile-wo-number { font-weight: var(--fw-bold); }
 .user-profile-wo-location { color: var(--text-panel-mute); }
 .user-profile-wo-created { --card-accent: var(--wo-status-created); }
+.user-profile-wo-needs_assessment { --card-accent: var(--wo-status-needs-assessment); }
 .user-profile-wo-planned { --card-accent: var(--wo-status-planned); }
 .user-profile-wo-assigned { --card-accent: var(--wo-status-assigned); }
 .user-profile-wo-in_progress { --card-accent: var(--wo-status-in-progress); }
@@ -7001,6 +7024,7 @@ details[open] > .wo-summary::before { content: "\25BE"; }
     #hub-tabpanel-dashboard .hub-bar-seg { display: block; flex: 0 0 auto; flex-basis: 0; min-width: 6px; }
     #hub-tabpanel-dashboard .hub-bar-seg[data-grow="0"] { display: none; }
     #hub-tabpanel-dashboard .hub-bar-created { background: #6b7280; }
+    #hub-tabpanel-dashboard .hub-bar-needs_assessment { background: var(--wo-gradient-needs-assessment); }
     #hub-tabpanel-dashboard .hub-bar-planned { background: #DB2777; }
     #hub-tabpanel-dashboard .hub-bar-assigned { background: #8aa4d6; }
     #hub-tabpanel-dashboard .hub-bar-in_progress { background: #4f8fe0; }
@@ -7242,6 +7266,19 @@ details[open] > .wo-summary::before { content: "\25BE"; }
 .wo-list .wo-card:hover,
 .wo-list .wo-card:active { box-shadow: none; transform: none; }
 .wo-list .wo-card[open]:not(.wo-solo) { background: var(--panel-hover); }
+.wo-list :is(.wo-card-status-needs_assessment, .wo-group-needs_assessment) { --wo-st: var(--wo-status-text-needs-assessment); }
+/* The blend on the list: card edge, status chip and group dot. The [open] and
+   :hover forms outrank the shared card backgrounds above. */
+.wo-list .wo-card.wo-card-status-needs_assessment,
+.wo-list .wo-card.wo-card-status-needs_assessment:hover {
+    background: linear-gradient(#141414, #141414) padding-box, var(--wo-gradient-needs-assessment) border-box;
+    border-color: transparent;
+}
+.wo-list .wo-card.wo-card-status-needs_assessment[open]:not(.wo-solo) {
+    background: linear-gradient(var(--panel-hover), var(--panel-hover)) padding-box, linear-gradient(#141414, #141414) padding-box, var(--wo-gradient-needs-assessment) border-box;
+}
+.wo-list .wo-status.wo-status-needs_assessment { background: linear-gradient(90deg, color-mix(in srgb, var(--wo-status-text-created) 20%, transparent), color-mix(in srgb, var(--wo-status-text-planned) 34%, transparent)); }
+.wo-group-needs_assessment .wo-group-dot { background: var(--wo-gradient-needs-assessment); }
 .wo-list :is(.wo-card-status-planned, .wo-group-planned) { --wo-st: var(--wo-status-text-planned); }
 .wo-list :is(.wo-card-status-assigned, .wo-group-assigned) { --wo-st: var(--wo-status-text-assigned); }
 .wo-list :is(.wo-card-status-in_progress, .wo-group-in_progress) { --wo-st: var(--wo-status-text-in-progress); }

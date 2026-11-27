@@ -350,3 +350,21 @@ def test_only_created_can_be_planned_and_crew_moves_it_to_assigned(db):
     assert crewed.status == wo.STATUS_ASSIGNED
     with pytest.raises(WorkOrderStateError, match="Only a Created"):
         wos.update_work_order(db, order.id, user=owner, fields={"status": wo.STATUS_PLANNED})
+
+
+def test_needs_assessment_keeps_its_flag_with_crew_then_plans(db):
+    owner = _user(db)
+    lead = _user(db, roles.ROLE_SUPERVISOR)
+    tech = _user(db, roles.ROLE_TECHNICIAN)
+    order = _order(db, owner)
+    assess = {"status": wo.STATUS_NEEDS_ASSESSMENT}
+    with pytest.raises(RoleManagementError):
+        wos.update_work_order(db, order.id, user=lead, fields=assess)
+    wos.update_work_order(db, order.id, user=owner, fields=assess)
+    crewed = wos.update_work_order(db, order.id, user=owner, fields={"assigned_to_ids": [tech.id]})
+    assert crewed.status == wo.STATUS_NEEDS_ASSESSMENT
+    planned = wos.update_work_order(db, order.id, user=owner, fields={"status": wo.STATUS_PLANNED})
+    # Planned never holds a crew, so a crewed order lands on Assigned.
+    assert planned.status == wo.STATUS_ASSIGNED
+    with pytest.raises(WorkOrderStateError, match="Only a Created"):
+        wos.update_work_order(db, order.id, user=owner, fields=assess)

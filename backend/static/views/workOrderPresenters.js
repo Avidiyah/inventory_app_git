@@ -204,7 +204,7 @@ export function isCrewLocked(detail) {
 // The one hint a locked card shows in place of its input controls. Begin
 // Charging is only on offer while the work is unfinished (the server's start
 // statuses), so a finished work order says why it stays read-only instead.
-const BEGIN_CHARGING_STATUSES = ["created", "planned", "assigned", "in_progress", "on_hold"];
+const BEGIN_CHARGING_STATUSES = ["created", "needs_assessment", "planned", "assigned", "in_progress", "on_hold"];
 export function crewLockHtml(detail) {
   if (!isCrewLocked(detail)) return "";
   const text = BEGIN_CHARGING_STATUSES.includes(detail.status)
@@ -238,6 +238,7 @@ export function priorWorkBannerHtml(detail) {
 export function statusLabel(status) {
   return {
     created: "Created",
+    needs_assessment: "Needs Assessment",
     planned: "Planned",
     assigned: "Assigned",
     in_progress: "In-Progress",

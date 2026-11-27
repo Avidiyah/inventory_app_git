@@ -111,7 +111,7 @@ export const TIPS = {
   // --- Work Orders (pages/work-orders.html) ------------------------------
   "wo.status": {
     label: "Status",
-    text: "The lifecycle runs Created, Assigned, In-Progress, Ready to Complete, Completed, Review, with On-Hold as the pause state meaning nobody is on the clock. Ready to Complete is a technician saying the job is done and waiting on a Team Lead; Completed is the Team Lead agreeing and is what the billing queue reads; Review is the final admin billing check.",
+    text: "The lifecycle runs Created, Needs Assessment (material not yet known), Planned, Assigned, In-Progress, Ready to Complete, Completed, Review, with On-Hold as the pause state meaning nobody is on the clock. Ready to Complete is a technician saying the job is done and waiting on a Team Lead; Completed is the Team Lead agreeing and is what the billing queue reads; Review is the final admin billing check.",
   },
   "wo.community": {
     label: "Community",

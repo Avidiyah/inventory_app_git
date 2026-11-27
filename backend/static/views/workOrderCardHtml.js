@@ -374,8 +374,11 @@ function editableStatusValues(detail) {
     statuses = [prework, "in_progress", "on_hold", "completed"];
   } else {
     const rank = { created: 0, assigned: 1, in_progress: 2, completed: 3 }[detail.status];
-    // Planned stays selected; Created is the way back (Team Lead+).
-    statuses = detail.status === "planned" && prework === "created" ? ["planned", prework] : [prework];
+    // Planned and Needs Assessment stay selected; the pre-work choice is the
+    // way back (Team Lead+). Needs Assessment survives a crew, Planned does not.
+    const keeps =
+      detail.status === "needs_assessment" || (detail.status === "planned" && prework === "created");
+    statuses = keeps ? [detail.status, prework] : [prework];
     statuses.push("in_progress", "on_hold");
     if (rank >= 3) statuses.push("completed");
   }
@@ -549,7 +552,8 @@ export function renderBody(detail, bodyEl) {
   const takeoff = takeoffSectionHtml(detail, {
     canEdit: sup && !done,
     canDispense: !locked && !done,
-    canPlan: isAdminPlus() && detail.status === "created",
+    canPlan: isAdminPlus() && ["created", "needs_assessment"].includes(detail.status),
+    canAssess: isAdminPlus() && detail.status === "created",
   });
   const moreSections = [
     ...(takeoff ? [["takeoff", takeoffMoreLabel(detail)]] : []),
