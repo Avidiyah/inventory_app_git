@@ -11,6 +11,8 @@ import { formatMinutes, statusLabel } from "./workOrderPresenters.js";
 
 const CENTRAL = "America/Chicago";
 const DAY_MS = 24 * 60 * 60 * 1000;
+// LABOR_SESSION_MAX_MINUTES: where the server stops a clock nobody stopped.
+const CAP_MS = 12 * 60 * 60 * 1000;
 const OUT_OF_RANGE = "Pick a time after the start and no later than the automatic stop.";
 
 function clockLabel(instant) {
@@ -75,13 +77,18 @@ function notesHtml(detail) {
 
 export function mountClockStep(hostEl, { item, loadWorkOrder, onSave, onAccept, onOpen, onSkip }) {
   let stop = null;
+  // A clock past the cap but not yet swept arrives still running; saving
+  // sweeps it to start + 12 h first, so that is its automatic stop.
+  const autoStop = item.ended_at
+    ? new Date(item.ended_at).toISOString()
+    : new Date(new Date(item.started_at).getTime() + CAP_MS).toISOString();
   hostEl.innerHTML = `<div class="flagged-clock">
     <p class="flagged-clock-order">${orderLine(item, null)}</p>
     <div class="flagged-clock-times">
       <span>Started ${escapeHtml(clockLabel(item.started_at))}</span>
       <button type="button" class="secondary-btn flagged-clock-stop">Stopped: ${
-        escapeHtml(clockLabel(item.ended_at))}</button>
-      <span class="flagged-clock-hours">${escapeHtml(hoursText(item.started_at, item.ended_at))}</span>
+        escapeHtml(clockLabel(autoStop))}</button>
+      <span class="flagged-clock-hours">${escapeHtml(hoursText(item.started_at, autoStop))}</span>
     </div>
     <p class="flagged-clock-message" aria-live="polite"></p>
     <div class="flagged-flow-actions">
@@ -99,16 +106,16 @@ export function mountClockStep(hostEl, { item, loadWorkOrder, onSave, onAccept, 
 
   $(".flagged-clock-stop").addEventListener("click", async () => {
     const chosen = await promptTime({
-      title: "Stopped at", help: "Central time.", initial: new Date(stop || item.ended_at),
+      title: "Stopped at", help: "Central time.", initial: new Date(stop || autoStop),
     });
     if (!chosen) return;
-    const resolved = resolveStop(chosen, item.started_at, item.ended_at);
+    const resolved = resolveStop(chosen, item.started_at, autoStop);
     $(".flagged-clock-message").textContent = resolved ? "" : OUT_OF_RANGE;
     if (!resolved) return;
     stop = resolved;
     $(".flagged-clock-stop").textContent = `Stopped: ${clockLabel(stop)}`;
     $(".flagged-clock-hours").textContent = hoursText(item.started_at, stop);
-    save.disabled = stop === new Date(item.ended_at).toISOString();
+    save.disabled = stop === autoStop;
   });
   save.addEventListener("click", () => { if (stop) onSave(stop); });
   $('[data-flow="accept"]').addEventListener("click", () => onAccept());

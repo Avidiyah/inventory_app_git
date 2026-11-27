@@ -145,6 +145,17 @@ describe("the clock step", () => {
     expect(calls.onSkip).toHaveBeenCalled();
   });
 
+  it("treats a still-running clock as stopping at the 12-hour cap", async () => {
+    mountClockStep(host, { item: { ...ITEM, ended_at: null }, loadWorkOrder: () => Promise.resolve(DETAIL), ...calls });
+    await flush();
+    expect(q(".flagged-clock-hours").textContent).toBe("12.0 h");
+    promptTime.mockResolvedValue(new Date("2026-11-24T21:32:00.000Z"));
+    q(".flagged-clock-stop").click();
+    await flush();
+    q('[data-flow="save-accept"]').click();
+    expect(calls.onSave).toHaveBeenCalledWith("2026-11-24T21:32:00.000Z");
+  });
+
   it("never nests a button or sets an inline style", async () => {
     mount();
     await flush();
