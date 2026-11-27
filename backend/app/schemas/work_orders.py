@@ -263,6 +263,8 @@ class WorkOrderLaborDetail(BaseModel):
     # nothing, so a phone in another timezone cannot show a window that
     # disagrees with the `stopped work` line beside it.
     session_window: Optional[str] = None
+    # The clock behind the row; None for a hand-entered one.
+    session_id: Optional[UUID] = None
     # The 12-hour cap closed this session rather than a person. The figure is a
     # prompt to review, never a billing fact accepted on its own.
     auto_closed: bool = False

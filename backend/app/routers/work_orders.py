@@ -483,6 +483,7 @@ def _labor_detail(entry: WorkOrderLabor) -> WorkOrderLaborDetail:
         ),
         minutes=entry.minutes,
         session_window=_session_window(session),
+        session_id=session.id if session is not None else None,
         auto_closed=session is not None and session.auto_closed_at is not None,
         hand_entered=session is None,
         recorded_by_self=getattr(entry, "recorded_by_id", None) == entry.technician_id,

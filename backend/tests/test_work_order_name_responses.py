@@ -114,7 +114,7 @@ def test_labor_detail_marks_hand_entered_self_and_open_week():
     session_row = SimpleNamespace(
         id=uuid4(), technician_id=tech_id, technician=tech, minutes=60,
         recorded_by_id=tech_id, created_at=now,
-        session=SimpleNamespace(started_at=started, ended_at=started + timedelta(hours=1),
+        session=SimpleNamespace(id=uuid4(), started_at=started, ended_at=started + timedelta(hours=1),
                                 auto_closed_at=None))
     hand_row = SimpleNamespace(
         id=uuid4(), technician_id=tech_id, technician=tech, minutes=30,
@@ -124,3 +124,23 @@ def test_labor_detail_marks_hand_entered_self_and_open_week():
 
     assert (live.hand_entered, live.recorded_by_self, live.week_open) == (False, True, True)
     assert (keyed.hand_entered, keyed.recorded_by_self, keyed.week_open) == (True, False, False)
+
+
+def test_labor_detail_names_the_clock_behind_a_row():
+    from datetime import datetime, timedelta, timezone
+    from app.routers.work_orders import _labor_detail
+
+    tech = SimpleNamespace(id=uuid4(), full_name="Jamie Rivera")
+    now = datetime.now(timezone.utc)
+    clock_id = uuid4()
+    session_row = SimpleNamespace(
+        id=uuid4(), technician_id=tech.id, technician=tech, minutes=60,
+        recorded_by_id=tech.id, created_at=now,
+        session=SimpleNamespace(id=clock_id, started_at=now - timedelta(hours=2),
+                                ended_at=now - timedelta(hours=1), auto_closed_at=None))
+    hand_row = SimpleNamespace(
+        id=uuid4(), technician_id=tech.id, technician=tech, minutes=30,
+        recorded_by_id=tech.id, created_at=now, session=None)
+
+    assert _labor_detail(session_row).session_id == clock_id
+    assert _labor_detail(hand_row).session_id is None
