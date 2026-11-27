@@ -122,6 +122,8 @@ export function sample(user) {
     on_shift_count: 3, charging_count: 1, idle_count: 1, shop_count: 1,
   };
   const mon = dayAt(0);
+  const clockStart = `${mon}T13:00:00.000Z`;
+  const clockEnd = new Date(Date.parse(clockStart) + 12 * 3600000).toISOString();
   const days = [0, 1, 2, 3, 4, 5, 6].map(dayAt);
   const blankDay = (date) => ({
     date, clocked_minutes: 0, lunch_minutes: 0, lunch_waived: false, paid_minutes: 0, tracked_minutes: 0,
@@ -168,7 +170,29 @@ export function sample(user) {
     delta_minutes: 240,
     week_hours: 168,
     labor_rate: "62.50",
-    reviewable_count: 1,
+    reviewable_count: 2,
+    // One auto-stopped clock (Fix an auto-stopped clock). Ila sorts before
+    // Odell, so on the same day the clock is the first step.
+    flagged_sessions: [{
+      session_id: id("000000210030"), user_id: ila.id, date: mon, work_order_id: id("000000210031"),
+      number: "SAMPLE-31", started_at: clockStart, ended_at: clockEnd, running: false,
+    }],
+  };
+  const clockOrder = {
+    id: id("000000210031"), number: "SAMPLE-31", location: "Building C, Room 210",
+    description: "Replace stained ceiling tiles", status: "in_progress",
+    assigned_to_ids: [ila.id, tobin.id], assigned_to_names: ["Ila Brandt", "Tobin Marsh"],
+    labor: [
+      { id: id("000000210032"), technician_id: ila.id, technician_name: "Ila Brandt", minutes: 720,
+        session_id: id("000000210030"), auto_closed: true, recorded_by_self: true },
+      { id: id("000000210033"), technician_id: tobin.id, technician_name: "Tobin Marsh", minutes: 90,
+        session_id: null, auto_closed: false, recorded_by_self: false },
+    ],
+    notes: [
+      "Ila Brandt began work",
+      "Tobin Marsh Tiles are in the shop, two boxes",
+      "Ila Brandt stopped work",
+    ].join("\n\n"),
   };
 
   // --- Leaderboards -----------------------------------------------------------
@@ -307,6 +331,7 @@ export function sample(user) {
     "GET /hub/admin": admin,
     "GET /hub/attendance/live": live,
     "GET /hub/attendance/week": week,
+    [`GET /work-orders/${clockOrder.id}`]: clockOrder,
     "GET /hub/performance": performance,
     "GET /hub/graphs": graphs,
     "GET /hub/report": report,

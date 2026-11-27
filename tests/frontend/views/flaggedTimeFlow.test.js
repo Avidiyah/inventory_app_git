@@ -359,6 +359,13 @@ describe("the pop-up", () => {
     expect(order).toEqual(["closed", "open-after-close"]);
   });
 
+  it("closes when a tutorial ends, so sample data never outlives the tour", () => {
+    const { onClose } = open([item(1)]);
+    document.dispatchEvent(new CustomEvent("tutorial:end"));
+    expect(q(".flagged-flow")).toBeNull();
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it("an empty queue goes straight to the summary", () => {
     open([]);
     expect(text()).toContain("Fixed 0 · Skipped 0");

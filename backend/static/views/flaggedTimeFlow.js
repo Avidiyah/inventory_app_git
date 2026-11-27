@@ -126,6 +126,7 @@ export function openFlaggedTimeFlow({ items, canAccept, actions, refresh, onClos
     if (closed) return;
     closed = true;
     document.removeEventListener("keydown", onKey);
+    document.removeEventListener("tutorial:end", close);
     flow.remove();
     opener?.focus?.();
     onClose?.({ fixed, skipped });
@@ -253,6 +254,8 @@ export function openFlaggedTimeFlow({ items, canAccept, actions, refresh, onClos
 
   flow.querySelector(".flagged-flow-close").addEventListener("click", close);
   document.addEventListener("keydown", onKey);
+  // A tour opens the pop-up on sample data; it must not outlive the tour.
+  document.addEventListener("tutorial:end", close);
   render();
   return { close };
 }
