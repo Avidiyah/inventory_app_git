@@ -279,10 +279,10 @@ describe("confirm takeoff (Created -> Planned)", () => {
     expect(requestFor(`/work-orders/${detail.id}`, "PATCH").body).toEqual({ status: "planned" });
   });
 
-  it("stays disabled, saying why, until the takeoff has a line", async () => {
+  it("an empty takeoff can be confirmed too (no material needed)", async () => {
     await open({ role: "techfm_oa", crew: false, status: "created" });
-    expect(plan().disabled).toBe(true);
-    expect($(".wo-takeoff-plan").textContent).toContain("Add a line to confirm the takeoff.");
+    expect(plan().disabled).toBe(false);
+    expect($(".wo-takeoff-plan").textContent).toContain("No material needed? Confirm anyway.");
   });
 
   it("a Team Lead gets no button", async () => {

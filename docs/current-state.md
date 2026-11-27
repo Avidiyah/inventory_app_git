@@ -452,7 +452,7 @@ Work orders:
   column, no CHECK). **On-Hold means exactly one thing: nobody is on the
   clock.** Imports start Created; assigning technicians advances a pre-work row
   to Assigned and clearing them returns it to Created (Planned = takeoff
-  confirmed: Created only, TechFM OA+, ≥1 takeoff line, via PATCH; crew moves it
+  confirmed: Created only, TechFM OA+, empty takeoff allowed, via PATCH; crew moves it
   to Assigned, Team Lead+ may set it back to Created); later states never
   rewind automatically. The first committed material activity advances
   Created/Assigned to In-Progress; hand-keyed labor changes no status (it is

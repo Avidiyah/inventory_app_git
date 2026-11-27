@@ -327,13 +327,11 @@ def test_purchase_listed_after_every_order_completed(db):
 
 
 def test_confirm_takeoff_marks_created_order_planned(db):
-    owner, item = _user(db), _item(db)
+    owner = _user(db)
     lead = _user(db, roles.ROLE_SUPERVISOR)
     order = _order(db, owner)
     planned = {"status": wo.STATUS_PLANNED}
-    with pytest.raises(WorkOrderStateError, match="takeoff line"):
-        wos.update_work_order(db, order.id, user=owner, fields=planned)
-    tk.add_line(db, order.id, user=owner, item_id=item.id, quantity=D(2))
+    # No takeoff lines: a job that needs no material can still be Planned.
     with pytest.raises(RoleManagementError):
         wos.update_work_order(db, order.id, user=lead, fields=planned)
     assert wos.update_work_order(db, order.id, user=owner, fields=planned).status == wo.STATUS_PLANNED

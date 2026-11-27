@@ -61,12 +61,10 @@ function lineHtml(detail, line, { canEdit, canDispense }) {
 
 // "" when there is nothing to show: no lines and nobody who may plan them.
 // `canPlan`: Admin+ on a Created order -- confirming the estimate marks it
-// Planned. Needs at least one line (the server refuses otherwise too).
+// Planned. An empty takeoff may be confirmed: the job needs no material.
 function planHtml(detail) {
-  if (lines(detail).length) {
-    return `<div class="wo-takeoff-plan"><button type="button" id="wo-act-plan-takeoff" data-action="plan-takeoff">Confirm takeoff → Planned</button></div>`;
-  }
-  return `<div class="wo-takeoff-plan"><button type="button" id="wo-act-plan-takeoff" data-action="plan-takeoff" disabled>Confirm takeoff → Planned</button><span class="hint">Add a line to confirm the takeoff.</span></div>`;
+  const hint = lines(detail).length ? "" : `<span class="hint">No material needed? Confirm anyway.</span>`;
+  return `<div class="wo-takeoff-plan"><button type="button" id="wo-act-plan-takeoff" data-action="plan-takeoff">Confirm takeoff → Planned</button>${hint}</div>`;
 }
 
 export function takeoffSectionHtml(detail, { canEdit, canDispense, canPlan = false }) {
