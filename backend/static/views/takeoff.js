@@ -7,7 +7,7 @@
 // them and records purchases through the Ordered control. Every save reloads
 // the overview, so a pooled shortfall never goes stale on a sibling row.
 
-import { apiGetTakeoff, apiSetTakeoffPurchase } from "../api.js";
+import { apiCreateCorrection, apiGetTakeoff, apiSetTakeoffPurchase } from "../api.js";
 import { setMessage } from "../dom.js";
 import { escapeHtml, formatMoney, friendlyError, safeHttpUrl } from "../format.js";
 import { skeletonList } from "../skeleton.js";
@@ -71,12 +71,13 @@ function rowHtml(group, row) {
     `<div class="tk-cell tk-${name}" role="cell"><span class="tk-lbl">${label}</span><span class="tk-val">${value}</span></div>`;
   return `<div class="tk-row" role="row" data-item-id="${escapeHtml(row.item_id)}"
         data-key="${escapeHtml(group.service_type_key)}" data-label="${escapeHtml(group.service_type_label)}"
-        data-way="${escapeHtml(row.on_the_way)}" data-short="${escapeHtml(row.shortfall)}">
+        data-way="${escapeHtml(row.on_the_way)}" data-short="${escapeHtml(row.shortfall)}" data-stock="${escapeHtml(row.stock)}">
       <div class="tk-cell tk-item" role="cell">${itemHtml(group, row)}</div>
       ${cellOf("need", "Need", qty(row.need))}
       ${cellOf("price", "Price", money(row.price))}
       ${cellOf("total", "Total", money(row.total))}
-      ${cellOf("stock", "In stock", qty(row.stock))}
+      ${cellOf("stock", "In stock",
+        `<button type="button" class="tk-link tk-way-btn" data-act="edit-stock">${qty(row.stock)}</button>`)}
       ${cellOf("way", "On the way", Number(row.on_the_way) > 0
         ? `<button type="button" class="tk-link tk-way-btn" data-act="edit-way">${qty(row.on_the_way)}</button>` : "—")}
       <div class="tk-cell tk-ordered" role="cell">${orderedHtml(row)}</div>
@@ -124,20 +125,25 @@ async function openWorkOrder(id) {
   showPage("work-orders");
 }
 
+// Mode "stock" writes a stock correction (reason "<service type> Audit");
+// every other mode records the on-the-way purchase.
 async function save(row, quantity) {
   const buttons = row.querySelectorAll(".tk-form button");
+  const correcting = row.querySelector(".tk-form").dataset.mode === "stock";
   buttons.forEach((b) => { b.disabled = true; });
   try {
-    await apiSetTakeoffPurchase({
-      itemId: row.dataset.itemId,
-      serviceTypeKey: row.dataset.key,
-      serviceTypeLabel: row.dataset.label,
-      quantity,
-    });
+    await (correcting
+      ? apiCreateCorrection({ itemId: row.dataset.itemId, newQuantity: quantity, reason: `${row.dataset.label} Audit` })
+      : apiSetTakeoffPurchase({
+        itemId: row.dataset.itemId,
+        serviceTypeKey: row.dataset.key,
+        serviceTypeLabel: row.dataset.label,
+        quantity,
+      }));
     await loadTakeoff();
   } catch (err) {
     buttons.forEach((b) => { b.disabled = false; });
-    setMessage(messageEl, friendlyError(err, "Could not save that purchase."), "error");
+    setMessage(messageEl, friendlyError(err, correcting ? "Could not correct the stock count." : "Could not save that purchase."), "error");
   }
 }
 
@@ -147,14 +153,20 @@ function closeForm(row) {
 }
 
 // mode "add": ordered more (sends on the way + entered). Mode "edit": the
-// on-the-way figure itself, which can be changed or cleared.
+// on-the-way figure itself, which can be changed or cleared. Mode "stock": the
+// counted shelf quantity, saved as a correction.
+const FORM_MODES = {
+  add: { label: "How many did you order?", field: "short" },
+  edit: { label: "On the way", field: "way" },
+  stock: { label: "New stock count", field: "stock" },
+};
+
 function openForm(row, mode) {
   const form = row.querySelector(".tk-form");
-  const adding = mode === "add";
   form.dataset.mode = mode;
-  form.querySelector(".tk-form-l").textContent = adding ? "How many did you order?" : "On the way";
-  form.querySelector("input").value = qty(adding ? row.dataset.short : row.dataset.way);
-  form.querySelector('[data-act="clear"]').hidden = adding || !(Number(row.dataset.way) > 0);
+  form.querySelector(".tk-form-l").textContent = FORM_MODES[mode].label;
+  form.querySelector("input").value = qty(row.dataset[FORM_MODES[mode].field]);
+  form.querySelector('[data-act="clear"]').hidden = mode !== "edit" || !(Number(row.dataset.way) > 0);
   form.hidden = false;
   row.querySelector(".tk-ord").setAttribute("aria-expanded", "true");
   form.querySelector("input").focus();
@@ -192,6 +204,10 @@ listEl.addEventListener("click", (event) => {
     else openForm(row, adding ? "add" : "edit");
   } else if (act === "edit-way") {
     openForm(row, "edit");
+  } else if (act === "edit-stock") {
+    const form = row.querySelector(".tk-form");
+    if (!form.hidden && form.dataset.mode === "stock") closeForm(row);
+    else openForm(row, "stock");
   } else if (act === "save") {
     void submitEntered(row);
   } else if (act === "clear") {

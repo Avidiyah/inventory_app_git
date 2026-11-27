@@ -255,6 +255,27 @@ describe("the Ordered control", () => {
   });
 });
 
+describe("the In stock correction", () => {
+  it("tapping In stock saves a correction with the service type audit reason", async () => {
+    await mountTakeoff({ overview: { groups: [group("Plumbing", [row()])] } });
+    const r = rows()[0];
+    await userEvent.click(r.querySelector('[data-act="edit-stock"]'));
+    const form = r.querySelector(".tk-form");
+    expect(form.textContent).toContain("New stock count");
+    expect(form.querySelector('[data-act="clear"]').hidden).toBe(true);
+    const input = form.querySelector("input");
+    expect(input.value).toBe("12");
+    await userEvent.clear(input);
+    await userEvent.type(input, "9");
+    server.use(http.post("/transactions/adjust", () => HttpResponse.json({}, { status: 201 })));
+    await userEvent.click(form.querySelector('[data-act="save"]'));
+    expect(requestFor("/transactions/adjust", "POST").body).toEqual({
+      item_id: "i1", new_quantity: 9, reason: "Plumbing Audit",
+    });
+    await vi.waitFor(() => expect(requests().filter((q) => q.url === "/takeoff/")).toHaveLength(1));
+  });
+});
+
 describe("access", () => {
   it.each(["technician", "supervisor"])("%s cannot reach the page", async (role) => {
     await bootApp({ role });
